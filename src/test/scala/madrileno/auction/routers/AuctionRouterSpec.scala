@@ -160,14 +160,15 @@ class AuctionRouterSpec extends BaseRouteSpec with TestApplicationLoader {
       description =
         "List auctions (paginated). Filter by status / seller; page with `limit` (1–100, default 20) + `offset`; sort by `CreatedAt` / `EndsAt` / `StartingPrice`, `Asc` / `Desc` (default `CreatedAt` `Desc`), with `id` as a stable tie-break.",
       summary = "Unauthenticated: a page of auctions, optionally filtered and sorted",
-      queryParameters = (
-        q[Option[AuctionStatus]]("status", "Filter by auction status"),
-        q[Option[UserId]]("seller-id", "Filter by seller id"),
-        q[Option[AuctionSortField]]("sort-by", "Sort field — CreatedAt | EndsAt | StartingPrice (default CreatedAt)"),
-        q[Option[SortDirection]]("sort-dir", "Sort direction — Asc | Desc (default Desc)"),
-        q[Option[Int]]("limit", "Page size, 1–100 (default 20; out-of-range values are clamped)"),
-        q[Option[Int]]("offset", "Rows to skip (default 0)")
-      ),
+      queryParameters =
+        (
+          q[Option[AuctionStatus]]("status", "Filter by auction status"),
+          q[Option[UserId]]("seller-id", "Filter by seller id"),
+          q[Option[AuctionSortField]]("sort-by", "Sort field — CreatedAt | EndsAt | StartingPrice (default CreatedAt)"),
+          q[Option[SortDirection]]("sort-dir", "Sort direction — Asc | Desc (default Desc)"),
+          q[Option[Int]]("limit", "Page size, 1–100 (default 20; out-of-range values are clamped)"),
+          q[Option[Int]]("offset", "Rows to skip (default 0)")
+        ),
       tags = Seq("Auctions")
     )(
       withSetup {
