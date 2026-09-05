@@ -1,6 +1,6 @@
 #!/usr/bin/env -S scala-cli shebang
 
-//> using scala 3.8.4
+//> using scala 3.9.0
 //> using jvm 21
 //> using toolkit default
 
@@ -69,7 +69,7 @@ private val predefSource: String =
   val predef     = predefSource.replace("__package__", packageName)
   val predefFile = os.temp(predef, prefix = "dev-console-predef-", suffix = ".scala")
 
-  val rc = os.proc("scala-cli", "repl", "--scala", "3.8.4", "--classpath", cp, predefFile.toString).call(
+  val rc = os.proc("scala-cli", "repl", "--scala", "3.9.0", "--classpath", cp, predefFile.toString).call(
     env = envFromFile ++ sys.env,
     stdin = os.Inherit,
     stdout = os.Inherit,
