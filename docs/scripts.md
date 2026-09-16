@@ -163,11 +163,11 @@ Output on a healthy box:
 ✓ docker compose services up
     madrileno-postgres         Up About a minute (healthy)
     madrileno-mailpit          Up About a minute (healthy)
-    madrileno-minio            Up About a minute (healthy)
+    madrileno-silo             Up About a minute (healthy)
     madrileno-openobserve      Up About a minute (healthy)
 ✓ postgres reachable (localhost:55432)
 ✓ mailpit reachable (http://localhost:58025/api/v1/info → 200)
-✓ minio reachable (http://localhost:59000/minio/health/live → 200)
+✓ silo reachable (http://localhost:59000/minio/health/live → 200)
 ✓ openobserve reachable (http://localhost:55080/healthz → 200)
 ✓ app responding (http://localhost:9000/v1/health-check → 200)
 
@@ -182,9 +182,9 @@ The checks:
 | - | ---- | ----- |
 | 1 | `.env` present | Hints `cp .env.sample .env`. |
 | 2 | `docker` CLI available | Skips compose-services check on failure. |
-| 3 | docker-compose services running | Reports each of postgres / mailpit / minio / openobserve and its status. |
+| 3 | docker-compose services running | Reports each of postgres / mailpit / silo / openobserve and its status. |
 | 4 | Postgres TCP socket open on `PG_PORT` | Reads `.env` for the port (falls back to `.env.sample` if `.env` is missing). |
-| 5–7 | Mailpit / MinIO / OpenObserve HTTP health endpoints | `GET /api/v1/info`, `/minio/health/live`, `/healthz` respectively. |
+| 5–7 | Mailpit / Silo / OpenObserve HTTP health endpoints | `GET /api/v1/info`, `/minio/health/live`, `/healthz` respectively. |
 | 8 | App responding | `GET http://localhost:$PORT/v1/health-check`. Hints `sbt "~reStart"` on failure. |
 
 ### What it doesn't do
@@ -192,7 +192,7 @@ The checks:
 - Doesn't open a real JDBC connection — just a TCP socket. "Port answers" is enough to distinguish "compose down" from "compose up but something else wrong"; a real connect would need the JDBC driver as a script dep and adds little signal.
 - Doesn't auto-fix. "Doctor" is a smoke test, not a setup script. Copy-paste the hint; running the actual command is your call.
 - Doesn't check OS-level prereqs (sbt installed, JDK version, etc.). Those would have failed earlier (you couldn't have run this script). If you want a full bootstrap check, that's a different scope.
-- Doesn't follow `S3_ENDPOINT` / `OTEL_EXPORTER_OTLP_*_ENDPOINT` from `.env`. The MinIO / OpenObserve port checks use the host ports from `docker-compose.yml` (59000 / 55080). Doctor's scope is "is the local dev stack up", not "is whatever the app is configured to talk to up". If you've pointed the app at remote MinIO / OpenObserve, the local doctor checks are still meaningful for the dev stack itself; if you've also customised the compose port mappings, doctor needs a matching tweak.
+- Doesn't follow `S3_ENDPOINT` / `OTEL_EXPORTER_OTLP_*_ENDPOINT` from `.env`. The Silo / OpenObserve port checks use the host ports from `docker-compose.yml` (59000 / 55080). Doctor's scope is "is the local dev stack up", not "is whatever the app is configured to talk to up". If you've pointed the app at remote Silo / OpenObserve, the local doctor checks are still meaningful for the dev stack itself; if you've also customised the compose port mappings, doctor needs a matching tweak.
 
 ## Template-internal CI workflows
 

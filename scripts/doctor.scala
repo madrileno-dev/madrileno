@@ -50,7 +50,7 @@ object Doctor {
     val appPort         = env.get("PORT").flatMap(_.toIntOption).getOrElse(9000)
     val apiVersion      = "v1" // mirrors madrileno.utils.http.ApiVersion.V1.urlSegment
     val mailpitUiPort   = 58025
-    val minioApiPort    = 59000
+    val siloApiPort     = 59000
     val openobservePort = 55080
 
     val envCheck    = checkEnvFile()
@@ -65,7 +65,7 @@ object Doctor {
       composeCheck,
       checkPostgresReachable(pgPort),
       checkHttp("mailpit reachable", s"http://localhost:$mailpitUiPort/api/v1/info", "docker compose up -d mailpit"),
-      checkHttp("minio reachable", s"http://localhost:$minioApiPort/minio/health/live", "docker compose up -d minio"),
+      checkHttp("silo reachable", s"http://localhost:$siloApiPort/minio/health/live", "docker compose up -d silo"),
       checkHttp("openobserve reachable", s"http://localhost:$openobservePort/healthz", "docker compose up -d openobserve"),
       checkHttp("app responding", s"http://localhost:$appPort/$apiVersion/health-check", "sbt \"~reStart\"")
     )
@@ -100,7 +100,7 @@ object Doctor {
   // Compose *service* names (top-level keys in docker-compose.yml), not container names.
   // Service names stay stable across `init-project.scala`'s rename; container names ("madrileno-*") get rewritten.
   private val ExpectedServices: List[String] =
-    List("postgres", "mailpit", "minio", "openobserve")
+    List("postgres", "mailpit", "silo", "openobserve")
 
   private def checkComposeServices(): Check = {
     runCmd("docker", "compose", "ps", "--format", "{{.Service}}\t{{.Status}}") match {
