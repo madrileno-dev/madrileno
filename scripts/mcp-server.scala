@@ -206,7 +206,7 @@ object MCPServer {
   def rewritePackage(content: String, userPackage: Option[String]): String = userPackage match {
     case Some(pkg) if pkg != "madrileno" =>
       // Only rewrite `madrileno.` qualifiers (package declarations + imports). Standalone
-      // `madrileno` would also catch string literals, comments, and URLs (e.g. `luksow/madrileno`
+      // `madrileno` would also catch string literals, comments, and URLs (e.g. `madrileno-dev/madrileno`
       // in a doc link) — that's noise for source returned to Claude. Matches the overview's
       // "rewritten from `madrileno.*` to `<pkg>.*`" claim.
       content.replace("madrileno.", s"$pkg.")
