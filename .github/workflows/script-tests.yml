@@ -75,6 +75,7 @@ jobs:
           test -f .madrileno-ref || { echo ".madrileno-ref not written"; exit 1; }
           test ! -f .github/workflows/link-check.yml || { echo "link-check workflow not deleted"; exit 1; }
           test ! -f .github/workflows/script-tests.yml || { echo "script-tests workflow not deleted"; exit 1; }
+          test ! -f .github/workflows/site-dispatch.yml || { echo "site-dispatch workflow not deleted"; exit 1; }
           test ! -f scripts/check-links.scala || { echo "check-links.scala not deleted"; exit 1; }
           test ! -f LICENSE || { echo "LICENSE not deleted"; exit 1; }
           ! grep -q '^## License' README.md || { echo "README License section not stripped"; exit 1; }
