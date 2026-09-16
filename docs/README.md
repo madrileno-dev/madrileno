@@ -19,6 +19,7 @@ Skim the **Start here** path on day one. Reach for the rest by topic.
 ## Stack
 
 - [`http.md`](http.md) — http4s + stir + baklava routing layer; `BaseRouter`, error helper, OpenAPI generation, admin gate, pagination (offset + cursor).
+- [`api-versioning.md`](api-versioning.md) — path-prefix versioning via the `ApiVersion` enum; how to add `v2`, which routes stay unversioned, deprecation patterns.
 - [`json.md`](json.md) — `JsonProtocol` mixins, opaque-type codecs, snake_case vs camelCase, custom decoders.
 - [`database.md`](database.md) — Skunk sessions vs transactions, table definitions, repository DSL, migrations.
 - [`auth.md`](auth.md) — Firebase + JWT + refresh tokens; `AuthContext`; the `ExternalAuthVerifier` swap point.
