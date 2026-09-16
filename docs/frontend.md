@@ -1,6 +1,6 @@
 # Frontend
 
-Madrileno is a backend template, but the routes it exposes only earn their keep once something consumes them. The **reference frontend** — a separate repo, [`luksow/madrileno-frontend`](https://github.com/luksow/madrileno-frontend) — is that something: a React app built entirely against this backend's **generated contract**, so the Scala router specs stay the single source of truth and any drift is a compile error on the client.
+Madrileno is a backend template, but the routes it exposes only earn their keep once something consumes them. The **reference frontend** — a separate repo, [`madrileno-dev/madrileno-frontend`](https://github.com/madrileno-dev/madrileno-frontend) — is that something: a React app built entirely against this backend's **generated contract**, so the Scala router specs stay the single source of truth and any drift is a compile error on the client.
 
 It is deliberately a **sibling repo, not a subdirectory**, and the backend stays completely unaware of it — no file here depends on, imports, or names the frontend. The only coupling is the contract the backend already generates for its OpenAPI docs.
 

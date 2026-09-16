@@ -117,7 +117,7 @@ Ask Claude to walk through those changes against your auth code and propose upda
 
 ## When not to use it
 
-- Just reading a single doc once: open `https://github.com/luksow/madrileno/blob/<sha>/docs/<name>.md` in a browser. Faster than spinning up the server.
+- Just reading a single doc once: open `https://github.com/madrileno-dev/madrileno/blob/<sha>/docs/<name>.md` in a browser. Faster than spinning up the server.
 - The shadow clone is stale (no recent `git fetch` ran) — restart the server.
 - Your project diverged so far from madrileno's patterns that the reference no longer maps. At that point the MCP isn't lying, but its suggestions are background noise.
 

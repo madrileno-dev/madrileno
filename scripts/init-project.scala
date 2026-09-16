@@ -31,7 +31,7 @@ object InitProject {
   private val BinaryExts: Set[String] =
     Set("jpg", "jpeg", "png", "gif", "ico", "jar", "class", "tasty", "woff", "woff2", "ttf", "otf", "pdf", "zip", "tar", "gz", "bin")
 
-  private val MadrilenoUpstream = "https://github.com/luksow/madrileno.git"
+  private val MadrilenoUpstream = "https://github.com/madrileno-dev/madrileno.git"
 
   @main
   def run(
@@ -182,7 +182,7 @@ object InitProject {
     //    (and anywhere else that linked into docs) to point at upstream at the pinned sha,
     //    so onboarding links remain clickable. Use the *derived* origin URL if it's a github
     //    https URL — otherwise (SSH/local/other) the github blob path doesn't apply, and we
-    //    fall back to the canonical upstream (links land on luksow/madrileno, which may not
+    //    fall back to the canonical upstream (links land on madrileno-dev/madrileno, which may not
     //    contain a fork-only sha but is the best we can do without scheme coercion).
     val upstreamWeb =
       if (upstreamRepo.startsWith("https://github.com/")) upstreamRepo.stripSuffix(".git")
