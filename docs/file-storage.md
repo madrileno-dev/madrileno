@@ -1,6 +1,6 @@
 # File storage
 
-The codebase ships an object-storage abstraction with two backends — local disk for the no-deps demo, and any S3-compatible service (AWS S3, MinIO, R2, etc.) for production. Wine-auction images are the worked example: see `madrileno.auction` for an end-to-end module that uses it.
+The codebase ships an object-storage abstraction with two backends — local disk for the no-deps demo, and any S3-compatible service (AWS S3, Silo/MinIO, R2, etc.) for production. Wine-auction images are the worked example: see `madrileno.auction` for an end-to-end module that uses it.
 
 ## What you get
 
@@ -18,7 +18,7 @@ The contract is `put(key, metadata, body) -> bytes written`, `get(key, ttl, file
 
 ## Quick start (dev)
 
-`docker compose up -d` brings up MinIO on `127.0.0.1:59000` (S3 API) and `127.0.0.1:59001` (console — login `minioadmin` / `minioadmin`). A `minio-init` sidecar runs `mc mb --ignore-existing local/madrileno` once the server is healthy, so the bucket is there on first boot.
+`docker compose up -d` brings up [Silo](https://silo.pgsty.com/) (a maintained MinIO fork; upstream's Docker Hub images were pulled) on `127.0.0.1:59000` (S3 API) and `127.0.0.1:59001` (console — login `minioadmin` / `minioadmin`). A `silo-init` sidecar runs `mc mb --ignore-existing local/madrileno` once the server is healthy, so the bucket is there on first boot.
 
 `.env.sample` is wired against that container:
 
@@ -172,7 +172,7 @@ The `ImagePosition` opaque type still rejects negatives in the domain — the ne
 
 ## Production deployment
 
-- **Pre-create buckets out-of-band.** `ObjectStoreRuntime.s3` does not auto-create. Use Terraform/CDK in cloud, `mc mb` in dev (already wired into `minio-init`), or whatever your provider offers.
+- **Pre-create buckets out-of-band.** `ObjectStoreRuntime.s3` does not auto-create. Use Terraform/CDK in cloud, `mc mb` in dev (already wired into `silo-init`), or whatever your provider offers.
 - **IAM on AWS.** The app needs `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject` on the bucket prefix. Presigned URLs inherit the signer's permissions; the credentials in `.env` need `GetObject` for downloads to work after the redirect.
 - **Region constraints.** AWS S3 requires `LocationConstraint` for any region other than `us-east-1`. Bucket creation isn't done by the app, so this isn't a runtime concern — but it's something to remember in your IaC.
 - **Presigned URL TTL.** Set per module via `SignedUrlTtl`. Short TTLs are good for security; long TTLs are CDN-cache-friendly. Five minutes is the auction-images default; raise or lower for your file type.
@@ -180,8 +180,8 @@ The `ImagePosition` opaque type still rejects negatives in the domain — the ne
 
 ## Testing
 
-- **`TestObjectStoreRuntime.inMemory`** — a `Ref`-backed in-memory `ObjectStore`. Used by `TestApplicationLoader` so route specs don't need MinIO. `get` returns `Streamed` (no presigned URL needed). `presignPut` returns a fake `PresignedPut` (URL like `https://example.test/<key>`) so service-level tests can exercise the presign/commit/analyzer/variant pipeline without a real bucket.
-- **`S3ObjectStoreSpec`** — runs against a MinIO Testcontainer pinned to `RELEASE.2024-11-07T00-52-20Z`. Creates the test bucket explicitly (the app no longer auto-creates) using a `Resource.fromAutoCloseable` S3 client so nothing leaks.
+- **`TestObjectStoreRuntime.inMemory`** — a `Ref`-backed in-memory `ObjectStore`. Used by `TestApplicationLoader` so route specs don't need Silo. `get` returns `Streamed` (no presigned URL needed). `presignPut` returns a fake `PresignedPut` (URL like `https://example.test/<key>`) so service-level tests can exercise the presign/commit/analyzer/variant pipeline without a real bucket.
+- **`S3ObjectStoreSpec`** — runs against a Silo Testcontainer pinned to `RELEASE.2026-09-16T00-00-00Z`. Creates the test bucket explicitly (the app no longer auto-creates) using a `Resource.fromAutoCloseable` S3 client so nothing leaks.
 - **`AuctionImageServiceSpec`** — exercises the service against real Postgres + the in-memory store. Covers multipart attach, detach, reorder, serve cross-auction guards, presign + commit (happy + missing-object + wrong-owner + idempotent retry), the analyzer task (happy + already-analyzed no-op + missing row), and variant generation (`Thumb` 256×256, `Medium` 1024-on-long-edge, idempotent re-runs).
 - **`AuctionImageRouterSpec`** — full baklava DSL against `TestApplicationLoader`. Uses `pl.iterators.baklava.{Multipart, FilePart}` for the upload body so the endpoints land in `target/baklava/openapi/openapi.yml` (and the oRPC / simple-HTML outputs).
 

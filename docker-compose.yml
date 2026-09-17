@@ -43,9 +43,9 @@ services:
       timeout: 3s
       retries: 20
 
-  minio:
-    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
-    container_name: madrileno-minio
+  silo:
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z
+    container_name: madrileno-silo
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -54,22 +54,22 @@ services:
       - "127.0.0.1:59000:9000"  # S3 API
       - "127.0.0.1:59001:9001"  # Console UI at http://localhost:59001  (login: minioadmin / minioadmin)
     volumes:
-      - madrileno-minio:/data
+      - madrileno-silo:/data
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 10
 
-  minio-init:
-    image: minio/mc:RELEASE.2024-11-21T17-21-54Z
+  silo-init:
+    image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z
     depends_on:
-      minio:
+      silo:
         condition: service_healthy
     entrypoint: >
-      sh -c "mc alias set local http://minio:9000 minioadmin minioadmin && mc mb --ignore-existing local/madrileno"
+      sh -c "mc alias set local http://silo:9000 minioadmin minioadmin && mc mb --ignore-existing local/madrileno"
 
 volumes:
   madrileno-postgres:
   madrileno-openobserve:
-  madrileno-minio:
+  madrileno-silo:

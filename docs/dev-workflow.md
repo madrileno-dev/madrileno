@@ -57,7 +57,7 @@ The `--` separates sbt args from scalatest args. `-z` is substring match on the 
 
 Baklava generation is a side effect of the test run — the OpenAPI spec at `/swagger` is regenerated from `*RouterSpec` files. **Use `testFull`, not `test`, for a full run or contract regeneration.** Under sbt 2, `test` is *incremental* (testQuick-like) and its results are cached in a global store (`~/.cache/sbt`, so it survives a `target/` wipe and a fresh sbt server); on a warm cache `test` can skip the router specs — or every suite — and still report success, regenerating an **empty** spec that clobbers the real one. `testFull` is the uncached, run-everything task. `testOnly <pattern>` also always runs (it's an input task, not cached). If `/swagger` looks stale, rerun `testFull`.
 
-Tests use Testcontainers for Postgres / Mailpit / MinIO — they spin up their own containers, so the docker-compose dev stack and the test run don't share state. Telemetry is stubbed with noop tracer/meter in tests; there's no OpenObserve container.
+Tests use Testcontainers for Postgres / Mailpit / Silo — they spin up their own containers, so the docker-compose dev stack and the test run don't share state. Telemetry is stubbed with noop tracer/meter in tests; there's no OpenObserve container.
 
 ## Code quality
 

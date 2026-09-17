@@ -42,7 +42,7 @@ That brings up four services on non-standard host ports so they don't clash with
 | Postgres      | `postgres:latest`                              | `55432` → 5432                            | `postgres` / `postgres`              |
 | Mailpit       | `axllent/mailpit:latest`                       | `51025` (SMTP), `58025` (UI)              | —                                    |
 | OpenObserve   | `public.ecr.aws/zinclabs/openobserve:latest`   | `55080` (UI + OTLP HTTP)                  | `root@example.com` / `Complexpass#123` |
-| MinIO         | `minio/minio:RELEASE.2024-11-07T00-52-20Z`     | `59000` (S3 API), `59001` (Console UI)    | `minioadmin` / `minioadmin`          |
+| Silo          | `pgsty/silo:RELEASE.2026-09-16T00-00-00Z`      | `59000` (S3 API), `59001` (Console UI)    | `minioadmin` / `minioadmin`          |
 
 State persists across restarts in named volumes. To wipe and start clean:
 

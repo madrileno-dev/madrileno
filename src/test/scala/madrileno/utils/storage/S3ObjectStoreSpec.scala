@@ -26,7 +26,7 @@ import scala.concurrent.duration.DurationInt
 class S3ObjectStoreSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestContainerForAll {
 
   override val containerDef: GenericContainer.Def[GenericContainer] = GenericContainer.Def(
-    dockerImage = "minio/minio:RELEASE.2024-11-07T00-52-20Z",
+    dockerImage = "pgsty/silo:RELEASE.2026-09-16T00-00-00Z",
     exposedPorts = Seq(9000),
     env = Map("MINIO_ROOT_USER" -> "minioadmin", "MINIO_ROOT_PASSWORD" -> "minioadmin"),
     command = Seq("server", "/data"),
@@ -63,7 +63,7 @@ class S3ObjectStoreSpec extends AsyncWordSpec with AsyncIOSpec with Matchers wit
   private val plainText = `Content-Type`(MediaType.text.plain)
   private val ttl       = SignedUrlTtl(5.minutes)
 
-  "S3ObjectStore against MinIO" should {
+  "S3ObjectStore against Silo" should {
     "round-trip put/get/delete" in withContainers { container =>
       val config = configFor(container)
       createBucket(config) *>
