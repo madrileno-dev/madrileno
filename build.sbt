@@ -112,6 +112,7 @@ Test / scalacOptions ++= Seq("-Wconf:msg=should not be used as infix:s", "-Wconf
 javaOptions += "-Dotel.java.global-autoconfigure.enabled=true"
 
 Compile / run / fork := true
+Compile / run / envVars ++= (Test / envFromFile).value
 
 Compile / mainClass := Some("madrileno.main.Main")
 
