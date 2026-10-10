@@ -191,7 +191,7 @@ Test / verifyErrorCodes := Def.uncached {
   if (!openApi.exists()) sys.error(s"$openApi is missing; run testFull first so baklava regenerates it")
   val emitted = (Compile / unmanagedSourceDirectories).value
     .flatMap(dir => (dir ** "*.scala").get())
-    .flatMap(file => """error\(\s*[A-Za-z]+\s*,\s*"([a-z-]+)"""".r.findAllMatchIn(IO.read(file)).map(_.group(1)))
+    .flatMap(file => """error\(\s*[A-Za-z.]+\s*,\s*"([a-z-]+)"""".r.findAllMatchIn(IO.read(file)).map(_.group(1)))
     .toSet
   val documented           = """result:([a-z-]+)""".r.findAllMatchIn(IO.read(openApi)).map(_.group(1)).toSet
   val unreachableUnderTest = Set("heapdump-not-supported")

@@ -130,7 +130,7 @@ new BaseRouter with RateLimitDirectives {
 }
 ```
 
-`AuthRateLimitSpec` and `AdminRateLimitSpec` go a level up: they drive the real routers with a bounded runtime and assert the `429` actually fires — auth through the full app (`TestApplicationLoader` exposes an overridable `rateLimiterRuntime`), admin by constructing the router directly. That's deliberate: with the inert default limiter, deleting a `rateLimited(...)` call would otherwise pass every router spec silently. Each rate-limited auth and admin endpoint therefore gets a focused test that fails if its limit disappears — including that `admin.heapdump`'s global key is shared across distinct clients. (The auction module's limits predate these specs and lean on its own router spec.)
+`AuthRateLimitSpec` and `AdminRateLimitSpec` go a level up: they drive the real routers with a bounded runtime and assert the `429` actually fires — auth through the full app (`TestApplicationLoader` exposes an overridable `rateLimiterRuntime`), admin by constructing the router directly. That's deliberate: with the inert default limiter, deleting a `rateLimited(...)` call would otherwise pass every router spec silently. Each rate-limited auth and admin endpoint therefore gets a focused test that fails if its limit disappears — including that `admin.heapdump`'s global key is shared across distinct clients. `AuthRateLimitSpec` also documents the `429` `Error` on `POST /v1/auth/firebase`, which is how `rate-limited` enters the generated contract that `Test/verifyErrorCodes` checks. (The auction module's limits predate these specs and lean on its own router spec.)
 
 ## Multi-instance considerations
 

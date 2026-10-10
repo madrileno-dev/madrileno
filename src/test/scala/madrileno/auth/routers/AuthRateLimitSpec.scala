@@ -1,11 +1,16 @@
 package madrileno.auth.routers
 
 import cats.effect.IO
+import madrileno.auth.domain.FirebaseJwt
+import madrileno.auth.routers.dto.AuthWithFirebaseRequest
 import madrileno.support.{BaseRouteSpec, TestApplicationLoader}
-import madrileno.utils.http.RateLimiterRuntime
+import madrileno.utils.http.{Error, RateLimiterRuntime}
+import madrileno.utils.json.JsonProtocol.*
+import org.http4s.Method.*
+import org.http4s.Status.*
 import org.http4s.headers.`Content-Type`
 import org.http4s.implicits.*
-import org.http4s.{MediaType, Method, Request, Status, Uri}
+import org.http4s.{EntityEncoder, MediaType, Request, Status, Uri}
 import org.typelevel.ci.CIString
 import pl.iterators.stir.server.Route
 
@@ -16,8 +21,8 @@ class AuthRateLimitSpec extends BaseRouteSpec with TestApplicationLoader {
   override def route: Route = application.routes(wsb)
 
   private def post(path: String, body: String) = {
-    val request = Request[IO](Method.POST, Uri.unsafeFromString(path))
-      .withEntity(body)
+    val request = Request[IO](POST, Uri.unsafeFromString(path))
+      .withEntity(body)(using EntityEncoder.stringEncoder)
       .withContentType(`Content-Type`(MediaType.application.json))
     allRoutes.orNotFound.run(request).unsafeRunSync()
   }
@@ -55,4 +60,22 @@ class AuthRateLimitSpec extends BaseRouteSpec with TestApplicationLoader {
       postRefresh().status shouldBe Status.TooManyRequests
     }
   }
+
+  path("/v1/auth/firebase")(
+    supports(
+      POST,
+      description = "Authenticate with Firebase JWT token",
+      summary = "Exchange Firebase token for internal JWT and refresh token",
+      tags = Seq("Auth")
+    )(
+      onRequest(body = AuthWithFirebaseRequest(FirebaseJwt("test-token")))
+        .respondsWith[Error[Unit]](TooManyRequests, description = "Per-client limit exceeded; Retry-After carries the seconds to wait")
+        .assert { ctx =>
+          (1 to 10).foreach(_ => post("/v1/auth/firebase", "{}"))
+          val response = ctx.performRequest(allRoutes)
+          response.body.`type`.map(_.toString) shouldBe Some("result:rate-limited")
+          response.headers.find(_.name.equalsIgnoreCase("Retry-After")).map(_.value) shouldBe Some("60")
+        }
+    )
+  )
 }
