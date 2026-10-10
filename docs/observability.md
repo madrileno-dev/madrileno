@@ -221,6 +221,8 @@ Fiber traces are populated from cats-effect's internal trace ring buffer. The mo
 | `cached` (default) | Async-boundary frames captured. Enough to see where each fiber is suspended. Small overhead. |
 | `full` | Every operation traced. Most useful, highest overhead — don't use in steady-state prod. |
 
+Taking the fiber snapshot can race a compute worker that is handing off to a blocking call; cats-effect clears that worker's fiber bag during the handoff and the snapshot fails with a `NullPointerException`. The router retries the snapshot a few times with a short pause and answers `503` with `result:fiber-snapshot-unavailable` only if every attempt loses the race. The JVM thread dump is not affected.
+
 For 3am debugging a stuck endpoint: hit `/admin/threaddump`, scan `fibers.workers` for `RUNNING` fibers (what's the compute pool actually doing), then scan `fibers.external` for `WAITING` fibers grouped by what they're parked on (usually a `Deferred.get` you forgot to complete).
 
 ### Memory-leak diagnosis — `/admin/heapdump`

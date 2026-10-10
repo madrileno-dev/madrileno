@@ -52,7 +52,7 @@ class AdminRateLimitSpec extends AnyFunSpec with Matchers {
 
   describe("admin threaddump rate limiting") {
     it("limits to 20 per window") {
-      val routes = new ThreaddumpAdminRouter(IORuntime.global, RateLimiterRuntime.scaffeine()).routes
+      val routes = ThreaddumpAdminRouter(IORuntime.global, RateLimiterRuntime.scaffeine()).routes
       def hit()  = run(routes, Request[IO](Method.GET, Uri.unsafeFromString("/threaddump")))
 
       (1 to 20).foreach(_ => hit().status shouldBe Status.Ok)

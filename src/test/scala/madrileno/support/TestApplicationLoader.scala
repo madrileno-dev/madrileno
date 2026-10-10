@@ -3,7 +3,7 @@ package madrileno.support
 import cats.effect.std.{SecureRandom, Supervisor}
 import cats.effect.unsafe.IORuntime
 import cats.effect.unsafe.implicits.global
-import cats.effect.{Clock, IO}
+import cats.effect.{Clock, FiberSnapshot, IO}
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.dimafeng.testcontainers.scalatest.TestContainersForAll
 import madrileno.auction.gateways.VivinoGateway
@@ -16,6 +16,7 @@ import madrileno.utils.events.outbox.OutboxConfig
 import madrileno.utils.http.RateLimiterRuntime
 import madrileno.utils.mailer.MailerConfig
 import madrileno.utils.observability.TelemetryContext
+import madrileno.utils.observability.admin.ThreaddumpAdminRouter
 import madrileno.utils.resilience.CircuitBreakerRuntime
 import madrileno.utils.task.{Scheduler, SchedulerConfig}
 import org.flywaydb.core.Flyway
@@ -49,6 +50,8 @@ trait TestApplicationLoader extends TestContainersForAll with TestMailpit { self
   val oidcToken: VerifiedExternalToken     = TestData.verifiedExternalToken(provider = Provider("test-oidc"))
 
   protected def rateLimiterRuntime: RateLimiterRuntime = TestRateLimiterRuntime.unbounded
+
+  protected def takeFiberSnapshot: IO[FiberSnapshot] = IO.blocking(IORuntime.global.liveFiberSnapshot())
 
   protected def testAuthVerifiers: AuthVerifiers =
     AuthVerifiers(
@@ -86,6 +89,7 @@ trait TestApplicationLoader extends TestContainersForAll with TestMailpit { self
     ) {
       override lazy val outboxConfig: OutboxConfig                     = OutboxConfig()
       override protected lazy val externalAuthVerifiers: AuthVerifiers = testAuthVerifiers
+      override lazy val threaddumpAdminRouter: ThreaddumpAdminRouter   = new ThreaddumpAdminRouter(takeFiberSnapshot, self.rateLimiterRuntime)
       // scripts:auction-block-start
       override protected lazy val vivinoGateway: VivinoGateway = (_, _) => IO.pure(None)
       // scripts:auction-block-end
