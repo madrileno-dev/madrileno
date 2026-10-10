@@ -3,6 +3,7 @@ package madrileno.main
 import cats.effect.{ExitCode, IO, IOApp}
 import madrileno.utils.db.Migrations
 import madrileno.utils.db.transactor.PgConfig
+import org.flywaydb.core.api.output.MigrateResult
 import pureconfig.*
 
 object MigrateMain extends IOApp {
@@ -30,13 +31,16 @@ object MigrateMain extends IOApp {
         } yield code
     }
 
+  private[main] def migrateSummary(result: MigrateResult): String = {
+    val version = Option(result.targetSchemaVersion).orElse(Option(result.initialSchemaVersion)).getOrElse("?")
+    s"flyway: applied ${result.migrationsExecuted} migration(s); schema now at v$version"
+  }
+
   private def execute(command: Command, pg: PgConfig): IO[ExitCode] =
     command match {
       case Command.Migrate =>
         Migrations.migrate(pg).flatMap { result =>
-          IO.println(
-            s"flyway: applied ${result.migrationsExecuted} migration(s); schema now at v${Option(result.targetSchemaVersion).map(_.toString).getOrElse("?")}"
-          ).as(if (result.success) ExitCode.Success else ExitCode.Error)
+          IO.println(migrateSummary(result)).as(if (result.success) ExitCode.Success else ExitCode.Error)
         }
       case Command.Info =>
         Migrations.info(pg).flatMap(IO.println(_)).as(ExitCode.Success)
