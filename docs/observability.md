@@ -79,7 +79,7 @@ The `info` call internally does:
 2. Build a `Map("trace_id" -> .traceIdHex, "span_id" -> .spanIdHex, "trace_flags" -> .traceFlags.toHex)` — skipped when the context is invalid (no active span, e.g. a noop tracer in tests).
 3. Hand that map to log4cats as the structured context.
 4. log4cats writes those keys into the SLF4J MDC.
-5. The MDC values land in the log line via the `%X{...}` pattern *and* are captured as OTLP log-record attributes by `OpenTelemetryAppender` (`<captureMdcAttributes>*</captureMdcAttributes>`).
+5. The MDC values land in the log line via the `%X{...}` pattern *and* are captured as OTLP log-record attributes by `OpenTelemetryAppender` (`<mdcAttributesIncluded>*</mdcAttributesIncluded>`).
 
 `ApplicationLoader.routes` also snapshots the trace context at routes entry and threads it into the `logAction` used by `logRequest` / `logResult`. The inbound-request log line is logged within the middleware's scope so the live read works; the response log line fires during response-body materialization, after the middleware's `Resource.use` has unwound and the trace IOLocal has reverted — at that point the snapshot is the only source. `LoggingSupport.propagateContext` merges `snapshot ++ live` (RHS wins), so nested spans still get their own `span_id` when live context is present.
 
@@ -169,7 +169,7 @@ ServerSpanDataProvider
 
 - **Console** — `trace_id` / `span_id` / `trace_flags` in the pattern; what you read during dev.
 - **File** — `logs/madrileno.log`, rolling daily / 64MB / 28 days. Local debugging only; production should rely on the OTLP shipping path instead.
-- **OpenTelemetry** — `OpenTelemetryAppender` from `opentelemetry-logback-appender-1.0`. `<captureMdcAttributes>*</captureMdcAttributes>` so MDC keys (the three trace fields, plus anything else callers stash) become OTLP log attributes; `<captureExperimentalAttributes>true</captureExperimentalAttributes>` adds thread name, logger name, and similar metadata.
+- **OpenTelemetry** — `OpenTelemetryAppender` from `opentelemetry-logback-appender-1.0`. `<mdcAttributesIncluded>*</mdcAttributesIncluded>` so MDC keys (the three trace fields, plus anything else callers stash) become OTLP log attributes; `<captureExperimentalAttributes>true</captureExperimentalAttributes>` adds thread name, logger name, and similar metadata.
 
 Root level defaults to `DEBUG`, override with `LOG_LEVEL` (env). Per-logger overrides go in `<logger name="..." level="..."/>` — there's a `WARN` for `org.apache.hc` to silence Apache HttpClient noise.
 
