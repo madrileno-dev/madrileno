@@ -150,7 +150,7 @@ inConfig(Test)(
           |  ]
           |}
           |""".stripMargin,
-      "views" -> """[{ "name": "client", "filter": "path-excludes:^/admin/" }]""",
+      "views"                      -> """[{ "name": "client", "filter": "path-excludes:^/admin/" }]""",
       "orpc-package-contract-json" ->
         s"""
           |{
