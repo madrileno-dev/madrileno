@@ -23,7 +23,7 @@ sbt --client "testOnly madrileno.auction.services.AuctionServiceSpec"
 sbt --client scalafmtAll
 ```
 
-Use this when you have an sbt shell open in one terminal and want to run a one-shot command in another. Falls back to starting a server if none exists, so the first invocation is slow; everything after is sub-second. The CLAUDE.md tells the assistant to use `--client` so it doesn't spin up a new sbt every time.
+Use this when you have an sbt shell open in one terminal and want to run a one-shot command in another. Falls back to starting a server if none exists, so the first invocation is slow; everything after is sub-second. `AGENTS.md` tells the assistant to use `--client` so it doesn't spin up a new sbt every time.
 
 **Plain `sbt <command>`** — starts sbt, runs the command, exits. Slow (full classpath resolution on every invocation). Reserve for shell scripts and CI.
 
@@ -66,7 +66,7 @@ The dev setup leaves three kinds of background processes. Each has its own stop 
 | sbt server | the first `sbt --client` call | `sbt --client shutdown` (also stops the app JVM) |
 | Postgres, Mailpit, OpenObserve, Silo | `docker compose up -d` | `docker compose stop` (`docker compose down -v` also wipes their data) |
 
-`CLAUDE.md` gives the assistant the same rules.
+`AGENTS.md` gives the assistant the same rules.
 
 ## Running tests
 
@@ -87,7 +87,7 @@ Tests use Testcontainers for Postgres / Mailpit / Silo — they spin up their ow
 
 ## Code quality
 
-Run before every commit (the assistant does this automatically per CLAUDE.md):
+Run before every commit (the assistant does this automatically per `AGENTS.md`):
 
 ```
 > scalafmtAll                              // format every Scala file
