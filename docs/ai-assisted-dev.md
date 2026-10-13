@@ -13,9 +13,7 @@ Both listen on `localhost` and are wired in the project-scoped `.mcp.json` at th
 
 ## Why Metals matters here
 
-[`AGENTS.md`](../AGENTS.md) tells the assistant to compile and test through tools rather than shelling out, and to use `import-build` after editing `build.sbt`, `find-dep` to look up dependencies, and `inspect` to read a class's API. **Those tools come from the Metals MCP server.** Without it, the assistant can't honor those instructions — so if you're following `AGENTS.md`, start Metals first.
-
-The instructions live in [`AGENTS.md`](../AGENTS.md), the file most coding agents read. `CLAUDE.md` holds a single `@AGENTS.md` import, so Claude Code loads the same instructions, including versions that don't read `AGENTS.md` on their own.
+[`AGENTS.md`](../AGENTS.md), the instruction file most coding agents read, tells the assistant to compile and test through tools rather than shelling out, and to use `import-build` after editing `build.sbt`, `find-dep` to look up dependencies, and `inspect` to read a class's API. **Those tools come from the Metals MCP server.** Without it, the assistant can't honor those instructions — so if you're following `AGENTS.md`, start Metals first. Claude Code reads the same file through `CLAUDE.md`, which holds a single `@AGENTS.md` import.
 
 ## Start the servers
 
