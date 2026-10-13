@@ -126,7 +126,7 @@ If you need a richer liveness/readiness probe, add an unauthenticated endpoint (
 
 Things you'll likely want and need to add yourself:
 
-- **CI pipeline** — `sbt verifyAll` is the gate locally; wire it (or `compile + testFull + scalafmtCheckAll`) into GitHub Actions / GitLab CI / whatever you use. Use `testFull`, not `test` — sbt 2's `test` is cached and can under-run (see [dev-workflow.md](dev-workflow.md)).
+- **CI pipeline** — `sbt verifyAll` is the gate locally; wire it (or `compile + testFull + scalafmtCheckAll`) into GitHub Actions / GitLab CI / whatever you use. Use `testFull`, not `test` — sbt 2's `test` is cached and can under-run (see [dev-workflow.md](dev-workflow.md)). The stock workflow in `.github/workflows/scala.yml` also runs the suite under coverage instrumentation, fails below the floor in `build.sbt`, and uploads the HTML report as a workflow artifact.
 - **Image scanning** — Trivy, Snyk, your registry's own scanner.
 - **Deployment manifests** — compose files, Helm charts, Terraform. Too target-specific to live here.
 - **Secrets management** — assumes you have one (AWS Secrets Manager, k8s secrets, Vault). The app reads env vars; the secrets system is responsible for getting them there.

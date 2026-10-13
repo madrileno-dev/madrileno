@@ -76,7 +76,15 @@ The build defines `verifyAll` as a CI proxy:
 > verifyAll
 ```
 
-This runs `scalafmtSbtCheck` + `scalafmtCheckAll` + `compile` + `testFull` + `Test/verifyErrorCodes` in sequence — the same gates CI runs. If `verifyAll` passes locally, your push will pass CI (modulo flaky tests).
+This runs `scalafmtSbtCheck` + `scalafmtCheckAll` + `compile` + `testFull` + `Test/verifyErrorCodes` in sequence — the same gates CI runs. If `verifyAll` passes locally, your push will pass CI (modulo flaky tests and the coverage floor below).
+
+CI runs the suite under coverage instrumentation and fails when statement coverage drops below `coverageMinimumStmtTotal` in `build.sbt`. `verifyAll` leaves that out because an instrumented build recompiles everything, and so does the next plain build. The local equivalent is:
+
+```
+> coverageAll
+```
+
+This runs `testFull` on an instrumented build, writes HTML and XML reports to `target/out/jvm/<scala>/<project>/scoverage-report/`, checks the floor, and turns instrumentation back off. `coverage` flips a session-wide setting on the shared sbt server, so if you run the steps by hand, finish with `coverageOff` or a `~reStart` loop keeps building instrumented classes. Raise the floor as coverage grows.
 
 ## Compiler strictness
 

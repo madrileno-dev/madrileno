@@ -28,8 +28,23 @@ jobs:
         distribution: 'temurin'
         cache: 'sbt'
     - uses: sbt/setup-sbt@v1
-    - name: Check formatting, scalafix, compile, test
-      run: sbt "scalafmtSbtCheck; scalafmtCheckAll; scalafixAll --check; compile; testFull; Test/verifyErrorCodes; shutdown"
+    - name: Check formatting, scalafix, compile, test with coverage
+      run: sbt "scalafmtSbtCheck; scalafmtCheckAll; scalafixAll --check; coverage; compile; testFull; coverageReport; Test/verifyErrorCodes; shutdown"
+    - name: Summarize coverage
+      if: success() || failure()
+      run: |
+        xml=$(ls target/out/jvm/*/*/scoverage-report/scoverage.xml 2>/dev/null | head -1)
+        if [ -z "$xml" ]; then echo "No coverage report produced" >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+        stmt=$(grep -o 'statement-rate="[0-9.]*"' "$xml" | head -1 | cut -d'"' -f2)
+        branch=$(grep -o 'branch-rate="[0-9.]*"' "$xml" | head -1 | cut -d'"' -f2)
+        echo "Statement coverage: ${stmt}%, branch coverage: ${branch}%" >> "$GITHUB_STEP_SUMMARY"
+    - name: Upload coverage report
+      if: success() || failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: target/out/jvm/*/*/scoverage-report/
+        if-no-files-found: ignore
       # Optional: uploads the dependency graph for Dependabot alerts. It's a
       # third-party action that runs its own sbt, so a hiccup there must not fail
       # the build — the real gate is the compile/test step above.
