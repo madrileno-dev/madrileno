@@ -48,7 +48,7 @@ trait AuthModule extends RouteProvider with AuthRouteProvider with RecurringTask
     val firebase: Option[(Provider, ExternalAuthVerifier)] =
       firebaseConfig.projectId
         .filter(_.nonEmpty)
-        .map(projectId => Provider.Firebase -> new FirebaseService(projectId, new FirebaseKeyProvider(httpClient)))
+        .map(projectId => Provider.Firebase -> new FirebaseService(projectId, new FirebaseKeyProvider(httpClient).keyFor))
     val dev: Option[(Provider, ExternalAuthVerifier)] =
       Option.when(devAuthConfig.enabled)(Provider.Dev -> DevAuthVerifier)
     val oidcEntries: Map[String, OidcProviderConfig] =

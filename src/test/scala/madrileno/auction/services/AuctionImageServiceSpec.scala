@@ -2,7 +2,7 @@ package madrileno.auction.services
 
 import cats.effect.std.UUIDGen
 import cats.effect.testing.scalatest.AsyncIOSpec
-import cats.effect.{Clock, IO}
+import cats.effect.{Clock, IO, Ref, Resource}
 import com.sksamuel.scrimage.ImmutableImage
 import com.sksamuel.scrimage.nio.JpegWriter
 import fs2.Stream
@@ -12,9 +12,10 @@ import madrileno.auction.repositories.{AuctionImageRepository, AuctionRepository
 import madrileno.support.{TestData, TestGivens, TestObjectStoreRuntime, TestTransactor}
 import madrileno.user.domain.User
 import madrileno.user.repositories.UserRepository
+import madrileno.utils.db.transactor.{DB, DBInTransaction, Transactor}
 import madrileno.utils.imaging.{Height, ImageFormat, Width}
 import madrileno.utils.observability.TelemetryContext
-import madrileno.utils.storage.{SignedUrlTtl, StorageKey}
+import madrileno.utils.storage.{ObjectStat, ObjectStore, PresignedPut, SignedUrlTtl, StorageKey}
 import madrileno.utils.task.{Scheduler, SchedulerConfig}
 import org.http4s.MediaType
 import org.http4s.headers.`Content-Type`
@@ -22,6 +23,8 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
 import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.trace.Tracer
+import scodec.bits.ByteVector
+import skunk.data.{Identifier, Notification}
 
 import java.awt.Color
 import java.time.Instant
@@ -535,6 +538,146 @@ class AuctionImageServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matche
       } yield result match {
         case Some(_: madrileno.utils.storage.ObjectStore.GetResult.Streamed) => succeed
         case other                                                           => fail(s"Expected Streamed, got $other")
+      }
+    }
+  }
+}
+
+class AuctionImageServiceCleanupSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
+
+  given Clock[IO]        = TestGivens.fixedClock()
+  given UUIDGen[IO]      = TestGivens.deterministicUUIDs()
+  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
+
+  private lazy val userRepo        = new UserRepository
+  private lazy val auctionRepo     = new AuctionRepository
+  private lazy val imageRepo       = new AuctionImageRepository
+  private lazy val schedulerClient = Scheduler(transactor, SchedulerConfig()).client
+
+  private val jpeg = `Content-Type`(MediaType.image.jpeg)
+
+  private final class RecordingObjectStore(
+    delegate: ObjectStore,
+    log: Ref[IO, List[String]],
+    failDelete: Boolean)
+      extends ObjectStore {
+    override def put(
+      key: StorageKey,
+      contentType: `Content-Type`,
+      body: Stream[IO, Byte]
+    ): IO[Long] =
+      log.update(_ :+ s"put:${key.render}") *> delegate.put(key, contentType, body)
+    override def get(
+      key: StorageKey,
+      ttl: SignedUrlTtl,
+      fileName: Option[String]
+    ): IO[ObjectStore.GetResult]                   = delegate.get(key, ttl, fileName)
+    override def delete(key: StorageKey): IO[Unit] =
+      log.update(_ :+ s"delete:${key.render}") *> (if (failDelete) IO.raiseError(new RuntimeException("storage down")) else delegate.delete(key))
+    override def presignPut(
+      key: StorageKey,
+      ttl: SignedUrlTtl,
+      contentType: `Content-Type`,
+      contentLength: Long
+    ): IO[PresignedPut] =
+      delegate.presignPut(key, ttl, contentType, contentLength)
+    override def head(key: StorageKey): IO[Option[ObjectStat]]       = delegate.head(key)
+    override def fetchBytes(key: StorageKey): IO[Option[ByteVector]] = delegate.fetchBytes(key)
+  }
+
+  private final class FailingTransactor(
+    delegate: Transactor,
+    failTransactions: Boolean,
+    failSessionAt: Option[Int])
+      extends Transactor {
+    private val sessions                                        = Ref.unsafe[IO, Int](0)
+    override def inTransaction[A](f: DBInTransaction[A]): IO[A] =
+      if (failTransactions) IO.raiseError(new RuntimeException("db down")) else delegate.inTransaction(f)
+    override def inSession[A](f: DB[A]): IO[A] =
+      sessions.updateAndGet(_ + 1).flatMap { n =>
+        if (failSessionAt.contains(n)) IO.raiseError(new RuntimeException("db down")) else delegate.inSession(f)
+      }
+    override def notify(channel: Identifier, payload: String): IO[Unit]                                      = delegate.notify(channel, payload)
+    override def listen(channel: Identifier, maxQueued: Int): Resource[IO, Stream[IO, Notification[String]]] = delegate.listen(channel, maxQueued)
+  }
+
+  private def seed: IO[(User, Auction)] =
+    for {
+      user <- transactor.inSession(userRepo.create(TestData.user(), Instant.now()))
+      auction = TestData.auction(sellerId = user.id)
+      _ <- transactor.inSession(auctionRepo.save(auction))
+    } yield (user, auction)
+
+  private def service(tx: Transactor, store: ObjectStore): AuctionImageService =
+    new AuctionImageService(auctionRepo, imageRepo, store, tx, schedulerClient, SignedUrlTtl(5.minutes))
+
+  private def putsAndDeletes(log: List[String]): (List[String], List[String]) =
+    (log.collect { case s if s.startsWith("put:") => s.drop(4) }, log.collect { case s if s.startsWith("delete:") => s.drop(7) })
+
+  "AuctionImageService.attachImage" should {
+    "remove the stored blob and propagate the error when persisting the row fails" in {
+      for {
+        log <- Ref.of[IO, List[String]](Nil)
+        memory = TestObjectStoreRuntime.inMemory.objectStore
+        store  = new RecordingObjectStore(memory, log, failDelete = false)
+        svc    = service(new FailingTransactor(transactor, failTransactions = true, failSessionAt = None), store)
+        (seller, auction) <- seed
+        result            <- svc.attachImage(auction.id, seller.id, "wine.jpg", jpeg, Stream.emits("bytes".getBytes("UTF-8"))).attempt
+        entries           <- log.get
+        (puts, deletes) = putsAndDeletes(entries)
+        stat <- puts.headOption.fold(IO.pure(Option.empty[ObjectStat]))(key => memory.head(StorageKey(key)))
+      } yield {
+        result.left.map(_.getMessage) shouldBe Left("db down")
+        puts should have size 1
+        deletes shouldBe puts
+        stat shouldBe None
+      }
+    }
+
+    "still report the persist failure when the blob cleanup fails as well" in {
+      for {
+        log <- Ref.of[IO, List[String]](Nil)
+        store = new RecordingObjectStore(TestObjectStoreRuntime.inMemory.objectStore, log, failDelete = true)
+        svc   = service(new FailingTransactor(transactor, failTransactions = true, failSessionAt = None), store)
+        (seller, auction) <- seed
+        result            <- svc.attachImage(auction.id, seller.id, "wine.jpg", jpeg, Stream.emits("bytes".getBytes("UTF-8"))).attempt
+        entries           <- log.get
+      } yield {
+        result.left.map(_.getMessage) shouldBe Left("db down")
+        putsAndDeletes(entries)._2 should have size 1
+      }
+    }
+  }
+
+  "AuctionImageService.generateVariantTask" should {
+    "remove the rendered variant blob when storing the variant row fails" in {
+      val landscape = ImmutableImage.filled(400, 200, Color.RED).bytes(JpegWriter.Default)
+      for {
+        log <- Ref.of[IO, List[String]](Nil)
+        memory  = TestObjectStoreRuntime.inMemory.objectStore
+        store   = new RecordingObjectStore(memory, log, failDelete = false)
+        healthy = service(transactor, store)
+        (seller, auction) <- seed
+        attached          <- healthy.attachImage(auction.id, seller.id, "wine.jpg", jpeg, Stream.emits(landscape)).flatMap {
+                      case AttachImageResult.Attached(img) => IO.pure(img)
+                      case other                           => IO.raiseError(new AssertionError(s"setup: $other"))
+                    }
+        _ <- log.set(Nil)
+        broken = service(new FailingTransactor(transactor, failTransactions = false, failSessionAt = Some(2)), store)
+        result <- broken.generateVariantTask
+                    .execution(broken.generateVariantTask.instance(s"v-${attached.id}-thumb", GenerateVariantPayload(attached.id, VariantSpec.Thumb)))
+                    .attempt
+        entries <- log.get
+        (puts, deletes) = putsAndDeletes(entries)
+        variantKey      = s"auctions/${auction.id}/images/${attached.id}/variants/Thumb"
+        stat     <- memory.head(StorageKey(variantKey))
+        variants <- transactor.inSession(imageRepo.listVariants(attached.id))
+      } yield {
+        result.left.map(_.getMessage) shouldBe Left("db down")
+        puts shouldBe List(variantKey)
+        deletes shouldBe List(variantKey)
+        stat shouldBe None
+        variants shouldBe empty
       }
     }
   }

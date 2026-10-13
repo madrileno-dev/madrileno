@@ -86,9 +86,15 @@ object EventBusRuntime {
               .drain
         }
         .handleErrorWith { t =>
-          Deferred[IO, Unit].flatMap(listenerReady.set) *>
+          resetListenerReadyIfCompleted *>
             logger.warn(t)(s"LISTEN on $name dropped — reconnecting after 1s") *>
             IO.sleep(1.second)
         }
+
+    private def resetListenerReadyIfCompleted: IO[Unit] =
+      listenerReady.get.flatMap(_.tryGet).flatMap {
+        case Some(_) => Deferred[IO, Unit].flatMap(listenerReady.set)
+        case None    => IO.unit
+      }
   }
 }

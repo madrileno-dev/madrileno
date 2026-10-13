@@ -19,6 +19,9 @@ import org.scalatest.wordspec.AsyncWordSpec
 import org.slf4j.{Logger, LoggerFactory}
 import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.trace.Tracer
+import skunk.Session
+import skunk.codec.all.uuid
+import skunk.implicits.*
 
 import java.net.URI
 import java.time.Duration
@@ -312,6 +315,40 @@ class AuthenticationServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matc
       } yield bResult shouldBe a[AuthenticationResult.Authenticated]
     }
 
+    "revoke the family when a replay's successor row no longer exists" in {
+      val (service, _) = serviceWithFreshAuth()
+      for {
+        login <- service.authenticateWithProvider(Provider.Firebase, command)
+        first = issuedOf(login)
+        rotated <- service.authenticateWithRefreshToken(refreshWith(first.secret))
+        second = issuedOf(rotated)
+        _         <- deleteTokenRow(second.token.id)
+        replay    <- service.authenticateWithRefreshToken(refreshWith(first.secret))
+        afterward <- service.authenticateWithRefreshToken(refreshWith(first.secret))
+        sessions  <- service.listSessions(ListSessionsCommand(first.token.userId))
+      } yield {
+        replay shouldBe AuthenticationResult.InvalidToken
+        afterward shouldBe AuthenticationResult.InvalidToken
+        sessions.map(_.familyId) should not contain first.token.familyId
+      }
+    }
+
+    "revoke the family when a replay's successor was revoked in the meantime" in {
+      val (service, _) = serviceWithFreshAuth()
+      for {
+        login <- service.authenticateWithProvider(Provider.Firebase, command)
+        first = issuedOf(login)
+        rotated <- service.authenticateWithRefreshToken(refreshWith(first.secret))
+        second = issuedOf(rotated)
+        _         <- revokeTokenRow(second.token.id)
+        replay    <- service.authenticateWithRefreshToken(refreshWith(first.secret))
+        afterward <- service.authenticateWithRefreshToken(refreshWith(second.secret))
+      } yield {
+        replay shouldBe AuthenticationResult.InvalidToken
+        afterward shouldBe AuthenticationResult.InvalidToken
+      }
+    }
+
     "reject an unknown refresh token" in {
       val (service, _) = serviceWithFreshAuth()
       service
@@ -469,6 +506,14 @@ class AuthenticationServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matc
         logged.exists(_.contains(TestGivens.fingerprinter("rejected-external-token").value)) shouldBe true
       }
     }
+  }
+
+  private def deleteTokenRow(id: RefreshTokenId): IO[Unit] = withSession {
+    summon[Session[IO]].execute(sql"DELETE FROM refresh_token WHERE id = $uuid".command)(id.unwrap).void
+  }
+
+  private def revokeTokenRow(id: RefreshTokenId): IO[Unit] = withSession {
+    summon[Session[IO]].execute(sql"UPDATE refresh_token SET deleted_at = now() WHERE id = $uuid".command)(id.unwrap).void
   }
 
   private def jwtOf(result: AuthenticationResult): String = result match {

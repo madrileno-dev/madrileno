@@ -184,7 +184,7 @@ Compile / compile := Def.uncached {
 Compile / scalacOptions ++= {
   if (coverageEnabled.value) Seq("-Wconf:msg=Skipping coverage instrumentation:s") else Seq.empty
 }
-coverageMinimumStmtTotal := 75
+coverageMinimumStmtTotal := 80
 coverageFailOnMinimum := true
 addCommandAlias("coverageAll", "; coverage; testFull; coverageReport; coverageOff")
 
