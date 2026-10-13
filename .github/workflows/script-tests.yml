@@ -79,7 +79,7 @@ jobs:
           test ! -f scripts/check-links.scala || { echo "check-links.scala not deleted"; exit 1; }
           test ! -f LICENSE || { echo "LICENSE not deleted"; exit 1; }
           ! grep -q '^## License' README.md || { echo "README License section not stripped"; exit 1; }
-          sbt compile
+          sbt "scalafixAll; scalafixAll; coverage; compile; testFull; coverageReport; shutdown"
 
   test-scaffold-module:
     runs-on: ubuntu-latest
