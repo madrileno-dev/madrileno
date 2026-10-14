@@ -10,10 +10,16 @@ import io.opentelemetry.sdk.trace.data.SpanData
 import madrileno.utils.observability.TelemetryContext
 import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.oteljava.OtelJava
+import org.typelevel.otel4s.trace.TracerProvider
 
 import scala.jdk.CollectionConverters.*
 
-final class RecordingTracer(exporter: InMemorySpanExporter, val context: TelemetryContext) {
+final class RecordingTracer(
+  exporter: InMemorySpanExporter,
+  otel: OtelJava[IO],
+  val context: TelemetryContext) {
+  val tracerProvider: TracerProvider[IO] = otel.tracerProvider
+
   def spans: IO[List[SpanData]] = IO(exporter.getFinishedSpanItems.asScala.toList)
 
   def spansNamed(name: String): IO[List[SpanData]] = spans.map(_.filter(_.getName == name))
@@ -26,11 +32,16 @@ object RecordingTracer {
       .builder()
       .setTracerProvider(SdkTracerProvider.builder().addSpanProcessor(SimpleSpanProcessor.create(exporter)).build())
       .build()
-    OtelJava.fromJOpenTelemetry[IO](sdk).flatMap(_.tracerProvider.get("madrileno.test")).map { tracer =>
-      new RecordingTracer(exporter, TelemetryContext(Meter.noop[IO], tracer, sdk))
+    OtelJava.fromJOpenTelemetry[IO](sdk).flatMap { otel =>
+      otel.tracerProvider.get("madrileno.test").map { tracer =>
+        new RecordingTracer(exporter, otel, TelemetryContext(Meter.noop[IO], tracer, sdk))
+      }
     }
   }
 
   def longAttribute(span: SpanData, key: String): Option[Long] =
     Option(span.getAttributes.get(AttributeKey.longKey(key))).map(_.longValue)
+
+  def stringAttribute(span: SpanData, key: String): Option[String] =
+    Option(span.getAttributes.get(AttributeKey.stringKey(key)))
 }

@@ -206,7 +206,7 @@ class Scheduler(transactor: Transactor, config: SchedulerConfig = SchedulerConfi
     val heartbeat = Resource.make(heartbeatLoop(repository, task).start)(_.cancel)
 
     val traced = summon[TelemetryContext].tracer
-      .span(s"scheduler.execute $taskId", attributes)
+      .span(s"scheduler.execute ${task.descriptor.taskName}", attributes)
       .use { span =>
         heartbeat.surround {
           task.execution(task).attempt.flatMap {
