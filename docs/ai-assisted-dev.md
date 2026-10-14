@@ -49,3 +49,12 @@ The committed `.mcp.json` already points at both:
 ```
 
 Claude Code reads it automatically and prompts once to approve project-scoped servers (run `claude mcp reset-project-choices` to redo the prompt). Start the servers, then ask Claude *"compile the project"* (Metals) or *"call `madrileno_overview`"* (madrileno) to confirm both are live.
+
+## How the assistant runs the app
+
+The assistant never runs a watch loop, `sbt run`, or a bare `sbt` shell: all of them block its shell until something kills them. It uses the one-shot tasks from [dev-workflow.md](dev-workflow.md#running-the-app-without-a-watch-loop) instead, under two rules:
+
+- **Check before starting.** It runs `curl -sf http://localhost:9000/v1/health-check` first. If the app answers, that is usually your `~reStart` loop, which rebuilds on save; the assistant uses that app and does not run `reStart`, because only one of them can own port 9000.
+- **Own what it starts.** If nothing answers, it starts the app with `sbt --client reStart`, waits for the health check for up to 60 seconds, reads the end of `logs/madrileno.log` if the app never answers, and reruns `reStart` after its own code changes. It only stops an app it started itself.
+
+`AGENTS.md` states the same rules, so the assistant follows them without being told.
