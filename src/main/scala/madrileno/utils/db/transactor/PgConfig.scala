@@ -25,7 +25,8 @@ final case class PgConfig(
   commandCache: Int = 1024,
   queryCache: Int = 1024,
   parseCache: Int = 1024,
-  readTimeout: Duration = Duration.Inf) {
+  readTimeout: Duration = Duration.Inf,
+  telemetry: PgTelemetryConfig = PgTelemetryConfig()) {
   def jdbcUrl: String = {
     val sslMode = ssl match {
       case PgConfigSSL.None    => "disable"

@@ -7,8 +7,8 @@ import com.dimafeng.testcontainers.scalatest.TestContainersForAll
 import madrileno.utils.db.transactor.{DB, DBInTransaction, PgConfig, PgTransactor, Transactor}
 import org.flywaydb.core.Flyway
 import org.scalatest.Suite
-import org.typelevel.otel4s.metrics.Meter
-import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.metrics.MeterProvider
+import org.typelevel.otel4s.trace.TracerProvider
 import skunk.Session
 
 trait TestTransactor extends TestContainersForAll { self: Suite =>
@@ -27,8 +27,8 @@ trait TestTransactor extends TestContainersForAll { self: Suite =>
     container
   }
 
-  given Tracer[IO] = Tracer.noop[IO]
-  given Meter[IO]  = Meter.noop[IO]
+  given TracerProvider[IO] = TracerProvider.noop[IO]
+  given MeterProvider[IO]  = MeterProvider.noop[IO]
 
   private lazy val pgTransactor: PgTransactor = withContainers { container =>
     val pgConfig = PgConfig(

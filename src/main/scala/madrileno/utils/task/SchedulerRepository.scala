@@ -289,7 +289,7 @@ private[task] class SchedulerRepository(
           ) RETURNING st1.*
     )
     SELECT * FROM locked_executions ORDER BY ${table.priority.n} DESC, ${table.nextExecution.n} ASC
-       """.query(table.c)
+       """.query(table.c).withQuerySummary("scheduler.pick")
       session.execute(query)((Some(schedulerName), Some(now), now, limit)).flatMap { rows =>
         val (failures, successes) = rows.partitionMap { row =>
           val found = oneTimeTasks

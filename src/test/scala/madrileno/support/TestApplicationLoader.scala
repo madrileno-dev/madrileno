@@ -20,8 +20,8 @@ import madrileno.utils.resilience.CircuitBreakerRuntime
 import madrileno.utils.task.{Scheduler, SchedulerConfig}
 import org.flywaydb.core.Flyway
 import org.scalatest.Suite
-import org.typelevel.otel4s.metrics.Meter
-import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.metrics.{Meter, MeterProvider}
+import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
 import pureconfig.ConfigSource
 import sttp.client4.httpclient.fs2.HttpClientFs2Backend
 
@@ -37,9 +37,11 @@ trait TestApplicationLoader extends TestContainersForAll with TestMailpit { self
     container
   }
 
-  given Tracer[IO]       = Tracer.noop[IO]
-  given Meter[IO]        = Meter.noop[IO]
-  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  given TracerProvider[IO] = TracerProvider.noop[IO]
+  given MeterProvider[IO]  = MeterProvider.noop[IO]
+  given Tracer[IO]         = Tracer.noop[IO]
+  given Meter[IO]          = Meter.noop[IO]
+  given TelemetryContext   = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
   // Finalizer discarded — supervised fibers live for the spec's JVM lifetime, same rationale as the pool below.
   given Supervisor[IO]   = Supervisor[IO].allocated.unsafeRunSync()._1
   given SecureRandom[IO] = TestGivens.secureRandom

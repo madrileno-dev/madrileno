@@ -36,7 +36,7 @@ You don't need to call `tracer.span(...)` for these — the middleware does it.
 | ------------------------------------ | ------------------------------------------------------------------------------------------------ |
 | **Inbound HTTP** (http4s server)     | `ServerMiddleware` produces a span per request and `OtelMetrics` produces request-count/duration histograms. Configured in `Main`. |
 | **Outbound HTTP** (sttp)             | `OpenTelemetryTracingBackend` + `OpenTelemetryMetricsBackend` wrap the shared `httpClient`. Every external API call is a child span and contributes to outbound HTTP metrics. |
-| **Postgres** (Skunk)                 | `PgTransactor.resource(...)(using Tracer[IO], Meter[IO])` — Skunk's built-in otel4s integration spans every query and emits pool metrics. |
+| **Postgres** (Skunk)                 | `PgTransactor.resource(...)(using TracerProvider[IO], MeterProvider[IO])` — Skunk's built-in otel4s integration emits one `CLIENT` span per statement and a `db.client.operation.duration` histogram. See [Postgres query telemetry](#postgres-query-telemetry). |
 | **Logs**                             | `OpenTelemetryAppender` (configured in `logback.xml`) ships every logback event as an OTLP log record. `OpenTelemetryAppender.install(otel.underlying)` connects the appender to the SDK in `Main`. |
 
 Net result: with no instrumentation in your code, you already get one span per inbound request, child spans for every outbound call and every DB query, latency/error metrics on the HTTP boundary, and structured logs correlated by trace-id. Add `(using TelemetryContext)` and call `tracer.span(...)` only when you want extra granularity.
@@ -92,6 +92,17 @@ Three knock-on effects:
 For outbound HTTP, the `traceparent` W3C header is still injected via `tracer.propagate(Headers.empty)` (see `ApplicationLoader.routes`) so downstream services can resume the trace.
 
 There's a non-tracing variant for callers who don't have a `TelemetryContext`: `loggerWithoutTracing`. Use it sparingly — anything in a request path or task should have the context.
+
+## Postgres query telemetry
+
+`PgTelemetry.config` in `utils/db/transactor` builds the Skunk `TelemetryConfig` the pool uses. The choices it makes:
+
+- **One span per statement.** Skunk's protocol spans (parse, bind, execute, read, decode) are off. A query shows up as a single `CLIENT` span under the request that ran it, with `db.query.text` holding the parameterised SQL (`$1`, `$2`, not values). Pool spans are off too.
+- **Spans are named `VERB table`.** `QuerySummary` derives a low-cardinality summary from the SQL — `SELECT task`, `UPDATE refresh_token`, `INSERT outbox` — and Skunk uses it as the span name and as `db.query.summary`. Because the summary is also the dimension on `db.client.operation.duration`, you get a per-query latency histogram without naming anything by hand. A CTE is named after its final statement; a statement the regex can't place keeps Skunk's generic label. For a hot query that deserves its own name, call `.withQuerySummary("...")` on the `Query` or `Command` — the scheduler's pick query does this (`scheduler.pick`), and an explicit summary always wins over the derived one.
+- **Parameter values are off by default.** `pg.telemetry.capture-parameters` (env `PG_TELEMETRY_CAPTURE_PARAMETERS`) turns on `db.query.parameter.*` attributes on the span. That is what you want in dev when chasing a slow query — the span then carries everything needed to replay it with `EXPLAIN ANALYZE`. Leave it off wherever the trace store is shared: parameters include user IDs, emails and whatever else the request bound. Codecs marked `.redacted` are excluded even when capture is on; the refresh-token secret hash and sealed successor secret are marked. Mark any new codec that carries a credential the same way.
+- **The idle scheduler poll is silent.** `Scheduler` runs its `pickAndMark` query inside `tracer.noopScope`, so an idle instance does not emit a root trace every polling interval. Task executions start after that scope ends, so a picked task still gets its `scheduler.execute` root span with its own queries underneath. Metrics are unaffected by tracer scope — `scheduler.pick` still shows up in the duration histogram, which is where you would notice the task table bloating.
+
+Traces answer "which query was slow in this request". For "which query is slow overall", enable `pg_stat_statements` on the database; the two are complementary.
 
 ## Manual spans
 

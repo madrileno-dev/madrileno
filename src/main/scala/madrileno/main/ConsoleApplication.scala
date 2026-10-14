@@ -14,6 +14,8 @@ import madrileno.utils.observability.TelemetryContext
 import madrileno.utils.resilience.CircuitBreakerRuntime
 import madrileno.utils.storage.{ObjectStoreRuntime, StorageConfig}
 import madrileno.utils.task.{Scheduler, SchedulerConfig}
+import org.typelevel.otel4s.metrics.MeterProvider
+import org.typelevel.otel4s.trace.TracerProvider
 import pureconfig.ConfigSource
 import sttp.client4.httpclient.fs2.HttpClientFs2Backend
 
@@ -30,7 +32,9 @@ object ConsoleApplication {
 
     import org.typelevel.otel4s.metrics.Meter.Implicits.noop as meterNoop
     import org.typelevel.otel4s.trace.Tracer.Implicits.noop as tracerNoop
-    given TelemetryContext = TelemetryContext(meterNoop, tracerNoop, OpenTelemetry.noop())
+    given TelemetryContext   = TelemetryContext(meterNoop, tracerNoop, OpenTelemetry.noop())
+    given MeterProvider[IO]  = MeterProvider.noop[IO]
+    given TracerProvider[IO] = TracerProvider.noop[IO]
 
     val pgConfig        = config.at("pg").loadOrThrow[PgConfig]
     val schedulerConfig = config.at("scheduler").loadOrThrow[SchedulerConfig]

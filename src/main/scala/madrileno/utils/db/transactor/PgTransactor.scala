@@ -2,8 +2,8 @@ package madrileno.utils.db.transactor
 
 import cats.effect.{IO, Resource}
 import fs2.Stream
-import org.typelevel.otel4s.metrics.Meter
-import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.metrics.MeterProvider
+import org.typelevel.otel4s.trace.TracerProvider
 import skunk.*
 import skunk.Session.Credentials
 import skunk.data.{Identifier, Notification}
@@ -28,7 +28,7 @@ class PgTransactor(sessions: Resource[IO, Session[IO]]) extends Transactor {
 }
 
 object PgTransactor {
-  def resource(pgConfig: PgConfig)(using Tracer[IO], Meter[IO]): Resource[IO, PgTransactor] = {
+  def resource(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, PgTransactor] = {
     val pool = Session
       .Builder[IO]
       .withHost(pgConfig.host)
@@ -47,6 +47,7 @@ object PgTransactor {
       .withParseCacheSize(pgConfig.parseCache)
       .withReadTimeout(pgConfig.readTimeout)
       .withRedactionStrategy(RedactionStrategy.OptIn)
+      .withTelemetryConfig(PgTelemetry.config(pgConfig.telemetry))
       .withSocketOptions(Session.DefaultSocketOptions)
       .pooled(pgConfig.max)
     pool.map(sessions => new PgTransactor(sessions))

@@ -292,10 +292,8 @@ class Scheduler(transactor: Transactor, config: SchedulerConfig = SchedulerConfi
       _        <- if (reserved == 0) {
              IO.sleep(pollingInterval)
            } else {
-             transactor
-               .inSession {
-                 repository.pickAndMark(reserved)
-               }
+             summon[TelemetryContext].tracer
+               .noopScope(transactor.inSession(repository.pickAndMark(reserved)))
                .recoverWith { case t =>
                  logger.error(t)("Error while picking tasks") *>
                    IO.pure((Nil, Nil))

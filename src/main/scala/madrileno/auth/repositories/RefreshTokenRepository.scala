@@ -49,7 +49,7 @@ private[repositories] object RefreshTokenRowTable
   override val id: Column[RefreshTokenId]        = column("id", uuid.as[RefreshTokenId])
   val familyId: Column[RefreshTokenFamilyId]     = column("family_id", uuid.as[RefreshTokenFamilyId])
   val familyCreatedAt: Column[Instant]           = column("family_created_at", timestamptz.asInstant)
-  val secretHash: Column[RefreshTokenSecretHash] = column("secret_hash", text.as[RefreshTokenSecretHash])
+  val secretHash: Column[RefreshTokenSecretHash] = column("secret_hash", text.as[RefreshTokenSecretHash].redacted)
   val userId: Column[UserId]                     = column("user_id", uuid.as[UserId])
   val userAgent: Column[UserAgent]               = column("user_agent", text.as[UserAgent])
   val ipAddress: Column[IpAddress]               = column(
@@ -58,7 +58,7 @@ private[repositories] object RefreshTokenRowTable
   )
   val createdAt: Column[Instant]                          = column("created_at", timestamptz.asInstant)
   val usedAt: Column[Option[Instant]]                     = column("used_at", timestamptz.asInstant.opt)
-  val successor: Column[Option[SealedRefreshTokenSecret]] = column("successor_secret", text.as[SealedRefreshTokenSecret].opt)
+  val successor: Column[Option[SealedRefreshTokenSecret]] = column("successor_secret", text.as[SealedRefreshTokenSecret].redacted.opt)
   override val deletedAt: Column[Option[Instant]]         = column("deleted_at", timestamptz.asInstant.opt)
   val expiresAt: Column[Instant]                          = column("expires_at", timestamptz.asInstant)
 
