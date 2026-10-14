@@ -2,8 +2,6 @@ package madrileno.utils.task
 
 import org.typelevel.otel4s.trace.{SpanContext, TraceFlags, TraceState}
 
-import scala.util.Try
-
 object TraceParent {
   private val Version = "00"
 
@@ -22,5 +20,5 @@ object TraceParent {
     }
 
   private def parseFlags(hex: String): Option[TraceFlags] =
-    Option.when(hex.length == 2)(hex).flatMap(h => Try(Integer.parseInt(h, 16)).toOption).map(i => TraceFlags.fromByte(i.toByte))
+    Option.when(hex.matches("[0-9a-fA-F]{2}"))(TraceFlags.fromByte(Integer.parseInt(hex, 16).toByte))
 }

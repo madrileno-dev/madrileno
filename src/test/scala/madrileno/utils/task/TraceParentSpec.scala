@@ -33,6 +33,8 @@ class TraceParentSpec extends AnyWordSpec with Matchers {
       TraceParent.parse("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7") shouldBe None
       TraceParent.parse("00-zz92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01") shouldBe None
       TraceParent.parse("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-xx") shouldBe None
+      TraceParent.parse("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7--1") shouldBe None
+      TraceParent.parse("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-+1") shouldBe None
     }
 
     "reject all-zero ids" in {
