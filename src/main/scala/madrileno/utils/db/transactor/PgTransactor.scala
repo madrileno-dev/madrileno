@@ -3,7 +3,7 @@ package madrileno.utils.db.transactor
 import cats.effect.{IO, Resource}
 import fs2.Stream
 import org.typelevel.otel4s.metrics.MeterProvider
-import org.typelevel.otel4s.trace.TracerProvider
+import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
 import skunk.*
 import skunk.Session.Credentials
 import skunk.codec.all.text
@@ -35,8 +35,17 @@ object PgTransactor {
   private val pgNotify: Query[(String, String), Unit] =
     sql"SELECT pg_notify($text, $text)".query(void).withQuerySummary("NOTIFY")
 
-  def resource(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, PgTransactor] = {
-    val pool = Session
+  def resource(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, PgTransactor] =
+    for {
+      tracer <- Resource.eval(TracerProvider[IO].get("madrileno.utils.db.transactor"))
+      pool   <- pooled(pgConfig)
+    } yield new PgTransactor(withQuietRecycling(pool, tracer))
+
+  private def withQuietRecycling(sessions: Resource[IO, Session[IO]], tracer: Tracer[IO]): Resource[IO, Session[IO]] =
+    Resource.make(sessions.allocated) { case (_, release) => tracer.noopScope(release) }.map(_._1)
+
+  private def pooled(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, Resource[IO, Session[IO]]] =
+    Session
       .Builder[IO]
       .withHost(pgConfig.host)
       .withPort(pgConfig.port)
@@ -57,6 +66,4 @@ object PgTransactor {
       .withTelemetryConfig(PgTelemetry.config(pgConfig.telemetry))
       .withSocketOptions(Session.DefaultSocketOptions)
       .pooled(pgConfig.max)
-    pool.map(sessions => new PgTransactor(sessions))
-  }
 }

@@ -56,7 +56,12 @@ class PgTelemetrySpec extends AnyWordSpec with Matchers with OptionValues {
 
     "omit the text of a statement it cannot summarise, since it may carry literals" in {
       quiet.queryAnalyzer.analyze("""NOTIFY events, '{"email":"a@b.c"}'""") shouldBe None
-      quiet.queryAnalyzer.analyze("LISTEN events") shouldBe None
+    }
+
+    "name transaction control statements" in {
+      val analysis = quiet.queryAnalyzer.analyze("COMMIT").value
+      analysis.querySummary shouldBe Some("COMMIT")
+      analysis.queryText shouldBe Some("COMMIT")
     }
   }
 }

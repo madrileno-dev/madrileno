@@ -10,6 +10,7 @@ object QuerySummary {
   private val target: Regex     = ("""(?is)\A\s+(?:only\s+)?""" + identifier).r
   private val fromTarget: Regex = ("""(?is)\bfrom\s+""" + identifier).r
   private val parenthesised     = """\([^()]*\)""".r
+  private val control: Regex    = """(?is)\A\s*(begin|commit|rollback|savepoint|release|listen|unlisten)\b.*\z""".r
 
   def of(sql: String): Option[String] =
     sql match {
@@ -20,7 +21,8 @@ object QuerySummary {
           case _        => target.findFirstMatchIn(rest).map(_.group(1))
         }
         Some(table.fold(verb)(t => s"$verb ${t.replace("\"", "")}"))
-      case _ => None
+      case control(keyword) => Some(keyword.toUpperCase)
+      case _                => None
     }
 
   @tailrec

@@ -53,8 +53,17 @@ class QuerySummarySpec extends AnyWordSpec with Matchers {
       QuerySummary.of("SELECT count(*) FROM (SELECT 1) x") shouldBe Some("SELECT")
     }
 
+    "name transaction control and listen statements by their keyword" in {
+      QuerySummary.of("BEGIN\n  ISOLATION LEVEL SERIALIZABLE") shouldBe Some("BEGIN")
+      QuerySummary.of("COMMIT") shouldBe Some("COMMIT")
+      QuerySummary.of("ROLLBACK TO sp_1") shouldBe Some("ROLLBACK")
+      QuerySummary.of("SAVEPOINT sp_1") shouldBe Some("SAVEPOINT")
+      QuerySummary.of("LISTEN events") shouldBe Some("LISTEN")
+    }
+
     "leave anything else to skunk" in {
-      QuerySummary.of("LISTEN events") shouldBe None
+      QuerySummary.of("NOTIFY events, 'payload'") shouldBe None
+      QuerySummary.of("SET search_path = 'x'") shouldBe None
       QuerySummary.of("") shouldBe None
     }
   }
