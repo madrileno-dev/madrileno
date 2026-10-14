@@ -6,7 +6,9 @@ import org.typelevel.otel4s.metrics.MeterProvider
 import org.typelevel.otel4s.trace.TracerProvider
 import skunk.*
 import skunk.Session.Credentials
-import skunk.data.{Identifier, Notification}
+import skunk.codec.all.text
+import skunk.data.{Identifier, Notification, Type}
+import skunk.implicits.*
 
 class PgTransactor(sessions: Resource[IO, Session[IO]]) extends Transactor {
 
@@ -21,13 +23,18 @@ class PgTransactor(sessions: Resource[IO, Session[IO]]) extends Transactor {
     sessions.use(session => f(using session))
 
   override def notify(channel: Identifier, payload: String): IO[Unit] =
-    sessions.use(_.channel(channel).notify(payload))
+    sessions.use(_.unique(PgTransactor.pgNotify)((channel.value, payload))).void
 
   override def listen(channel: Identifier, maxQueued: Int): Resource[IO, Stream[IO, Notification[String]]] =
     sessions.flatMap(_.channel(channel).listenR(maxQueued))
 }
 
 object PgTransactor {
+  private val void: Codec[Unit] = Codec.simple(_ => "", _ => Right(()), Type.void)
+
+  private val pgNotify: Query[(String, String), Unit] =
+    sql"SELECT pg_notify($text, $text)".query(void).withQuerySummary("NOTIFY")
+
   def resource(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, PgTransactor] = {
     val pool = Session
       .Builder[IO]

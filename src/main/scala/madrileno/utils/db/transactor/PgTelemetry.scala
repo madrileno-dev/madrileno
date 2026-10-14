@@ -1,6 +1,5 @@
 package madrileno.utils.db.transactor
 
-import com.github.blemale.scaffeine.{Cache, Scaffeine}
 import pureconfig.*
 import pureconfig.generic.semiauto.deriveReader
 import skunk.telemetry.{QueryAnalyzer, QueryCaptureConfig, TelemetryConfig}
@@ -12,13 +11,11 @@ object PgTelemetryConfig {
 }
 
 object PgTelemetry {
-  private val analyses: Cache[String, Option[QueryAnalyzer.Analysis]] =
-    Scaffeine().maximumSize(1024).build[String, Option[QueryAnalyzer.Analysis]]()
-
-  val analyzer: QueryAnalyzer = QueryAnalyzer(sql => analyses.get(sql, analyse))
-
-  private def analyse(sql: String): Option[QueryAnalyzer.Analysis] =
-    Some(QueryAnalyzer.Analysis(queryText = Some(sql), storedProcedureName = None, querySummary = QuerySummary.of(sql)))
+  val analyzer: QueryAnalyzer = QueryAnalyzer { sql =>
+    QuerySummary.of(sql).map { summary =>
+      QueryAnalyzer.Analysis(queryText = Some(sql), storedProcedureName = None, querySummary = Some(summary))
+    }
+  }
 
   def config(telemetry: PgTelemetryConfig): TelemetryConfig = {
     val parameters =

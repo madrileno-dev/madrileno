@@ -54,15 +54,9 @@ class PgTelemetrySpec extends AnyWordSpec with Matchers with OptionValues {
       analysis.storedProcedureName shouldBe None
     }
 
-    "memoise analyses per statement text" in {
-      val sql = "SELECT * FROM task WHERE id = $1"
-      quiet.queryAnalyzer.analyze(sql) should be theSameInstanceAs quiet.queryAnalyzer.analyze(sql)
-    }
-
-    "pass the text of an unrecognised statement through without a summary" in {
-      val analysis = quiet.queryAnalyzer.analyze("LISTEN events").value
-      analysis.queryText shouldBe Some("LISTEN events")
-      analysis.querySummary shouldBe None
+    "omit the text of a statement it cannot summarise, since it may carry literals" in {
+      quiet.queryAnalyzer.analyze("""NOTIFY events, '{"email":"a@b.c"}'""") shouldBe None
+      quiet.queryAnalyzer.analyze("LISTEN events") shouldBe None
     }
   }
 }
