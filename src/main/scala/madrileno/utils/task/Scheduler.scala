@@ -13,7 +13,7 @@ import java.net.InetAddress
 
 class Scheduler(transactor: Transactor, config: SchedulerConfig = SchedulerConfig())(using Clock[IO], TelemetryContext) extends LoggingSupport {
 
-  val client: SchedulerClient = new SchedulerClient(new ClientSchedulerRepository(), transactor)
+  val client: SchedulerClient = new SchedulerClient(new ClientSchedulerRepository(), transactor, summon[TelemetryContext].tracer)
 
   private val concurrency          = config.concurrency
   private val pollingInterval      = config.pollingInterval
@@ -205,8 +205,14 @@ class Scheduler(transactor: Transactor, config: SchedulerConfig = SchedulerConfi
 
     val heartbeat = Resource.make(heartbeatLoop(repository, task).start)(_.cancel)
 
-    val traced = summon[TelemetryContext].tracer
-      .span(s"scheduler.execute ${task.descriptor.taskName}", attributes)
+    val builder = summon[TelemetryContext].tracer
+      .spanBuilder(s"scheduler.execute ${task.descriptor.taskName}")
+      .addAttributes(attributes)
+    val scheduledBy = task.traceParent.flatMap(TraceParent.parse)
+
+    val traced = scheduledBy
+      .fold(builder)(context => builder.addLink(context))
+      .build
       .use { span =>
         heartbeat.surround {
           task.execution(task).attempt.flatMap {

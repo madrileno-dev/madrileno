@@ -11,6 +11,7 @@ create table scheduled_task (
   last_heartbeat TIMESTAMPTZ,
   version BIGINT NOT NULL,
   priority SMALLINT NOT NULL,
+  trace_parent TEXT,
   PRIMARY KEY (task_name, task_instance)
 );
 

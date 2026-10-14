@@ -25,7 +25,8 @@ private[task] final case class TaskRow(
   consecutiveFailures: Option[Int],
   lastHeartbeat: Option[Instant],
   version: Long,
-  priority: Short)
+  priority: Short,
+  traceParent: Option[String])
 
 object TaskRow {
   def fromTask[A](task: Task[A], now: Instant): TaskRow = {
@@ -53,7 +54,8 @@ object TaskRow {
       consecutiveFailures = None,
       lastHeartbeat = None,
       version = task.version,
-      priority = task.priority
+      priority = task.priority,
+      traceParent = task.traceParent
     )
   }
 }
@@ -71,6 +73,7 @@ object TaskRowTable extends Table[TaskRow]("scheduled_task") {
   val lastHeartbeat: Column[Option[Instant]]   = column("last_heartbeat", timestamptz.asInstant.opt)
   val version: Column[Long]                    = column("version", int8)
   val priority: Column[Short]                  = column("priority", int2)
+  val traceParent: Column[Option[String]]      = column("trace_parent", text.opt)
 
   def mapping: (List[Column[?]], Codec[TaskRow]) =
     (
@@ -85,7 +88,8 @@ object TaskRowTable extends Table[TaskRow]("scheduled_task") {
       consecutiveFailures,
       lastHeartbeat,
       version,
-      priority
+      priority,
+      traceParent
     )
 }
 
@@ -100,7 +104,8 @@ private[task] class ClientSchedulerRepository(using clock: Clock[IO]) {
            ON CONFLICT (${table.taskName.n}, ${table.taskInstance.n}) DO UPDATE SET
            ${table.taskData.n} = ${table.taskData.n("EXCLUDED")},
            ${table.nextExecution.n} = ${table.nextExecution.n("EXCLUDED")},
-           ${table.priority.n} = ${table.priority.n("EXCLUDED")}
+           ${table.priority.n} = ${table.priority.n("EXCLUDED")},
+           ${table.traceParent.n} = ${table.traceParent.n("EXCLUDED")}
            WHERE ${table.n}.${table.picked.n} = false
            RETURNING ${table.*}""".query(table.c))(row)
         .map(_.isDefined)
@@ -247,7 +252,8 @@ private[task] class SchedulerRepository(
             consecutiveFailures = row.consecutiveFailures,
             scheduledAt = scheduledAt,
             maxRetries = maxRetries,
-            onAbandon = onAbandon
+            onAbandon = onAbandon,
+            traceParent = row.traceParent
           )
         )
       case Left(_) =>

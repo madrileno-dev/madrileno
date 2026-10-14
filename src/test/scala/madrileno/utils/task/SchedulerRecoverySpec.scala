@@ -53,7 +53,8 @@ class SchedulerRecoverySpec extends AsyncWordSpec with AsyncIOSpec with Matchers
       consecutiveFailures = None,
       lastHeartbeat = lastHeartbeat,
       version = 0L,
-      priority = 0
+      priority = 0,
+      traceParent = None
     )
 
   private def waitUntil(condition: IO[Boolean], timeout: FiniteDuration = 8.seconds): IO[Unit] = {
