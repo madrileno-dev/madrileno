@@ -117,6 +117,9 @@ Compile / run / envVars ++= (Test / envFromFile).value
 
 Compile / mainClass := Some("madrileno.main.Main")
 
+reStop := Def.uncached(spray.revolver.Actions.stopAppWithStreams(streams.value, thisProjectRef.value))
+reStatus := Def.uncached(spray.revolver.Actions.showStatus(streams.value, thisProjectRef.value))
+
 // native-packager
 enablePlugins(JavaServerAppPackaging, BaklavaSbtPlugin)
 import com.typesafe.sbt.packager.docker.Cmd

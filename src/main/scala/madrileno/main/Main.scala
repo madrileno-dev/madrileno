@@ -9,7 +9,7 @@ import madrileno.utils.db.Migrations
 import madrileno.utils.db.transactor.{PgConfig, PgTransactor}
 import madrileno.utils.events.bus.EventBusRuntime
 import madrileno.utils.http.{Cors, CorsConfig, RateLimiterRuntime}
-import madrileno.utils.observability.TelemetryContext
+import madrileno.utils.observability.{LoggingSupport, TelemetryContext}
 import madrileno.utils.resilience.CircuitBreakerRuntime
 import madrileno.utils.storage.{ObjectStoreRuntime, StorageConfig}
 import madrileno.utils.task.{Scheduler, SchedulerConfig}
@@ -27,7 +27,7 @@ import pl.iterators.stir.server.ToHttpRoutes
 import pureconfig.*
 import sttp.client4.httpclient.fs2.HttpClientFs2Backend
 
-object Main extends IOApp.Simple {
+object Main extends IOApp.Simple with LoggingSupport {
   override def run: IO[Unit] =
     (for {
       config    <- Resource.eval(IO.delay(ConfigSource.default))
@@ -109,7 +109,9 @@ object Main extends IOApp.Simple {
                corsPolicy.fold(httpApp)(_(httpApp))
              }
              .build
-    } yield application).use { _ =>
-      IO.never
-    }
+    } yield application)
+      .use { _ =>
+        IO.never
+      }
+      .onError { case e => loggerWithoutTracing.error(e)("Application stopped with an error") }
 }

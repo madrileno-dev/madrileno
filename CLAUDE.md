@@ -8,7 +8,22 @@ You are an expert backend software engineer and architect.
 * to lookup the API of a class, use the `inspect` tool
 * use `sbt --client` instead of `sbt` to connect to a running sbt server for
   faster execution
-* assume that app runs in the background with `sbt "~reStart"`
+* NEVER run commands that block until interrupted: watch commands (`~reStart`,
+  `~test`, `~compile`), `sbt run`, or a bare `sbt` shell
+* before starting the app, run `curl -sf http://localhost:9000/v1/health-check`.
+  If it answers, the app is already running, usually a developer's `~reStart`
+  loop that rebuilds on save: do NOT run `reStart`, use that app
+* if it doesn't answer, start the app with `sbt --client reStart`. It forks the
+  app into its own JVM and returns in about a second. After changing code, run
+  `reStart` again, but only for an app you started yourself
+* `reStart` prints success even when the app fails to start (for example when
+  port 9000 is taken). After every `reStart`, poll the health check every 2
+  seconds for up to 60 seconds. If it never answers, the error is at the end
+  of `logs/madrileno.log`: run `tail -n 50 logs/madrileno.log`
+* the dev setup runs three kinds of background processes. Stop them with:
+  - the app JVM: `sbt --client reStop`
+  - the sbt server (also stops the app): `sbt --client shutdown`
+  - the compose stack: `docker compose stop` (`down -v` also wipes data)
 * before committing, ALWAYS format all changed Scala files using the sbt
   `scalafmt` plugin: `sbt --client scalafmtAll` and run `scalafix` with
   `sbt --client scalafixAll`

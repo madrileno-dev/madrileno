@@ -67,7 +67,7 @@ object Doctor {
       checkHttp("mailpit reachable", s"http://localhost:$mailpitUiPort/api/v1/info", "docker compose up -d mailpit"),
       checkHttp("silo reachable", s"http://localhost:$siloApiPort/minio/health/live", "docker compose up -d silo"),
       checkHttp("openobserve reachable", s"http://localhost:$openobservePort/healthz", "docker compose up -d openobserve"),
-      checkHttp("app responding", s"http://localhost:$appPort/$apiVersion/health-check", "sbt \"~reStart\"")
+      checkHttp("app responding", s"http://localhost:$appPort/$apiVersion/health-check", "sbt --client reStart (or ~reStart in an sbt shell to rebuild on save)")
     )
 
     results.foreach(printCheck)
