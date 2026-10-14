@@ -23,7 +23,7 @@ What it does, in order:
    - Drops blocks bracketed by `// scripts:auction-block-start` / `// scripts:auction-block-end` — auction-coupled fragments in test support that can't be deleted as whole files (today: two in `TestData.scala`, one in `TestApplicationLoader.scala`, one in `SchedulerAdminRouterSpec.scala`). The markers must occupy their own line — inline mentions in prose are ignored.
    - Drops `import madrileno.auction.*` lines and `with AuctionModule` lines from the loaders' `extends` chains.
    - Renames `madrileno.<X>` package references to `<package>.<X>`.
-   - Renames standalone `madrileno` to `<project-name>` (HOCON `app.name`, container names, `OTEL_SERVICE_NAME`, `PG_DATABASE`, `MAILER_FROM_ADDRESS`, README/doc references, etc.).
+   - Renames standalone `madrileno` to `<project-name>` (HOCON `app.name`, `OTEL_SERVICE_NAME`, `PG_DATABASE`, `MAILER_FROM_ADDRESS`, README/doc references, etc.).
    - **Skips `docs/mcp.md`** — that file documents the MCP system itself; its `madrileno_*` tool names, the upstream repo URL, and the upstream path examples are intentional and must not be renamed.
 5. **Renames the source directories** — `src/{main,test}/scala/madrileno/` → `src/{main,test}/scala/<package>/`.
 6. **Writes `.madrileno-ref`** with the upstream URL (derived from `git remote get-url origin`, falling back to the canonical madrileno URL) + the sha resolved at step 1. The MCP server reads this to anchor every tool call to a specific upstream commit. Commit it — your collaborators (and Claude) benefit from a shared pin.
@@ -161,10 +161,10 @@ Output on a healthy box:
 ✓ .env present
 ✓ docker available (Docker version 25.0.2, build 29cf629)
 ✓ docker compose services up
-    madrileno-postgres         Up About a minute (healthy)
-    madrileno-mailpit          Up About a minute (healthy)
-    madrileno-silo             Up About a minute (healthy)
-    madrileno-openobserve      Up About a minute (healthy)
+    postgres       Up About a minute (healthy)
+    mailpit        Up About a minute (healthy)
+    silo           Up About a minute (healthy)
+    openobserve    Up About a minute (healthy)
 ✓ postgres reachable (localhost:55432)
 ✓ mailpit reachable (http://localhost:58025/api/v1/info → 200)
 ✓ silo reachable (http://localhost:59000/minio/health/live → 200)

@@ -1,7 +1,6 @@
 services:
   postgres:
     image: postgres:latest
-    container_name: madrileno-postgres
     environment:
       POSTGRES_DB: madrileno
       POSTGRES_USER: postgres
@@ -18,7 +17,6 @@ services:
 
   mailpit:
     image: axllent/mailpit:latest
-    container_name: madrileno-mailpit
     environment:
       MP_MAX_MESSAGES: 5000
       MP_SMTP_AUTH_ACCEPT_ANY: 1
@@ -29,7 +27,6 @@ services:
 
   openobserve:
     image: public.ecr.aws/zinclabs/openobserve:latest
-    container_name: madrileno-openobserve
     environment:
       ZO_ROOT_USER_EMAIL: root@example.com
       ZO_ROOT_USER_PASSWORD: Complexpass#123
@@ -45,7 +42,6 @@ services:
 
   silo:
     image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z
-    container_name: madrileno-silo
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
