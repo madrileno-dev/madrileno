@@ -78,7 +78,7 @@ The build defines `verifyAll` as a CI proxy:
 
 This runs `scalafmtSbtCheck` + `scalafmtCheckAll` + `compile` + `testFull` + `Test/verifyErrorCodes` in sequence — the same gates CI runs. If `verifyAll` passes locally, your push will pass CI (modulo flaky tests and the coverage floor below).
 
-CI runs the suite under coverage instrumentation and fails when statement coverage drops below `coverageMinimumStmtTotal` in `build.sbt`. `verifyAll` leaves that out because an instrumented build recompiles everything, and so does the next plain build. The local equivalent is:
+CI runs the suite under coverage instrumentation and fails when statement coverage drops below `coverageMinimumStmtTotal` in `build.sbt`. The floor is set from a freshly initialised project, not from the template: `init-project` removes the auction demo and its specs, which costs a few points, and the init job in the script-tests workflow runs the instrumented suite so a floor the fresh project cannot clear fails CI here first. `verifyAll` leaves that out because an instrumented build recompiles everything, and so does the next plain build. The local equivalent is:
 
 ```
 > coverageAll

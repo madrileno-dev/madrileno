@@ -31,7 +31,7 @@ trait ForeignIdRepository[A, Id] extends BaseRepository[A] {
 
   def existsByForeignId(foreignId: Id)(using session: Session[IO]): IO[Boolean] =
     session
-      .option(sql"SELECT 1 FROM ${table.n} WHERE $baseFilter AND ${table.foreignId.n} = ${table.foreignId.c}".query(int4))(foreignId)
+      .option(sql"SELECT 1 FROM ${table.n} WHERE $baseFilter AND ${table.foreignId.n} = ${table.foreignId.c} LIMIT 1".query(int4))(foreignId)
       .map(_.isDefined)
 
   def deleteByForeignId(foreignId: Id)(using session: Session[IO]): IO[Unit] =

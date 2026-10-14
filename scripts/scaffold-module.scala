@@ -20,6 +20,8 @@
 
 import mainargs.{ParserForMethods, arg, main}
 
+import scala.util.matching.Regex
+
 object ScaffoldModule {
 
   @main
@@ -110,10 +112,11 @@ object ScaffoldModule {
       s"missing $testData (expected the shared test-data factory at this path).\n" +
         s"  Add `import $packageName.$singular.domain.${aggregate}Id` and a `random${aggregate}Id()` factory manually.")
     val testDataText    = os.read(testData)
-    val tdImportAnchor  = s"import $packageName.utils.crypto.UuidV7"
-    require(testDataText.contains(tdImportAnchor),
-      s"can't inject id factory: import anchor '$tdImportAnchor' not found in $testData.\n" +
-        s"  Add `import $packageName.$singular.domain.${aggregate}Id` and a `random${aggregate}Id()` factory manually.")
+    val tdImportPattern = ("(?m)^import " + Regex.quote(packageName) + """\.utils\.crypto\.(?:UuidV7|\{[^}]*\bUuidV7\b[^}]*\})$""").r
+    val tdImportAnchor  = tdImportPattern.findFirstIn(testDataText).getOrElse(
+      throw new IllegalArgumentException(
+        s"can't inject id factory: no `import $packageName.utils.crypto.UuidV7` (bare or braced) found in $testData.\n" +
+          s"  Add `import $packageName.$singular.domain.${aggregate}Id` and a `random${aggregate}Id()` factory manually."))
     val tdFactoryAnchor = "  // scripts:scaffold-id-factories"
     require(testDataText.contains(tdFactoryAnchor),
       s"can't inject id factory: factory anchor '$tdFactoryAnchor' not found in $testData.\n" +

@@ -4,16 +4,17 @@ import cats.effect.{Clock, IO}
 import io.circe.Decoder
 import madrileno.auth.domain.{ExternalAuthToken, Provider, VerifiedExternalToken}
 
+import java.security.interfaces.RSAPublicKey
 import java.time.Instant
 
-class FirebaseService(projectId: String, keyProvider: FirebaseKeyProvider) extends ExternalAuthVerifier {
+class FirebaseService(projectId: String, keyResolver: String => IO[RSAPublicKey]) extends ExternalAuthVerifier {
   private val leewaySeconds: Long = 30L
   private val verifier            =
     new Rs256TokenVerifier(
       provider = Provider.Firebase,
       issuer = s"https://securetoken.google.com/$projectId",
       audience = Set(projectId),
-      keyResolver = keyProvider.keyFor
+      keyResolver = keyResolver
     )
 
   override def verifyToken(token: ExternalAuthToken): IO[Either[Throwable, VerifiedExternalToken]] =
