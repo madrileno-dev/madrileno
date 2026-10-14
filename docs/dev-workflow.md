@@ -42,21 +42,20 @@ Watch is on Scala/SBT/HOCON files only — not `.env`, not docker-compose state.
 
 `reStart` (no `~`) is a one-shot run. Use it when you want to launch the app once for a manual smoke test without the rebuild-on-save behavior.
 
-## Driving the app from an agent or a script
+## Running the app without a watch loop
 
-Watch loops, `sbt run`, and a bare `sbt` shell never return, so a coding assistant or a script that runs them hangs until something kills it. Use the one-shot tasks through `sbt --client` instead:
+Watch loops, `sbt run`, and a bare `sbt` shell never return, so a script, a CI smoke test, or anything else that needs its shell back uses the one-shot tasks through `sbt --client` instead:
 
 ```bash
-curl -sf http://localhost:9000/v1/health-check    # answers? the app already runs, use it
-sbt --client reStart                              # fork the app and return; rerun after a code change
+sbt --client reStart                              # compile, fork the app, return; rerun after a code change
 for i in $(seq 30); do curl -sf http://localhost:9000/v1/health-check && break; sleep 2; done   # wait up to 60 s
 tail -n 50 logs/madrileno.log                     # never answered? the startup error is here
 sbt --client reStop                               # stop the app
 ```
 
-`reStart` forks the app into its own JVM and returns in about a second. It reports success as soon as the JVM is launched, even if the app then fails to start (for example when the port is taken), so always wait for the health check. The detached sbt server discards the app's console output; `Main` logs any error that stops the app, so `logs/madrileno.log` is the place to look.
+`reStart` compiles what changed, forks the app into its own JVM and returns in about a second. It reports success as soon as the JVM is launched, even if the app then fails to start (for example when port 9000 is taken), so always wait for the health check. The detached sbt server discards the app's console output; `Main` logs any error that stops the app, so `logs/madrileno.log` is the place to look.
 
-A developer's `~reStart` loop and an assistant's `reStart` both bind port 9000, so only one of them can own the app. The assistant checks the health endpoint first and, if the app already answers, uses it instead of starting its own.
+Only one app can bind port 9000, so a `~reStart` loop in a terminal and a one-shot `reStart` elsewhere can't run side by side. `curl -sf http://localhost:9000/v1/health-check` tells you whether something already owns it.
 
 The dev setup leaves three kinds of background processes. Each has its own stop command:
 
@@ -66,7 +65,7 @@ The dev setup leaves three kinds of background processes. Each has its own stop 
 | sbt server | the first `sbt --client` call | `sbt --client shutdown` (also stops the app JVM) |
 | Postgres, Mailpit, OpenObserve, Silo | `docker compose up -d` | `docker compose stop` (`docker compose down -v` also wipes their data) |
 
-`AGENTS.md` gives the assistant the same rules.
+How a coding assistant is expected to use these tasks is in [ai-assisted-dev.md](ai-assisted-dev.md#how-the-assistant-runs-the-app).
 
 ## Running tests
 
