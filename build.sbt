@@ -104,6 +104,7 @@ libraryDependencies ++= {
     "org.flywaydb"                     % "flyway-database-postgresql"                % flywayV,
     "org.scalatest"                   %% "scalatest"                                 % scalatestV         % "test",
     "org.reflections"                  % "reflections"                               % reflectionsV       % "test",
+    "io.opentelemetry"                 % "opentelemetry-sdk-testing"                 % otelV              % "test",
     "org.typelevel"                   %% "cats-effect-testkit"                       % catsEffectV        % "test",
     "org.typelevel"                   %% "cats-effect-testing-scalatest"             % catsEffectTestingV % "test"
   )

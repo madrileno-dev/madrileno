@@ -17,11 +17,14 @@ class OutboxRecovery(
     extends LoggingSupport {
 
   def recoverOnce: IO[Unit] =
-    for {
-      opened     <- missingLedgerRows
-      reenqueued <- strandedPendingRows
-      _          <- report(opened, reenqueued)
-    } yield ()
+    summon[TelemetryContext].tracer.span("outbox.recover").use { span =>
+      for {
+        opened     <- missingLedgerRows
+        reenqueued <- strandedPendingRows
+        _          <- span.addAttributes(Attribute("outbox.opened", opened), Attribute("outbox.reenqueued", reenqueued))
+        _          <- report(opened, reenqueued)
+      } yield ()
+    }
 
   def run: Resource[IO, Unit] =
     (recoverOnce.handleErrorWith(e => logger.error(e)("outbox recovery pass failed")) *>

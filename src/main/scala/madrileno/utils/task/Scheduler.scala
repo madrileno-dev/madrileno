@@ -244,23 +244,29 @@ class Scheduler(transactor: Transactor, config: SchedulerConfig = SchedulerConfi
     val deadThresholdMillis = heartbeatInterval.toMillis * missedHeartbeatLimit
     val detectionInterval   = heartbeatInterval * 2
 
+    val sweep: IO[Unit] =
+      summon[TelemetryContext].tracer.span("scheduler.sweep").use { span =>
+        Clock[IO].realTimeInstant.flatMap { now =>
+          val staleThreshold = now.minusMillis(deadThresholdMillis)
+          transactor
+            .inSession {
+              repository.reviveStaleExecutions(staleThreshold)
+            }
+            .flatMap { revived =>
+              span.addAttribute(Attribute("scheduler.revived", revived.toLong)) *> {
+                if (revived > 0)
+                  meters.revived.add(revived.toLong) *>
+                    logger.warn(s"Revived $revived dead execution(s) with heartbeat older than $staleThreshold")
+                else
+                  IO.unit
+              }
+            }
+        }
+      }
+
     val oneCheck: IO[Unit] =
-      Clock[IO].realTimeInstant.flatMap { now =>
-        val staleThreshold = now.minusMillis(deadThresholdMillis)
-        transactor
-          .inSession {
-            repository.reviveStaleExecutions(staleThreshold)
-          }
-          .flatMap { revived =>
-            if (revived > 0)
-              meters.revived.add(revived.toLong) *>
-                logger.warn(s"Revived $revived dead execution(s) with heartbeat older than $staleThreshold")
-            else
-              IO.unit
-          }
-          .handleErrorWith { e =>
-            logger.error(e)("Error during dead execution detection")
-          }
+      sweep.handleErrorWith { e =>
+        logger.error(e)("Error during dead execution detection")
       } *> IO.sleep(detectionInterval)
 
     oneCheck.foreverM.background
