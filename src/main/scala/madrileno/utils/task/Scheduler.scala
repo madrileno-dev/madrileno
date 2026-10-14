@@ -203,22 +203,26 @@ class Scheduler(transactor: Transactor, config: SchedulerConfig = SchedulerConfi
       Attribute("task.payload", payload)
     ) ++ task.consecutiveFailures.map(f => Attribute("task.consecutive_failures", f.toLong))
 
+    val heartbeat = Resource.make(heartbeatLoop(repository, task).start)(_.cancel)
+
     val traced = summon[TelemetryContext].tracer
       .span(s"scheduler.execute $taskId", attributes)
       .use { span =>
-        task.execution(task).attempt.flatMap {
-          case Right(result) =>
-            onSuccess(repository, task, result, meters)
-              .handleErrorWith { e =>
-                logger.error(e)(s"Failed to complete $taskId after success")
-              }
-          case Left(e) =>
-            span.recordException(e) *>
-              span.setStatus(StatusCode.Error, e.getMessage) *>
-              onFailure(repository, task, e, meters)
-                .handleErrorWith { completionError =>
-                  logger.error(completionError)(s"Failed to record failure for $taskId")
+        heartbeat.surround {
+          task.execution(task).attempt.flatMap {
+            case Right(result) =>
+              onSuccess(repository, task, result, meters)
+                .handleErrorWith { e =>
+                  logger.error(e)(s"Failed to complete $taskId after success")
                 }
+            case Left(e) =>
+              span.recordException(e) *>
+                span.setStatus(StatusCode.Error, e.getMessage) *>
+                onFailure(repository, task, e, meters)
+                  .handleErrorWith { completionError =>
+                    logger.error(completionError)(s"Failed to record failure for $taskId")
+                  }
+          }
         }
       }
 
@@ -233,18 +237,7 @@ class Scheduler(transactor: Transactor, config: SchedulerConfig = SchedulerConfi
     sem: Semaphore[IO],
     meters: SchedulerMeters
   ): IO[Unit] = {
-    val work: IO[Unit] =
-      Resource
-        .make {
-          heartbeatLoop(repository, task).start
-        } { fiber =>
-          fiber.cancel
-        }
-        .use { _ =>
-          executeAndComplete(repository, task, meters)
-        }
-
-    work.guarantee(sem.release)
+    executeAndComplete(repository, task, meters).guarantee(sem.release)
   }
 
   private def deadExecutionDetectionLoop(repository: SchedulerRepository, meters: SchedulerMeters) = {

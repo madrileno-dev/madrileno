@@ -37,6 +37,14 @@ class QuerySummarySpec extends AnyWordSpec with Matchers {
           |SELECT * FROM locked ORDER BY priority DESC""".stripMargin) shouldBe Some("SELECT locked")
     }
 
+    "name an insert-select CTE by the insert" in {
+      QuerySummary.of("WITH src AS (SELECT 1 FROM task) INSERT INTO outbox (id) SELECT id FROM src") shouldBe Some("INSERT outbox")
+    }
+
+    "skip a FROM inside a function call" in {
+      QuerySummary.of("SELECT extract(epoch from created_at) FROM task") shouldBe Some("SELECT task")
+    }
+
     "fall back to the verb when a select has no table" in {
       QuerySummary.of("SELECT version()") shouldBe Some("SELECT")
     }

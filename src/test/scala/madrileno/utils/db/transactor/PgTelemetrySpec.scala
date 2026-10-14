@@ -47,15 +47,22 @@ class PgTelemetrySpec extends AnyWordSpec with Matchers with OptionValues {
       verbose.captureQuery.queryParametersPolicy shouldBe QueryCaptureConfig.QueryParametersPolicy.All
     }
 
-    "summarise queries by verb and table" in {
+    "summarise queries by verb and table and pass the text through" in {
       val analysis = quiet.queryAnalyzer.analyze("SELECT * FROM task WHERE id = $1").value
       analysis.querySummary shouldBe Some("SELECT task")
-      analysis.queryText shouldBe None
+      analysis.queryText shouldBe Some("SELECT * FROM task WHERE id = $1")
       analysis.storedProcedureName shouldBe None
     }
 
-    "leave unrecognised statements to skunk" in {
-      quiet.queryAnalyzer.analyze("LISTEN events") shouldBe None
+    "memoise analyses per statement text" in {
+      val sql = "SELECT * FROM task WHERE id = $1"
+      quiet.queryAnalyzer.analyze(sql) should be theSameInstanceAs quiet.queryAnalyzer.analyze(sql)
+    }
+
+    "pass the text of an unrecognised statement through without a summary" in {
+      val analysis = quiet.queryAnalyzer.analyze("LISTEN events").value
+      analysis.queryText shouldBe Some("LISTEN events")
+      analysis.querySummary shouldBe None
     }
   }
 }
