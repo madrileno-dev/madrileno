@@ -147,6 +147,10 @@ You don't usually have to think about this. It's how the scheduler stays consist
 
 Each scheduler instance writes its identity into `picked_by` when it leases a row. The default is the JVM hostname (`InetAddress.getLocalHost.getHostName`); override via `scheduler.scheduler-name` in config when running multiple schedulers in containers that share a hostname (e.g. multiple replicas in Kubernetes — set it to the pod name). Useful for the admin UI when you want to know which instance is running a given row.
 
+## Trace link
+
+`trace_parent` stores the W3C `traceparent` of the span that scheduled the row, when there was one. The execution span links to it rather than continuing it, so a task shows up as its own trace with a pointer back to the request. Re-scheduling an unpicked instance replaces the value; retries and recurring runs keep it. See the observability guide for the span layout.
+
 ## Updating the payload
 
 A task's success path can return a value of type `Unit | A | Schedule.NextAt[A]`. Returning `Unit` keeps the existing payload; returning `A` updates the payload for the next scheduled run; returning `Schedule.NextAt(at, payload)` (custom tasks only) sets both the next run time and the payload. This is how a recurring task can carry forward state across runs — e.g. a "process new orders since X" task that updates X each run.

@@ -33,7 +33,8 @@ final case class Task[A] private[task] (
   consecutiveFailures: Option[Int] = None,
   scheduledAt: Option[Instant] = None,
   maxRetries: Option[Int] = None,
-  onAbandon: Option[Task[A] => DBInTransaction[Unit]] = None) {
+  onAbandon: Option[Task[A] => DBInTransaction[Unit]] = None,
+  traceParent: Option[String] = None) {
   def taskId: String = s"${descriptor.taskName}/$taskInstance"
 }
 

@@ -2,16 +2,20 @@ package madrileno.utils.task
 
 import cats.effect.IO
 import madrileno.utils.db.transactor.{DB, DBInTransaction, Transactor}
+import madrileno.utils.observability.TelemetryContext
 
-class SchedulerClient private[task] (repository: ClientSchedulerRepository, transactor: Transactor) {
+class SchedulerClient private[task] (repository: ClientSchedulerRepository, transactor: Transactor)(using TelemetryContext) {
   def schedule[A](task: Task[A]): IO[Boolean] =
-    transactor.inSession(repository.save(task))
+    transactor.inSession(scheduleInSession(task))
 
   def scheduleInSession[A](task: Task[A]): DB[Boolean] =
-    repository.save(task)
+    stamped(task).flatMap(repository.save)
 
   def scheduleTransactionally[A](task: Task[A]): DBInTransaction[Boolean] =
-    repository.save(task)
+    stamped(task).flatMap(repository.save)
+
+  private def stamped[A](task: Task[A]): IO[Task[A]] =
+    summon[TelemetryContext].tracer.currentSpanContext.map(context => task.copy(traceParent = context.filter(_.isValid).map(TraceParent.of)))
 
   private[task] def listTasks: IO[List[TaskRow]] =
     transactor.inSession(repository.list)

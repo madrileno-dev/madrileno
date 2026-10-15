@@ -8,6 +8,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
 
 import scala.concurrent.duration.*
+import scala.jdk.CollectionConverters.*
 
 class SchedulerTracingSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
@@ -64,6 +65,30 @@ class SchedulerTracingSpec extends AsyncWordSpec with AsyncIOSpec with Matchers 
         RecordingTracer.stringAttribute(execute, "task.instance") shouldBe Some("beat-1")
         heartbeats.size should be >= 2
         heartbeats.map(_.getParentSpanId).distinct shouldBe List(execute.getSpanId)
+      }
+    }
+
+    "link the execution span to the span that scheduled the task" in {
+      val descriptor = TaskDescriptor[Unit]("test-link")
+      val task       = Task.oneTime(descriptor)(_ => IO.unit)
+      for {
+        recorder <- RecordingTracer.create
+        result   <- tracedTransactor(recorder.tracerProvider).use { tx =>
+                    val scheduler = Scheduler(tx, config)(using Clock[IO], recorder.context)
+                    scheduler.run(oneTimeTasks = List(task)).use { _ =>
+                      for {
+                        _       <- recorder.context.tracer.span("request").use(_ => scheduler.client.schedule(task.instance("link-1", ())))
+                        request <- awaitSpan(recorder, "request")
+                        execute <- awaitSpan(recorder, "scheduler.execute test-link")
+                      } yield (request, execute)
+                    }
+                  }
+        (request, execute) = result
+        links              = execute.getLinks.asScala.toList
+      } yield {
+        execute.getParentSpanContext.isValid shouldBe false
+        links.map(_.getSpanContext.getTraceId) shouldBe List(request.getTraceId)
+        links.map(_.getSpanContext.getSpanId) shouldBe List(request.getSpanId)
       }
     }
   }
