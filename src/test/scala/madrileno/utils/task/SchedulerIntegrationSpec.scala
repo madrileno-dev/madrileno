@@ -2,7 +2,7 @@ package madrileno.utils.task
 
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.{Clock, IO, Ref}
-import madrileno.support.TestTransactor
+import madrileno.support.{RecordingTracer, TestTransactor}
 import madrileno.utils.observability.TelemetryContext
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
@@ -123,6 +123,22 @@ class SchedulerIntegrationSpec extends AsyncWordSpec with AsyncIOSpec with Match
         customResult shouldBe 3
         txResult shouldBe 1
         lastCustomPayload shouldBe "iteration-2"
+      }
+    }
+
+    "wrap each stale-execution sweep in a scheduler.sweep root span carrying the revived count" in {
+      def firstSweep(recorder: RecordingTracer, remaining: FiniteDuration): IO[List[io.opentelemetry.sdk.trace.data.SpanData]] =
+        recorder.spansNamed("scheduler.sweep").flatMap { spans =>
+          if (spans.nonEmpty) IO.pure(spans)
+          else if (remaining <= Duration.Zero) IO.raiseError(new RuntimeException("Timed out waiting for scheduler.sweep span"))
+          else IO.sleep(50.millis) *> firstSweep(recorder, remaining - 50.millis)
+        }
+      for {
+        recorder <- RecordingTracer.create
+        spans    <- Scheduler(transactor, config)(using Clock[IO], recorder.context).run().use(_ => firstSweep(recorder, 5.seconds))
+      } yield {
+        spans.map(_.getParentSpanContext.isValid) shouldBe List(false)
+        spans.map(RecordingTracer.longAttribute(_, "scheduler.revived")) shouldBe List(Some(0L))
       }
     }
   }

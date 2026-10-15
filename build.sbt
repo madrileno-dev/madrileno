@@ -12,7 +12,7 @@ libraryDependencies ++= {
   val circeV             = "0.14.16"
   val pureconfigV        = "0.17.10"
   val sttpV              = "4.0.26"
-  val skunkV             = "2.0.0-RC2"
+  val skunkV             = "2.0.0-RC3"
   val postgresqlV        = "42.7.13"
   val catsV              = "2.13.0"
   val catsEffectV        = "3.7.1"
@@ -104,6 +104,7 @@ libraryDependencies ++= {
     "org.flywaydb"                     % "flyway-database-postgresql"                % flywayV,
     "org.scalatest"                   %% "scalatest"                                 % scalatestV         % "test",
     "org.reflections"                  % "reflections"                               % reflectionsV       % "test",
+    "io.opentelemetry"                 % "opentelemetry-sdk-testing"                 % otelV              % "test",
     "org.typelevel"                   %% "cats-effect-testkit"                       % catsEffectV        % "test",
     "org.typelevel"                   %% "cats-effect-testing-scalatest"             % catsEffectTestingV % "test"
   )

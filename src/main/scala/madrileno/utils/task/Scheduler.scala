@@ -203,22 +203,26 @@ class Scheduler(transactor: Transactor, config: SchedulerConfig = SchedulerConfi
       Attribute("task.payload", payload)
     ) ++ task.consecutiveFailures.map(f => Attribute("task.consecutive_failures", f.toLong))
 
+    val heartbeat = Resource.make(heartbeatLoop(repository, task).start)(_.cancel)
+
     val traced = summon[TelemetryContext].tracer
-      .span(s"scheduler.execute $taskId", attributes)
+      .span(s"scheduler.execute ${task.descriptor.taskName}", attributes)
       .use { span =>
-        task.execution(task).attempt.flatMap {
-          case Right(result) =>
-            onSuccess(repository, task, result, meters)
-              .handleErrorWith { e =>
-                logger.error(e)(s"Failed to complete $taskId after success")
-              }
-          case Left(e) =>
-            span.recordException(e) *>
-              span.setStatus(StatusCode.Error, e.getMessage) *>
-              onFailure(repository, task, e, meters)
-                .handleErrorWith { completionError =>
-                  logger.error(completionError)(s"Failed to record failure for $taskId")
+        heartbeat.surround {
+          task.execution(task).attempt.flatMap {
+            case Right(result) =>
+              onSuccess(repository, task, result, meters)
+                .handleErrorWith { e =>
+                  logger.error(e)(s"Failed to complete $taskId after success")
                 }
+            case Left(e) =>
+              span.recordException(e) *>
+                span.setStatus(StatusCode.Error, e.getMessage) *>
+                onFailure(repository, task, e, meters)
+                  .handleErrorWith { completionError =>
+                    logger.error(completionError)(s"Failed to record failure for $taskId")
+                  }
+          }
         }
       }
 
@@ -233,41 +237,36 @@ class Scheduler(transactor: Transactor, config: SchedulerConfig = SchedulerConfi
     sem: Semaphore[IO],
     meters: SchedulerMeters
   ): IO[Unit] = {
-    val work: IO[Unit] =
-      Resource
-        .make {
-          heartbeatLoop(repository, task).start
-        } { fiber =>
-          fiber.cancel
-        }
-        .use { _ =>
-          executeAndComplete(repository, task, meters)
-        }
-
-    work.guarantee(sem.release)
+    executeAndComplete(repository, task, meters).guarantee(sem.release)
   }
 
   private def deadExecutionDetectionLoop(repository: SchedulerRepository, meters: SchedulerMeters) = {
     val deadThresholdMillis = heartbeatInterval.toMillis * missedHeartbeatLimit
     val detectionInterval   = heartbeatInterval * 2
 
+    val sweep: IO[Unit] =
+      summon[TelemetryContext].tracer.span("scheduler.sweep").use { span =>
+        Clock[IO].realTimeInstant.flatMap { now =>
+          val staleThreshold = now.minusMillis(deadThresholdMillis)
+          transactor
+            .inSession {
+              repository.reviveStaleExecutions(staleThreshold)
+            }
+            .flatMap { revived =>
+              span.addAttribute(Attribute("scheduler.revived", revived.toLong)) *> {
+                if (revived > 0)
+                  meters.revived.add(revived.toLong) *>
+                    logger.warn(s"Revived $revived dead execution(s) with heartbeat older than $staleThreshold")
+                else
+                  IO.unit
+              }
+            }
+        }
+      }
+
     val oneCheck: IO[Unit] =
-      Clock[IO].realTimeInstant.flatMap { now =>
-        val staleThreshold = now.minusMillis(deadThresholdMillis)
-        transactor
-          .inSession {
-            repository.reviveStaleExecutions(staleThreshold)
-          }
-          .flatMap { revived =>
-            if (revived > 0)
-              meters.revived.add(revived.toLong) *>
-                logger.warn(s"Revived $revived dead execution(s) with heartbeat older than $staleThreshold")
-            else
-              IO.unit
-          }
-          .handleErrorWith { e =>
-            logger.error(e)("Error during dead execution detection")
-          }
+      sweep.handleErrorWith { e =>
+        logger.error(e)("Error during dead execution detection")
       } *> IO.sleep(detectionInterval)
 
     oneCheck.foreverM.background
@@ -292,10 +291,8 @@ class Scheduler(transactor: Transactor, config: SchedulerConfig = SchedulerConfi
       _        <- if (reserved == 0) {
              IO.sleep(pollingInterval)
            } else {
-             transactor
-               .inSession {
-                 repository.pickAndMark(reserved)
-               }
+             summon[TelemetryContext].tracer
+               .noopScope(transactor.inSession(repository.pickAndMark(reserved)))
                .recoverWith { case t =>
                  logger.error(t)("Error while picking tasks") *>
                    IO.pure((Nil, Nil))

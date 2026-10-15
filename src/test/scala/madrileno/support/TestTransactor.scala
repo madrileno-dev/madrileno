@@ -1,14 +1,14 @@
 package madrileno.support
 
-import cats.effect.IO
 import cats.effect.unsafe.implicits.global
+import cats.effect.{IO, Resource}
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.dimafeng.testcontainers.scalatest.TestContainersForAll
 import madrileno.utils.db.transactor.{DB, DBInTransaction, PgConfig, PgTransactor, Transactor}
 import org.flywaydb.core.Flyway
 import org.scalatest.Suite
-import org.typelevel.otel4s.metrics.Meter
-import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.metrics.MeterProvider
+import org.typelevel.otel4s.trace.TracerProvider
 import skunk.Session
 
 trait TestTransactor extends TestContainersForAll { self: Suite =>
@@ -27,17 +27,23 @@ trait TestTransactor extends TestContainersForAll { self: Suite =>
     container
   }
 
-  given Tracer[IO] = Tracer.noop[IO]
-  given Meter[IO]  = Meter.noop[IO]
+  given TracerProvider[IO] = TracerProvider.noop[IO]
+  given MeterProvider[IO]  = MeterProvider.noop[IO]
 
-  private lazy val pgTransactor: PgTransactor = withContainers { container =>
-    val pgConfig = PgConfig(
+  private lazy val pgConfig: PgConfig = withContainers { container =>
+    PgConfig(
       host = container.host,
       port = container.mappedPort(5432),
       user = container.username,
       database = container.databaseName,
       password = Some(container.password)
     )
+  }
+
+  def tracedTransactor(provider: TracerProvider[IO]): Resource[IO, PgTransactor] =
+    PgTransactor.resource(pgConfig)(using provider, MeterProvider.noop[IO])
+
+  private lazy val pgTransactor: PgTransactor = {
     // Finalizer discarded — pool lifetime is tied to the Testcontainers PG container.
     // Releasing in afterAll causes broken-pipe errors because ScalaTest's afterAll ordering
     // conflicts with TestContainersForAll's container lifecycle.

@@ -206,7 +206,7 @@ For the rare case where you need to back out a bad migration in dev: `docker com
 
 ## Connection pool and config
 
-`PgConfig` is loaded from the `pg.*` config block. Defaults: pool size 10, no SSL, default skunk caches (1024 each). Override per-environment via env vars (`PG_HOST`, `PG_PORT`, `PG_PASSWORD`, …).
+`PgConfig` is loaded from the `pg.*` config block. Defaults: pool size 10, no SSL, default skunk caches (1024 each). Override per-environment via env vars (`PG_HOST`, `PG_PORT`, `PG_PASSWORD`, …). `pg.telemetry.capture-parameters` controls whether query spans carry bound parameter values — see [observability.md](observability.md#postgres-query-telemetry).
 
 The pool is shared across the application — there is no per-module pool. Sessions return to the pool when their `inSession` / `inTransaction` block completes, including on errors.
 

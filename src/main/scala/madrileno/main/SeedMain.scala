@@ -7,8 +7,8 @@ import madrileno.auth.repositories.UserAuthRepository
 import madrileno.user.domain.*
 import madrileno.user.repositories.UserRepository
 import madrileno.utils.db.transactor.{DBInTransaction, PgConfig, PgTransactor, Transactor}
-import org.typelevel.otel4s.metrics.Meter
-import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.metrics.MeterProvider
+import org.typelevel.otel4s.trace.TracerProvider
 import pureconfig.ConfigSource
 
 import java.nio.charset.StandardCharsets.UTF_8
@@ -18,8 +18,8 @@ import java.util.UUID
 object SeedMain extends IOApp.Simple {
 
   override def run: IO[Unit] = {
-    given Meter[IO]  = Meter.Implicits.noop
-    given Tracer[IO] = Tracer.Implicits.noop
+    given MeterProvider[IO]  = MeterProvider.noop[IO]
+    given TracerProvider[IO] = TracerProvider.noop[IO]
 
     for {
       config    <- IO.delay(ConfigSource.default)

@@ -2,11 +2,13 @@ package madrileno.utils.db.transactor
 
 import cats.effect.{IO, Resource}
 import fs2.Stream
-import org.typelevel.otel4s.metrics.Meter
-import org.typelevel.otel4s.trace.Tracer
+import org.typelevel.otel4s.metrics.MeterProvider
+import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
 import skunk.*
 import skunk.Session.Credentials
-import skunk.data.{Identifier, Notification}
+import skunk.codec.all.text
+import skunk.data.{Identifier, Notification, Type}
+import skunk.implicits.*
 
 class PgTransactor(sessions: Resource[IO, Session[IO]]) extends Transactor {
 
@@ -21,15 +23,29 @@ class PgTransactor(sessions: Resource[IO, Session[IO]]) extends Transactor {
     sessions.use(session => f(using session))
 
   override def notify(channel: Identifier, payload: String): IO[Unit] =
-    sessions.use(_.channel(channel).notify(payload))
+    sessions.use(_.unique(PgTransactor.pgNotify)((channel.value, payload))).void
 
   override def listen(channel: Identifier, maxQueued: Int): Resource[IO, Stream[IO, Notification[String]]] =
     sessions.flatMap(_.channel(channel).listenR(maxQueued))
 }
 
 object PgTransactor {
-  def resource(pgConfig: PgConfig)(using Tracer[IO], Meter[IO]): Resource[IO, PgTransactor] = {
-    val pool = Session
+  private val void: Codec[Unit] = Codec.simple(_ => "", _ => Right(()), Type.void)
+
+  private val pgNotify: Query[(String, String), Unit] =
+    sql"SELECT pg_notify($text, $text)".query(void).withQuerySummary("NOTIFY")
+
+  def resource(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, PgTransactor] =
+    for {
+      tracer <- Resource.eval(TracerProvider[IO].get("madrileno.utils.db.transactor"))
+      pool   <- pooled(pgConfig)
+    } yield new PgTransactor(withQuietRecycling(pool, tracer))
+
+  private def withQuietRecycling(sessions: Resource[IO, Session[IO]], tracer: Tracer[IO]): Resource[IO, Session[IO]] =
+    Resource.make(sessions.allocated) { case (_, release) => tracer.noopScope(release) }.map(_._1)
+
+  private def pooled(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, Resource[IO, Session[IO]]] =
+    Session
       .Builder[IO]
       .withHost(pgConfig.host)
       .withPort(pgConfig.port)
@@ -47,8 +63,7 @@ object PgTransactor {
       .withParseCacheSize(pgConfig.parseCache)
       .withReadTimeout(pgConfig.readTimeout)
       .withRedactionStrategy(RedactionStrategy.OptIn)
+      .withTelemetryConfig(PgTelemetry.config(pgConfig.telemetry))
       .withSocketOptions(Session.DefaultSocketOptions)
       .pooled(pgConfig.max)
-    pool.map(sessions => new PgTransactor(sessions))
-  }
 }

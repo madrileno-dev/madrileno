@@ -3,7 +3,7 @@ package madrileno.utils.events.outbox
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
-import madrileno.support.{TestData, TestTransactor}
+import madrileno.support.{RecordingTracer, TestData, TestTransactor}
 import madrileno.utils.observability.TelemetryContext
 import madrileno.utils.task.{Scheduler, SchedulerConfig}
 import org.scalatest.matchers.should.Matchers
@@ -80,6 +80,21 @@ class OutboxRecoverySpec extends AsyncWordSpec with AsyncIOSpec with Matchers wi
         _ <- recovery(d).recoverOnce
         n <- scheduledCount(List(e.id))
       } yield n shouldBe 1L
+    }
+
+    "wrap a pass in an outbox.recover span carrying the opened and re-enqueued counts" in {
+      val d = subscribed
+      val e = DomainEvent(DomainEventId(TestData.randomUuid()), "dispatch-event.v1", "dispatch", TestData.randomUuid(), io.circe.Json.obj(), now)
+      for {
+        recorder <- RecordingTracer.create
+        _        <- transactor.inTransaction(outbox.append(e))
+        _        <- new OutboxRecovery(d, delivery, schedulerClient, transactor, OutboxConfig())(using recorder.context).recoverOnce
+        spans    <- recorder.spansNamed("outbox.recover")
+      } yield {
+        spans.map(_.getParentSpanContext.isValid) shouldBe List(false)
+        spans.map(RecordingTracer.longAttribute(_, "outbox.opened")) shouldBe List(Some(1L))
+        spans.map(RecordingTracer.longAttribute(_, "outbox.reenqueued")) shouldBe List(Some(0L))
+      }
     }
   }
 }
