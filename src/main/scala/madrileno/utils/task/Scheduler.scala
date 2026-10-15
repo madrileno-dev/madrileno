@@ -13,7 +13,7 @@ import java.net.InetAddress
 
 class Scheduler(transactor: Transactor, config: SchedulerConfig = SchedulerConfig())(using Clock[IO], TelemetryContext) extends LoggingSupport {
 
-  val client: SchedulerClient = new SchedulerClient(new ClientSchedulerRepository(), transactor, summon[TelemetryContext].tracer)
+  val client: SchedulerClient = new SchedulerClient(new ClientSchedulerRepository(), transactor)
 
   private val concurrency          = config.concurrency
   private val pollingInterval      = config.pollingInterval

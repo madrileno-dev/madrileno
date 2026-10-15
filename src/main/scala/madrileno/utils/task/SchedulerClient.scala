@@ -2,12 +2,9 @@ package madrileno.utils.task
 
 import cats.effect.IO
 import madrileno.utils.db.transactor.{DB, DBInTransaction, Transactor}
-import org.typelevel.otel4s.trace.Tracer
+import madrileno.utils.observability.TelemetryContext
 
-class SchedulerClient private[task] (
-  repository: ClientSchedulerRepository,
-  transactor: Transactor,
-  tracer: Tracer[IO]) {
+class SchedulerClient private[task] (repository: ClientSchedulerRepository, transactor: Transactor)(using TelemetryContext) {
   def schedule[A](task: Task[A]): IO[Boolean] =
     transactor.inSession(scheduleInSession(task))
 
@@ -18,7 +15,7 @@ class SchedulerClient private[task] (
     stamped(task).flatMap(repository.save)
 
   private def stamped[A](task: Task[A]): IO[Task[A]] =
-    tracer.currentSpanContext.map(context => task.copy(traceParent = context.filter(_.isValid).map(TraceParent.of)))
+    summon[TelemetryContext].tracer.currentSpanContext.map(context => task.copy(traceParent = context.filter(_.isValid).map(TraceParent.of)))
 
   private[task] def listTasks: IO[List[TaskRow]] =
     transactor.inSession(repository.list)
