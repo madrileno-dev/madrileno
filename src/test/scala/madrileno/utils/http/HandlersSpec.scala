@@ -2,10 +2,14 @@ package madrileno.utils.http
 
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
+import fs2.Stream
 import io.circe.{Json, parser}
 import io.opentelemetry.api.OpenTelemetry
 import madrileno.utils.observability.TelemetryContext
-import org.http4s.{Status, UrlForm}
+import org.http4s.headers.{Accept, `Content-Type`}
+import org.http4s.server.middleware.EntityLimiter.EntityTooLarge
+import org.http4s.server.websocket.WebSocketBuilder2
+import org.http4s.{EntityEncoder, MediaType, Request, Status, UrlForm}
 import org.scalatest.funspec.AnyFunSpec
 import org.scalatest.matchers.should.Matchers
 import org.typelevel.otel4s.metrics.Meter
@@ -22,11 +26,15 @@ class HandlersSpec extends AnyFunSpec with Matchers with ScalatestRouteTest {
   private object probe extends Handlers {
     final case class Payload(name: String, count: Int) derives Codec.AsObject
 
+    private val wsb: WebSocketBuilder2[IO] = WebSocketBuilder2[IO].unsafeRunSync()
+
     val route: Route =
       handleExceptions(exceptionHandler(pass)) {
         handleRejections(rejectionHandler(pass)) {
           concat(
             path("json") { post { entity(as[Payload]) { payload => complete(payload.name) } } },
+            path("json-out") { get { complete(Payload("x", 1)) } },
+            path("ws") { handleWebSocketMessages(wsb, Stream.empty, _.drain) },
             path("validated") { validate(false, "count must be positive") { complete("unreachable") } },
             path("illegal") { complete(IO.raiseError[String](new IllegalArgumentException("bad input"))) },
             path("boom") { complete(IO.raiseError[String](new RuntimeException("boom"))) },
@@ -46,25 +54,69 @@ class HandlersSpec extends AnyFunSpec with Matchers with ScalatestRouteTest {
       }
   }
 
+  private def jsonPost(json: String): Request[IO] =
+    Post("/json").withEntity(json)(using EntityEncoder.stringEncoder).withContentType(`Content-Type`(MediaType.application.json))
+
   private def body: Json = parser.parse(responseAs[String]).fold(throw _, identity)
 
   private def field(name: String): Option[String] = body.hcursor.downField(name).as[String].toOption
 
   describe("rejectionHandler") {
-    it("maps a circe decoding failure to an entity rejection naming the field") {
-      Post("/json").withEntity("""{"name":"x","count":"many"}""") ~> probe.route ~> check {
+    it("maps a circe decoding failure to a validation error naming the field, without echoing the body") {
+      jsonPost("""{"name":"secret-name","count":"many"}""") ~> probe.route ~> check {
         status shouldBe Status.BadRequest
-        field("type") shouldBe Some("rejection:entity")
-        field("title").getOrElse("") should startWith("The request entity was invalid: ")
-        field("title").getOrElse("") should include("count")
+        field("type") shouldBe Some("rejection:static-validation-failed")
+        field("path") shouldBe Some(".count")
+        field("detail").getOrElse("") should startWith(".count: ")
+        responseAs[String] should not include "secret-name"
       }
     }
 
-    it("maps unparseable JSON to an entity rejection") {
-      Post("/json").withEntity("""{not json""") ~> probe.route ~> check {
+    it("maps unparseable JSON to malformed request content") {
+      jsonPost("""{not json""") ~> probe.route ~> check {
         status shouldBe Status.BadRequest
-        field("type") shouldBe Some("rejection:entity")
-        field("title").getOrElse("") should startWith("The request entity was invalid: ")
+        field("type") shouldBe Some("rejection:malformed-request-content")
+      }
+    }
+
+    it("answers 415 with the supported content types when the body is not JSON") {
+      Post("/json").withEntity("""{"name":"x","count":1}""") ~> probe.route ~> check {
+        status shouldBe Status.UnsupportedMediaType
+        field("type") shouldBe Some("rejection:unsupported-request-content-type")
+        body.hcursor.downField("supportedContentTypes").as[List[String]] shouldBe Right(List("application/json"))
+      }
+    }
+
+    it("answers 400 when the body is missing") {
+      Post("/json") ~> probe.route ~> check {
+        status shouldBe Status.BadRequest
+        field("type") shouldBe Some("rejection:request-entity-expected")
+      }
+    }
+
+    it("answers 413 with the limit when the body exceeds the server's request size limit") {
+      Post("/json")
+        .withBodyStream(Stream.raiseError[IO](EntityTooLarge(16)))
+        .withContentType(`Content-Type`(MediaType.application.json)) ~> probe.route ~> check {
+        status shouldBe Status.PayloadTooLarge
+        field("type") shouldBe Some("rejection:payload-too-large")
+        body.hcursor.downField("limitBytes").as[Long] shouldBe Right(16L)
+      }
+    }
+
+    it("answers 406 with the available content types when the client accepts none of them") {
+      Get("/json-out").withHeaders(Accept(MediaType.text.plain)) ~> probe.route ~> check {
+        status shouldBe Status.NotAcceptable
+        field("type") shouldBe Some("rejection:unaccepted-response-content-type")
+        body.hcursor.downField("supportedContentTypes").as[List[String]] shouldBe Right(List("application/json"))
+      }
+    }
+
+    it("answers 426 with an Upgrade header when a WebSocket route gets a plain request") {
+      Get("/ws") ~> probe.route ~> check {
+        status shouldBe Status.UpgradeRequired
+        field("type") shouldBe Some("rejection:expected-web-socket-request")
+        header("Upgrade").map(_.value) shouldBe Some("websocket")
       }
     }
 

@@ -195,10 +195,7 @@ class ApplicationLoader(
     case _ => _ => IO.unit
   }
 
-  def routes(wsb: WebSocketBuilder2[IO]): Route = {
-    val ws = wsb.withOnNonWebSocketRequest(
-      IO.pure(Response[IO](Status.UpgradeRequired).withEntity("Upgrade required for WebSocket communication.")(using EntityEncoder.stringEncoder))
-    )
+  def routes(ws: WebSocketBuilder2[IO]): Route = {
     onSuccess(traceFields) { initialCtx =>
       val logAction = logActionFor(initialCtx)
       logRequest(logAction = Some(logAction)) {

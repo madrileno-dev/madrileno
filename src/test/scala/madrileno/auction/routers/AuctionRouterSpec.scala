@@ -15,7 +15,7 @@ import org.http4s.Method.*
 import org.http4s.Status.*
 import org.http4s.circe.CirceEntityCodec.*
 import org.http4s.implicits.*
-import org.http4s.{EntityDecoder, Request, Uri}
+import org.http4s.{Request, Uri}
 import pl.iterators.baklava.EmptyBody
 import pl.iterators.stir.server.Route
 
@@ -215,21 +215,16 @@ class AuctionRouterSpec extends BaseRouteSpec with TestApplicationLoader {
           |
           |OpenAPI 3.x does not model WebSockets; this entry exists for discoverability only.
           |A WebSocket upgrade request returns 101 Switching Protocols and starts streaming.
-          |A plain GET (no `Upgrade` header) returns 426 Upgrade Required with the body
-          |`Upgrade required for WebSocket communication.` — documented below.""".stripMargin,
+          |A plain GET (no `Upgrade` header) returns 426 Upgrade Required with the error type
+          |`rejection:expected-web-socket-request` — documented below.""".stripMargin,
       summary = "Live auction event stream (WebSocket)",
       tags = Seq("Auctions")
     )(
       onRequest()
-        // Override circe's String entity decoder so the plain-text 426 body decodes via http4s' text decoder.
-        .respondsWith[String](UpgradeRequired, description = "Plain GET fallback — non-upgrade response")(
-          using EntityDecoder.text[IO],
-          summon,
-          summon
-        )
+        .respondsWith[Error[Unit]](UpgradeRequired, description = "Plain GET fallback — non-upgrade response")
         .assert { ctx =>
           val response = ctx.performRequest(allRoutes)
-          response.body shouldBe "Upgrade required for WebSocket communication."
+          response.body.`type`.map(_.toString) shouldBe Some("rejection:expected-web-socket-request")
         }
     )
   )
@@ -241,20 +236,16 @@ class AuctionRouterSpec extends BaseRouteSpec with TestApplicationLoader {
           |but only `AuctionCreated`/`BidPlaced`/`AuctionCancelled`/`AuctionClosed` events for this `auctionId`.
           |
           |OpenAPI 3.x does not model WebSockets; this entry exists for discoverability only. A plain GET
-          |(no `Upgrade` header) returns 426 Upgrade Required with the body `Upgrade required for WebSocket communication.`""".stripMargin,
+          |(no `Upgrade` header) returns 426 Upgrade Required with the error type `rejection:expected-web-socket-request`.""".stripMargin,
       summary = "Live event stream for one auction (WebSocket)",
       pathParameters = p[AuctionId]("auctionId"),
       tags = Seq("Auctions")
     )(
       onRequest(pathParameters = TestData.randomAuctionId())
-        .respondsWith[String](UpgradeRequired, description = "Plain GET fallback — non-upgrade response")(
-          using EntityDecoder.text[IO],
-          summon,
-          summon
-        )
+        .respondsWith[Error[Unit]](UpgradeRequired, description = "Plain GET fallback — non-upgrade response")
         .assert { ctx =>
           val response = ctx.performRequest(allRoutes)
-          response.body shouldBe "Upgrade required for WebSocket communication."
+          response.body.`type`.map(_.toString) shouldBe Some("rejection:expected-web-socket-request")
         }
     )
   )
