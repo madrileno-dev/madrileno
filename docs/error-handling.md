@@ -126,6 +126,7 @@ Stir's routing layer rejects things before your service even runs: missing query
 | Rejection                                  | Status | Type tag                                  |
 | ------------------------------------------ | ------ | ----------------------------------------- |
 | `MalformedRequestContentRejection`         | 400    | `rejection:static-validation-failed` (when JSON decoding fails) or `rejection:malformed-request-content` |
+| `MalformedRequestContentRejection` caused by `EntityTooLarge` | 413 | `rejection:payload-too-large` (the body exceeds `http.max-request-size`) |
 | `MalformedFormFieldRejection`              | 400    | `rejection:malformed-form-field`          |
 | `MalformedHeaderRejection`                 | 400    | `rejection:malformed-header`              |
 | `MalformedQueryParamRejection`             | 400    | `rejection:malformed-query-param`         |
@@ -134,7 +135,10 @@ Stir's routing layer rejects things before your service even runs: missing query
 | `InvalidRequiredValueForQueryParamRejection` | 400  | `rejection:invalid-required-value-for-query-param` |
 | `MissingFormFieldRejection`                | 400    | `rejection:missing-form-field`            |
 | `MissingCookieRejection`                   | 400    | `rejection:missing-cookie`                |
-| `EntityRejection`                          | 400    | `rejection:entity`                        |
+| `UnsupportedRequestContentTypeRejection`   | 415    | `rejection:unsupported-request-content-type` |
+| `RequestEntityExpectedRejection`           | 400    | `rejection:request-entity-expected`       |
+| `UnacceptedResponseContentTypeRejection`   | 406    | `rejection:unaccepted-response-content-type` |
+| `ExpectedWebSocketRequestRejection`        | 426    | `rejection:expected-web-socket-request`   |
 | `ValidationRejection`                      | 400    | `rejection:static-validation-failed`      |
 | `SchemeRejection`                          | 400    | `rejection:scheme`                        |
 | `MethodRejection`                          | 405    | `rejection:method`                        |
@@ -217,7 +221,7 @@ Don't try to make this transactional with the database — the storage layer isn
 
 ## At the boundary: codec validation
 
-Before any service runs, request bodies decode through circe codecs. Opaque-type validators (see [domain-modeling.md](domain-modeling.md)) are wired into those codecs, so invalid inputs (`""` for `WineName`, negative `Price`) fail at decoding. The framework turns those into `MalformedRequestContentRejection` with the original `DecodingFailure` attached, and the rejection handler renders them as 400 with `type = rejection:static-validation-failed`, including the JSON path:
+Before any service runs, request bodies decode through circe codecs. Opaque-type validators (see [domain-modeling.md](domain-modeling.md)) are wired into those codecs, so invalid inputs (`""` for `WineName`, negative `Price`) fail at decoding. The framework turns those into `MalformedRequestContentRejection` carrying the original `DecodingFailure`, and the rejection handler renders them as 400 with `type = rejection:static-validation-failed`, including the JSON path:
 
 ```json
 {

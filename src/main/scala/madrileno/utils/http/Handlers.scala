@@ -4,7 +4,9 @@ import io.circe.DecodingFailure
 import madrileno.utils.observability.{LoggingSupport, TelemetryContext}
 import org.http4s.headers.{Allow, `WWW-Authenticate`}
 import org.http4s.otel4s.middleware.instances.all.*
-import org.http4s.{Headers, Status}
+import org.http4s.server.middleware.EntityLimiter.EntityTooLarge
+import org.http4s.{Header, Headers, InvalidMessageBodyFailure, MediaRange, MediaType, Status}
+import org.typelevel.ci.*
 import pl.iterators.stir.server.*
 import pl.iterators.stir.server.AuthenticationFailedRejection.{CredentialsMissing, CredentialsRejected}
 
@@ -41,6 +43,17 @@ trait Handlers extends LoggingSupport with BaseRouter {
       .filterNot(_ == '$')
       .replaceAll("([a-z])([A-Z])", "$1-$2")
       .toLowerCase // kebabify
+
+  private def decodingFailure(throwable: Throwable): Option[DecodingFailure] = throwable match {
+    case df: DecodingFailure                                     => Some(df)
+    case InvalidMessageBodyFailure(_, Some(df: DecodingFailure)) => Some(df)
+    case _                                                       => None
+  }
+
+  private def render(range: MediaRange): String = range match {
+    case mediaType: MediaType => s"${mediaType.mainType}/${mediaType.subType}"
+    case _                    => s"${range.mainType}/*"
+  }
 
   def exceptionHandler(loggingDirective: Directive0)(using tc: TelemetryContext): ExceptionHandler =
     ExceptionHandler {
@@ -96,9 +109,20 @@ trait Handlers extends LoggingSupport with BaseRouter {
       .handle { case ValidationRejection(msg, _) =>
         handlerComplete(BadRequest, "rejection:static-validation-failed", "Validation failed", Some(msg), Headers.empty, (), loggingDirective)
       }
+      .handle { case MalformedRequestContentRejection(_, EntityTooLarge(limit)) =>
+        handlerComplete(
+          PayloadTooLarge,
+          "rejection:payload-too-large",
+          "The request entity is larger than the server accepts",
+          Some(s"Limit: $limit bytes"),
+          Headers.empty,
+          Map("limitBytes" -> limit),
+          loggingDirective
+        )
+      }
       .handle { case MalformedRequestContentRejection(msg, throwable) =>
-        throwable match {
-          case df: DecodingFailure =>
+        decodingFailure(throwable) match {
+          case Some(df) =>
             handlerComplete(
               BadRequest,
               "rejection:static-validation-failed",
@@ -164,13 +188,48 @@ trait Handlers extends LoggingSupport with BaseRouter {
           loggingDirective
         )
       }
-      .handle { case EntityRejection(e) =>
+      .handleAll[UnsupportedRequestContentTypeRejection] { rejections =>
+        val supported = rejections.flatMap(_.supported).map(render).distinct
+        handlerComplete(
+          UnsupportedMediaType,
+          typeFromRejection[UnsupportedRequestContentTypeRejection],
+          "The request Content-Type is not supported",
+          Some("Supported content types: " + supported.mkString(", ")),
+          Headers.empty,
+          Map("supportedContentTypes" -> supported),
+          loggingDirective
+        )
+      }
+      .handle { case RequestEntityExpectedRejection =>
         handlerComplete(
           BadRequest,
-          typeFromRejection[EntityRejection],
-          "The request entity was invalid: " + e.getMessage,
+          typeFromRejection[RequestEntityExpectedRejection.type],
+          "The request entity was expected but not supplied",
           None,
           Headers.empty,
+          (),
+          loggingDirective
+        )
+      }
+      .handleAll[UnacceptedResponseContentTypeRejection] { rejections =>
+        val supported = rejections.flatMap(_.supported).map(contentType => render(contentType.mediaType)).distinct
+        handlerComplete(
+          NotAcceptable,
+          typeFromRejection[UnacceptedResponseContentTypeRejection],
+          "The resource is not available in a content type the request accepts",
+          Some("Available content types: " + supported.mkString(", ")),
+          Headers.empty,
+          Map("supportedContentTypes" -> supported),
+          loggingDirective
+        )
+      }
+      .handle { case ExpectedWebSocketRequestRejection =>
+        handlerComplete(
+          UpgradeRequired,
+          typeFromRejection[ExpectedWebSocketRequestRejection.type],
+          "The resource requires a WebSocket upgrade request",
+          None,
+          Headers(Header.Raw(ci"Upgrade", "websocket")),
           (),
           loggingDirective
         )

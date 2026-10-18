@@ -7,7 +7,7 @@ libraryDependencySchemes += "pl.iterators" %% "http4s-stir" % VersionScheme.Alwa
 
 libraryDependencies ++= {
   val http4sV            = "0.23.36"
-  val http4sStirV        = "0.6.0"
+  val http4sStirV        = "0.7.0"
   val http4sOtelV        = "0.18.0"
   val circeV             = "0.14.16"
   val pureconfigV        = "0.17.10"
