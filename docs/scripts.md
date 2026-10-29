@@ -231,7 +231,12 @@ Arrows between modules are labelled with the kind of dependency:
 - **`imports`** lists the other module's packages it imports types from: `domain`, or `module` for its root package.
 - **`uses`** names types from the other module's `services`, `repositories`, `routers` or `gateways` that wiring doesn't explain, such as `uses AnonymiseResult`.
 
-A wired member's type, its supertypes, and a wildcard import of their package all count as explained. So `uses` marks a module reaching into another module's internals around the cake, which is worth a look in review. The template has none.
+Several things count as explained:
+- a wired member's type, its supertypes, and the types in their public method signatures, such as a result type a wired service returns
+- a wildcard import of their package
+- event types, wherever they live, since events are how modules are meant to talk
+
+So `uses` marks a module reaching into another module's internals around the cake, which is worth a look in review. The template has none. In the details panel, each reference says whether wiring or an event explains it.
 
 ### Metrics
 

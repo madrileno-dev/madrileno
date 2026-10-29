@@ -80,7 +80,7 @@ object ArchMetrics {
       propagationCost = if (pairs == 0) 0.0 else reached.toDouble / pairs,
       largestCycle = if (cycles > 1) cycles else 0,
       stabilityViolations = edges.toList.flatMap((from, tos) => tos.toList.map(from -> _)).count((from, to) => coupled(to) > coupled(from)),
-      cakeBypasses = model.references.count(r => InternalLayers(r.layer) && !r.wired),
+      cakeBypasses = model.references.count(r => InternalLayers(r.layer) && r.explainedBy.isEmpty),
       drift = model.warnings.size + model.unclassified.size
     )
   }

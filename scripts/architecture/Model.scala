@@ -73,8 +73,12 @@ final case class Reference(
   layer: String,
   symbol: String,
   loc: Loc,
-  wired: Boolean = false)
+  explainedBy: Option[Explanation] = None)
     derives ReadWriter
+
+enum Explanation derives ReadWriter {
+  case Wiring, Event
+}
 
 final case class Site(
   owner: Owner,
