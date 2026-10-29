@@ -8,17 +8,9 @@ object WiringExtractor {
     files: List[ParsedFile],
     ownership: Ownership
   ): Extracted[List[Wiring]] = {
-    val platformNames = files
-      .filter(file =>
-        ownership.ownerOf(file.pkg) match {
-          case Owner.Module(_) => false
-          case _               => true
-        }
-      )
-      .flatMap(definedNames)
-      .toSet
-    val providers = modules.flatMap(module => module.provides.map(_.name -> module.id)).groupMap(_._1)(_._2)
-    val resolved  = for {
+    val platformNames = providedByComposition(files, ownership)
+    val providers     = modules.flatMap(module => module.provides.map(_.name -> module.id)).groupMap(_._1)(_._2)
+    val resolved      = for {
       module <- modules
       member <- module.consumes
     } yield providers.getOrElse(member.name, Nil).filterNot(_ == module.id) match {
@@ -42,8 +34,33 @@ object WiringExtractor {
     Extracted(resolved.collect { case Right(wirings) => wirings }.flatten, resolved.collect { case Left(warning) => warning } ++ notMixedIn, Nil)
   }
 
-  private def definedNames(file: ParsedFile): List[String] =
-    file.tree.collect {
+  private final case class Definition(parents: List[String], names: List[String])
+
+  private def providedByComposition(files: List[ParsedFile], ownership: Ownership): Set[String] = {
+    val definitions = files
+      .filter(file =>
+        ownership.ownerOf(file.pkg) match {
+          case Owner.Module(_) => false
+          case _               => true
+        }
+      )
+      .flatMap(_.tree.collect {
+        case d: Defn.Class  => d.name.value -> Definition(Trees.parentNames(d.templ), memberNames(d.templ) ++ ctorNames(d))
+        case d: Defn.Trait  => d.name.value -> Definition(Trees.parentNames(d.templ), memberNames(d.templ))
+        case d: Defn.Object => d.name.value -> Definition(Trees.parentNames(d.templ), memberNames(d.templ))
+      })
+      .toMap
+    val reachable = closure(Set("ApplicationLoader").filter(definitions.contains), definitions)
+    reachable.flatMap(name => definitions(name).names)
+  }
+
+  private def closure(names: Set[String], definitions: Map[String, Definition]): Set[String] = {
+    val next = names ++ names.flatMap(name => definitions(name).parents.filter(definitions.contains))
+    if (next == names) names else closure(next, definitions)
+  }
+
+  private def memberNames(template: Template): List[String] =
+    Trees.members(template).flatMap {
       case d: Defn.Val        => Trees.patNames(d.pats)
       case d: Decl.Val        => Trees.patNames(d.pats)
       case d: Defn.Def        => List(d.name.value)
@@ -51,8 +68,11 @@ object WiringExtractor {
       case d: Defn.GivenAlias => List(d.name.value)
       case d: Decl.Given      => List(d.name.value)
       case d: Defn.Given      => List(d.name.value)
-      case d: Defn.Class      => d.ctor.paramClauses.flatMap(_.values).filter(isMemberParam(d, _)).map(_.name.value).toList
-    }.flatten
+      case _                  => Nil
+    }
+
+  private def ctorNames(cls: Defn.Class): List[String] =
+    cls.ctor.paramClauses.flatMap(_.values).filter(isMemberParam(cls, _)).map(_.name.value).toList
 
   private def isMemberParam(cls: Defn.Class, param: Term.Param): Boolean =
     cls.mods.exists {

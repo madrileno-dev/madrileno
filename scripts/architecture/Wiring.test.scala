@@ -70,4 +70,24 @@ class WiringSuite extends munit.FunSuite {
       List(("shop", "user", "repositories", "UserRepository"))
     )
   }
+
+  test("only ApplicationLoader and the platform traits it extends provide members") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "main/ApplicationLoader.scala",
+        "package app.main\nclass ApplicationLoader extends Logging with UserModule {\n  val transactor: Transactor = ???\n}"
+      ),
+      Fixtures.src("main/SeedMain.scala", "package app.main\nobject SeedMain {\n  val seeds: Seeds = ???\n}"),
+      Fixtures.src("utils/log/Logging.scala", "package app.utils.log\ntrait Logging extends Base\ntrait Base {\n  def logger: Logger = ???\n}"),
+      Fixtures.src("utils/http/AdminRouter.scala", "package app.utils.http\nclass AdminRouter {\n  val routes: Routes = ???\n}"),
+      Fixtures.src(
+        "user/UserModule.scala",
+        "package app.user\ntrait UserModule {\n  val transactor: Transactor\n  val logger: Logger\n  val routes: Routes\n  val seeds: Seeds\n}"
+      )
+    )
+    val ownership = Ownership.of(files)
+    val result    = WiringExtractor.extract(ModuleExtractor.extract(files, ownership).value, files, ownership)
+    assertEquals(result.value.map(_.member).sorted, List("logger", "transactor"))
+    assertEquals(result.warnings.map(_.key).sorted, List("unprovided:user:routes", "unprovided:user:seeds"))
+  }
 }
