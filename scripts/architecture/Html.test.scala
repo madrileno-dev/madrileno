@@ -4,22 +4,9 @@ class HtmlSuite extends munit.FunSuite {
   private val diff = ArchDiff.compare(Fixtures.diffBase, Fixtures.diffHead, "main@abc1234", "working tree")
   private val page = Html.render(diff)
 
-  test("layout is deterministic, layered by dependency, and never overlaps") {
-    val points = Layout.layered(List("a", "b", "c"), List("a" -> "b", "b" -> "c", "c" -> "a"))
-    assertEquals(points, Layout.layered(List("a", "b", "c"), List("a" -> "b", "b" -> "c", "c" -> "a")))
-    assert(points("a").y < points("b").y && points("b").y < points("c").y)
-    assertEquals(points.values.toSet.size, 3)
-  }
-
-  test("self-contained: no external scripts, styles or URLs") {
-    assert(!page.contains("<script src"))
-    assert(!page.contains("<link"))
-    assert("https?://".r.findFirstIn(page).isEmpty)
-  }
-
   test("diff page has title, module nodes, changed-only filter and embedded data") {
     assert(page.contains("<title>Architecture diff: main@abc1234 → working tree</title>"))
-    assert(page.contains("data-key=\"module:order\""))
+    assert(page.contains("""<button class="module-chip added" data-module="order">+ order</button>"""))
     assert(page.contains("Changed only"))
     assert(page.contains("<script type=\"application/json\" id=\"arch-data\">"))
   }
@@ -39,28 +26,6 @@ class HtmlSuite extends munit.FunSuite {
 
   test("full page has no changed-only filter") {
     assert(!Html.render(ArchDiff.full(Fixtures.diffHead, "working tree")).contains("Changed only"))
-  }
-
-  private val cyclic = Extractor.extract(
-    Fixtures.project(
-      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AModule with BModule"),
-      Fixtures.src("a/AModule.scala", "package app.a\nimport app.b.domain.X\ntrait AModule"),
-      Fixtures.src("b/BModule.scala", "package app.b\nimport app.a.domain.Y\ntrait BModule")
-    )
-  )
-
-  test("edges of a cyclic graph stay inside the canvas") {
-    val out     = Html.render(ArchDiff.full(cyclic, "working tree"))
-    val viewBox = """<svg viewBox="0 0 ([0-9.]+) ([0-9.]+)"""".r.findFirstMatchIn(out).get
-    val (w, h)  = (viewBox.group(1).toDouble, viewBox.group(2).toDouble)
-    val numbers =
-      """<path d="M ([^"]+)" marker-end""".r.findAllMatchIn(out).flatMap(_.group(1).split("[ ,MC]+").filter(_.nonEmpty).map(_.toDouble)).toList
-    assert(numbers.nonEmpty)
-    assert(numbers.forall(n => n >= 0 && n <= math.max(w, h)), numbers.mkString(" "))
-  }
-
-  test("changed-only keeps unchanged nodes that a changed edge points at") {
-    assert("""data-key="module:user" data-status="touched"""".r.findFirstIn(page).isDefined)
   }
 
   test("the page carries the Madrileño brand") {
@@ -91,5 +56,45 @@ class HtmlSuite extends munit.FunSuite {
     assert(diffPage.contains("0% → 100%"))
     assert(Html.render(ArchDiff.full(cyclic, "h")).contains(">100%<"))
     assert(diffPage.contains("\"dependents\""))
+  }
+
+  test("the only external resource is the pinned Mermaid script with an integrity hash") {
+    assertEquals("https?://[^\"'\\s<>)]+".r.findAllIn(page).toList.distinct, List(Html.MermaidUrl))
+    assert(page.contains(s"""<script src="${Html.MermaidUrl}" integrity="${Html.MermaidIntegrity}" crossorigin="anonymous"></script>"""))
+  }
+
+  test("the diagram has zoom controls, so a dense graph fitted to the page can still be read") {
+    assert(
+      page.contains(
+        """<span class="zoom"><button type="button" data-zoom="out" aria-label="Zoom out">−</button><button type="button" data-zoom="fit">Fit</button><button type="button" data-zoom="in" aria-label="Zoom in">+</button></span>"""
+      ),
+      page
+    )
+    assert(page.contains("useMaxWidth: false"), "the script sizes the diagram itself")
+  }
+
+  test("the click handler's pattern finds the node id inside the id Mermaid gives a node") {
+    val pattern = """el\.id\.match\(/(.*?)/\)""".r.findFirstMatchIn(page).get.group(1)
+    assertEquals(pattern.r.findFirstMatchIn("flowchart-module_order-12").map(_.group(1)), Some("module_order"))
+  }
+
+  test("the page embeds one Mermaid diagram per detail level, plus the changes in a diff") {
+    val diagrams = """<script type="application/json" id="arch-diagrams">(.*?)</script>""".r.findFirstMatchIn(page).get.group(1)
+    val parsed   = ujson.read(diagrams)
+    assertEquals(parsed.obj.keySet.toSet, Set("modules", "components", "everything", "changed", "ids"))
+    assert(parsed("modules").str.contains("flowchart LR"))
+    assert(parsed("changed").str.contains("module_order"))
+    assertEquals(parsed("ids")("module_order").str, "order")
+    assert(
+      !ujson
+        .read(
+          """<script type="application/json" id="arch-diagrams">(.*?)</script>""".r
+            .findFirstMatchIn(Html.render(ArchDiff.full(Fixtures.diffHead, "h")))
+            .get
+            .group(1)
+        )
+        .obj
+        .contains("changed")
+    )
   }
 }

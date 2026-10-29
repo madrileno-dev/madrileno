@@ -1,8 +1,9 @@
 package architecture
 
 object Html {
-  private val NodeWidth  = 160.0
-  private val NodeHeight = 44.0
+  val MermaidUrl: String = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"
+
+  val MermaidIntegrity: String = "sha384-rbtjAdnIQE/aQJGEgXrVUlMibdfTSa4PQju4HDhN3sR2PmaKFzhEafuePsl9H/9I"
 
   def escape(text: String): String =
     text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")
@@ -32,8 +33,15 @@ object Html {
       s"""<section id="metrics"><h2>Metrics</h2><p class="muted">Lower is better. Read propagation cost together with size concentration: merging modules lowers the first and raises the second.</p>${metricsCards(
           diff
         )}</section>""",
-      """<section id="modules"><h2>Modules</h2><div class="modules-layout">""",
-      s"""<div class="graph">${svg(diff)}</div>""",
+      """<section id="modules"><h2>Modules</h2>""",
+      """<div class="graph-controls"><span class="muted">Show</span>""" +
+        """<label><input type="radio" name="level" value="modules" checked> modules</label>""" +
+        """<label><input type="radio" name="level" value="components"> with services and repositories</label>""" +
+        """<label><input type="radio" name="level" value="everything"> with tables and events</label>""" +
+        """<span class="zoom"><button type="button" data-zoom="out" aria-label="Zoom out">−</button><button type="button" data-zoom="fit">Fit</button><button type="button" data-zoom="in" aria-label="Zoom in">+</button></span></div>""",
+      moduleList(diff),
+      """<div class="modules-layout">""",
+      """<div class="graph" id="graph"><p class="muted">Drawing the diagram…</p></div>""",
       """<aside id="details"><p class="muted">Click a module to see what it consumes, provides and contributes.</p></aside>""",
       "</div></section>",
       s"""<section id="events"><h2>Events</h2>${eventsTable(diff)}</section>""",
@@ -45,6 +53,8 @@ object Html {
       "</main>",
       "<footer>Madrileño architecture map · read from source, not compiled code</footer>",
       s"""<script type="application/json" id="arch-data">$data</script>""",
+      s"""<script type="application/json" id="arch-diagrams">${diagrams(diff)}</script>""",
+      s"""<script src="$MermaidUrl" integrity="$MermaidIntegrity" crossorigin="anonymous"></script>""",
       s"<script>$script</script>",
       "</body>",
       "</html>"
@@ -87,61 +97,26 @@ object Html {
     case Status.Unchanged => ""
   }
 
-  private def svg(diff: DiffModel): String = {
-    val graph   = GraphView.modules(diff)
-    val points  = Layout.layered(graph.nodes.map(_.key), graph.edges.map(e => e.from -> e.to))
-    val drawn   = graph.edges.filter(e => points.contains(e.from) && points.contains(e.to))
-    val upward  = drawn.filter(e => points(e.to).y <= points(e.from).y)
-    val rightX  = points.values.map(_.x).maxOption.getOrElse(0.0) + NodeWidth
-    val width   = rightX + 40 + upward.size * 14 + 40
-    val height  = points.values.map(_.y).maxOption.getOrElse(0.0) + NodeHeight + 40
-    val outPort = ports(drawn.filterNot(upward.contains), _.from, e => points(e.to).x, points)
-    val inPort  = ports(drawn.filterNot(upward.contains), _.to, e => points(e.from).x, points)
-    val touched = drawn.filter(_.status != Status.Unchanged).flatMap(e => List(e.from, e.to)).toSet
-    val edges   = drawn.map { edge =>
-      val (from, to) = (points(edge.from), points(edge.to))
-      val path       =
-        if (upward.contains(edge)) {
-          val lane     = rightX + 40 + upward.indexOf(edge) * 14
-          val (y1, y2) = (from.y + NodeHeight / 2, to.y + NodeHeight / 2)
-          s"M ${from.x + NodeWidth} $y1 C $lane $y1, $lane $y2, ${to.x + NodeWidth} $y2"
-        } else {
-          val (x1, y1) = (outPort(edge), from.y + NodeHeight)
-          val (x2, y2) = (inPort(edge), to.y)
-          val bend     = math.max(30.0, (y2 - y1) / 2)
-          s"M $x1 $y1 C $x1 ${y1 + bend}, $x2 ${y2 - bend}, $x2 $y2"
-        }
-      val classes = s"edge ${statusClass(edge.status)}${if (edge.repositories) " edge-repositories" else ""}"
-      s"""<g class="$classes" data-status="${statusClass(edge.status)}"><title>${escape(s"${edge.from} → ${edge.to}: ${edge.label}")}</title>""" +
-        s"""<path d="$path" marker-end="url(#arrow)"/></g>"""
+  private def moduleList(diff: DiffModel): String = {
+    val chips = diff.modules.map { m =>
+      s"""<button class="module-chip ${statusClass(m.status)}" data-module="${escape(m.id)}">${escape(marker(m.status) + m.id)}</button>"""
     }
-    val nodes = graph.nodes.flatMap { node =>
-      points.get(node.key).map { point =>
-        val visibility = if (node.status == Status.Unchanged && touched(node.key)) "touched" else statusClass(node.status)
-        s"""<g class="node ${statusClass(node.status)}" data-key="${escape(node.key)}" data-status="$visibility" tabindex="0">""" +
-          s"""<rect x="${point.x}" y="${point.y}" width="$NodeWidth" height="$NodeHeight" rx="8"/>""" +
-          s"""<text x="${point.x + NodeWidth / 2}" y="${point.y + NodeHeight / 2 + 5}">${escape(marker(node.status) + node.label)}</text></g>"""
-      }
-    }
-    s"""<svg viewBox="0 0 $width $height" width="$width" height="$height" role="img" aria-label="Module dependency graph">""" +
-      """<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker></defs>""" +
-      edges.mkString + nodes.mkString + "</svg>"
+    s"""<nav class="module-list" aria-label="Modules">${chips.mkString}</nav>"""
   }
 
-  private def ports(
-    edges: List[GEdge],
-    end: GEdge => String,
-    otherX: GEdge => Double,
-    points: Map[String, Point]
-  ): Map[GEdge, Double] =
-    edges
-      .groupBy(end)
-      .toList
-      .flatMap { (node, group) =>
-        val sorted = group.sortBy(otherX)
-        sorted.zipWithIndex.map((edge, index) => edge -> (points(node).x + NodeWidth * (index + 1) / (sorted.size + 1)))
-      }
-      .toMap
+  private def diagrams(diff: DiffModel): String = {
+    val levels = List("modules" -> Level.Modules, "components" -> Level.Components, "everything" -> Level.Everything).map { (name, level) =>
+      name -> ujson.Str(Mermaid.diagram(GraphView.full(diff, level)))
+    }
+    val changed = Option.when(diff.isDiff) {
+      val graph = GraphView.changes(diff)
+      "changed" -> ujson.Str(if (graph.nodes.isEmpty) "" else Mermaid.diagram(graph))
+    }
+    val ids = diff.modules.flatMap { m =>
+      (Mermaid.nodeId(s"module:${m.id}") -> m.id) :: m.components.map(c => Mermaid.nodeId(s"component:${m.id}:${c.name}") -> m.id)
+    }
+    ujson.write(ujson.Obj.from(levels ++ changed.toList :+ ("ids" -> ujson.Obj.from(ids.map((k, v) => k -> ujson.Str(v)))))).replace("<", "\\u003c")
+  }
 
   private def siteLabel(site: Site): String = s"${site.owner.label} / ${site.enclosing}"
 
@@ -260,19 +235,17 @@ main { padding: 0 24px 40px; }
 #details { border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; background: var(--panel); max-height: 80vh; overflow: auto; }
 #details ul { margin: 0; padding-left: 18px; }
 #details li { margin: 2px 0; }
-svg text { font-size: 13px; fill: var(--fg); text-anchor: middle; pointer-events: none; }
-.node rect { fill: var(--node); stroke: var(--border-strong); stroke-width: 1.5; }
-.node { cursor: pointer; }
-.node:hover rect, .node.selected rect, .node:focus rect { stroke: var(--fg); stroke-width: 3; }
-.node.added rect { stroke: var(--added); stroke-width: 2.5; }
-.node.removed rect { stroke: var(--removed); stroke-width: 2.5; stroke-dasharray: 5 3; }
-.node.changed rect { stroke: var(--changed); stroke-width: 2.5; }
-.edge path { fill: none; stroke: var(--muted); stroke-width: 1.4; }
-.edge:hover path { stroke: var(--fg); stroke-width: 2.4; }
-.edge.added path { stroke: var(--added); stroke-width: 2.2; }
-.edge.removed path { stroke: var(--removed); stroke-dasharray: 5 3; }
-.edge-repositories path { stroke-width: 2.6; stroke-dasharray: 7 3; }
-marker path { fill: var(--muted); }
+#details code { overflow-wrap: anywhere; }
+.graph { background: #f5f1ea; color: #1e1e24; min-height: 160px; padding: 12px; }
+.graph svg { max-width: none; height: auto; }
+.graph g.node, .graph g.cluster { cursor: pointer; }
+.graph-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 8px; }
+.zoom { margin-left: auto; display: inline-flex; gap: 4px; }
+.zoom button { font: inherit; font-size: 13px; min-width: 32px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--fg); cursor: pointer; }
+.module-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.module-chip { font: inherit; font-size: 13px; padding: 3px 10px; border-radius: 14px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--fg); cursor: pointer; }
+.module-chip:hover, .module-chip.selected { border-color: var(--fg); border-width: 2px; padding: 2px 9px; }
+.module-chip.added { border-color: var(--added); } .module-chip.removed { border-color: var(--removed); border-style: dashed; } .module-chip.changed { border-color: var(--changed); }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { color: var(--muted); font-weight: 600; }
@@ -345,17 +318,52 @@ body.changed-only [data-status="unchanged"] { display: none; }
       .concat(data.events.filter(e => moduleOf(latest(e).owner) === id).map(e => [`${latest(e).eventType} (outbox)`, latest(e).loc, e.status])));
     section('References out', data.references.filter(r => latest(r).from === id).map(r => { const ref = latest(r); return [`${ref.to}.${ref.layer}.${ref.symbol}${opt(ref.explainedBy) ? ' (' + opt(ref.explainedBy).toLowerCase() + ')' : ''}`, ref.loc, r.status]; }));
     section('References in', data.references.filter(r => latest(r).to === id).map(r => { const ref = latest(r); return [`${ref.from} → ${ref.layer}.${ref.symbol}`, ref.loc, r.status]; }));
-    document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
-    const selected = document.querySelector(`.node[data-key="module:${CSS.escape(id)}"]`);
-    if (selected) selected.classList.add('selected');
+    document.querySelectorAll('.module-chip').forEach(chip => chip.classList.toggle('selected', chip.dataset.module === id));
   };
-  document.querySelectorAll('.node[data-key^="module:"]').forEach(n => {
-    const id = n.getAttribute('data-key').slice('module:'.length);
-    n.addEventListener('click', () => show(id));
-    n.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); show(id); } });
-  });
+  const diagrams = JSON.parse(document.getElementById('arch-diagrams').textContent);
+  const graph = document.getElementById('graph');
   const toggle = document.getElementById('changed-only');
-  if (toggle) toggle.addEventListener('change', () => document.body.classList.toggle('changed-only', toggle.checked));
+  const source = () => {
+    if (toggle && toggle.checked && 'changed' in diagrams) return diagrams.changed;
+    const level = document.querySelector('input[name=level]:checked');
+    return diagrams[level ? level.value : 'modules'];
+  };
+  let natural = 0;
+  let scale = 1;
+  const fitScale = () => Math.min(1, (graph.clientWidth - 24) / natural);
+  const zoom = next => {
+    const svg = graph.querySelector('svg');
+    if (!svg || !natural) return;
+    scale = Math.min(3, Math.max(0.1, next));
+    svg.style.width = `${Math.round(natural * scale)}px`;
+  };
+  const draw = () => {
+    if (!window.mermaid) { graph.replaceChildren(node('p', 'The diagram loads Mermaid from jsDelivr and needs network access. The module list above still opens each module.', 'muted')); return; }
+    const text = source();
+    if (!text) { graph.replaceChildren(node('p', 'No architecture changes.', 'muted')); return; }
+    window.mermaid.render(`arch-${Math.random().toString(36).slice(2)}`, text).then(({ svg }) => {
+      graph.innerHTML = svg;
+      const drawn = graph.querySelector('svg');
+      natural = drawn.viewBox.baseVal.width;
+      drawn.removeAttribute('width');
+      drawn.removeAttribute('height');
+      zoom(fitScale());
+      graph.querySelectorAll('g.node, g.cluster').forEach(el => {
+        const raw = el.classList.contains('cluster') ? el.id : (el.id.match(/^flowchart-(.+)-[0-9]+$/) || [])[1];
+        const id = diagrams.ids[raw];
+        if (id) el.addEventListener('click', event => { event.stopPropagation(); show(id); });
+      });
+    }).catch(error => graph.replaceChildren(node('p', `The diagram could not be drawn: ${error.message}`, 'muted')));
+  };
+  if (window.mermaid) window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', flowchart: { useMaxWidth: false } });
+  document.querySelectorAll('.module-chip').forEach(chip => chip.addEventListener('click', () => show(chip.dataset.module)));
+  document.querySelectorAll('input[name=level]').forEach(radio => radio.addEventListener('change', draw));
+  document.querySelectorAll('[data-zoom]').forEach(button => button.addEventListener('click', () => {
+    const step = { in: scale * 1.25, out: scale / 1.25 };
+    zoom(step[button.dataset.zoom] ?? fitScale());
+  }));
+  if (toggle) toggle.addEventListener('change', () => { document.body.classList.toggle('changed-only', toggle.checked); draw(); });
+  draw();
 })();
 """
 }

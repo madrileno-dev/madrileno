@@ -44,9 +44,32 @@ object Mermaid {
         if (graph.collapsed)
           s"\n_Services and repositories are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
         else ""
-      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\n$Theme---\nflowchart LR\n${body(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
+      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\n${diagram(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
     }
   }
+
+  def diagram(graph: Graph): String = s"$Theme---\nflowchart LR\n${body(graph)}"
+
+  def renderFull(diff: DiffModel): String = {
+    val detailed = GraphView.full(diff, Level.Components)
+    val graph    = if (detailed.nodes.size > GraphView.MaxNodes) GraphView.full(diff, Level.Modules) else detailed
+    val shown    =
+      if (graph.nodes.size > GraphView.MaxDiagramNodes || graph.edges.size > GraphView.MaxDiagramEdges)
+        s"_The diagram would be too large for GitHub to render (${graph.nodes.size} boxes, ${graph.edges.size} arrows). Open the HTML for the full picture._\n\n- **Modules (${diff.modules.size}):** ${diff.modules.map(_.id).mkString(", ")}\n"
+      else s"```mermaid\n${diagram(graph)}```\n"
+    val note =
+      if (graph ne detailed)
+        s"\n_Services and repositories are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
+      else ""
+    val metrics =
+      s"\n**Architecture metrics:** ${ArchMetrics.rows.map(row => s"${row.name.toLowerCase} ${row.format(row.value(diff.metrics.head))}").mkString(", ")}.\n"
+    val findings =
+      section("Warnings", diff.warnings.map(w => s"- `${w.warning.loc.path}:${w.warning.loc.line}` — ${w.warning.message}")) +
+        section("Unclassified", diff.unclassified.map(u => s"- `${u.item.loc.path}:${u.item.loc.line}` — ${u.item.description}"))
+    s"### Architecture: `${diff.headLabel}`\n\n$shown$note$metrics$findings$Credit"
+  }
+
+  def nodeId(key: String): String = idOf(key)
 
   def nodeLine(node: GNode): String = {
     val id    = idOf(node.key)

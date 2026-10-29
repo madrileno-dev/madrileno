@@ -210,6 +210,7 @@ It reads source only: no compile, no running app, no database. It works on a bra
 ./scripts/architecture.scala                          # the working tree → target/architecture/architecture.html
 ./scripts/architecture.scala --diff main              # what changed since main → target/architecture/architecture-diff.html
 ./scripts/architecture.scala --diff main --mermaid    # the same diff as Mermaid, for a PR description
+./scripts/architecture.scala --mermaid                # the whole map as Mermaid
 ./scripts/architecture.scala --project ../other-app   # another checkout
 ./scripts/architecture.scala --out /tmp/map.html      # write the HTML elsewhere
 ./scripts/architecture.scala --json                   # print the model as JSON
@@ -217,14 +218,18 @@ It reads source only: no compile, no running app, no database. It works on a bra
 
 `--diff <ref>` compares the merge-base of `<ref>` and `HEAD` (what a GitHub pull request compares against) with the working tree, uncommitted and untracked files included. The base revision is read from a temporary copy; the working tree, index and branches are left alone. Modules, tables and events are matched by their path below the project's package, so a diff across `init-project`'s rename still lines up.
 
-The HTML is one self-contained file. It has:
-- a module graph, where clicking a module shows its details
+The HTML is one file. It has:
+- the metrics
+- a module diagram at three levels of detail: modules only, with their services and repositories, or with tables and events too. Zoom buttons scale it, and it starts fitted to the page.
+- a list of the modules. Clicking a module there or in the diagram shows its details.
 - the events and tables views
 - the warnings
 
-In a diff, added, removed and changed items are marked, and **Changed only** hides the rest.
+The diagram is drawn by Mermaid, which the page loads from jsDelivr: a pinned version, checked against an integrity hash. Without network access the page says so in place of the diagram, and the rest of it still works.
 
-The Mermaid output shows only the changed modules, tables and events, plus their direct neighbours. Added, removed and changed services and repositories are drawn inside their modules; past 30 boxes they're left out. Past 80 boxes or 300 arrows, which is more than GitHub renders, the output is a list of what was added, removed and changed instead of a diagram. New warnings are listed under the diagram.
+In a diff, added, removed and changed items are marked. **Changed only** hides the rest and draws the same diagram as the Mermaid output.
+
+Without `--diff`, the Mermaid output is the whole map with the current metrics and warnings. It draws services and repositories inside their modules while that stays within 30 boxes. With `--diff`, it shows only the changed modules, tables and events, plus their direct neighbours. Added, removed and changed services and repositories are drawn inside their modules; past 30 boxes they're left out. Past 80 boxes or 300 arrows, which is more than GitHub renders, the output is a list of what was added, removed and changed instead of a diagram. New warnings are listed under the diagram.
 
 Arrows between modules are labelled with the kind of dependency:
 - **`wires`** lists the cake members one module takes from the other, such as `wires userRepository`.

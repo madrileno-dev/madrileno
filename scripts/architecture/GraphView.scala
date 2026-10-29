@@ -18,6 +18,10 @@ final case class GEdge(
   status: Status,
   repositories: Boolean)
 
+enum Level {
+  case Modules, Components, Everything
+}
+
 final case class Graph(
   nodes: List[GNode],
   edges: List[GEdge],
@@ -52,10 +56,14 @@ object GraphView {
     else Graph(nodes ++ components, edges, collapsed = false)
   }
 
-  def modules(diff: DiffModel): Graph = {
-    val nodes = diff.modules.map(m => GNode(s"module:${m.id}", m.id, NodeKind.Module, None, m.status))
-    val edges = mergedEdges(diff.edges.filter(e => e.edge.from.startsWith("module:") && e.edge.to.startsWith("module:")), diff.references)
-    Graph(nodes, edges, collapsed = false)
+  def modules(diff: DiffModel): Graph = full(diff, Level.Modules)
+
+  def full(diff: DiffModel, level: Level): Graph = {
+    val top        = topLevel(diff).filter(node => node.kind == NodeKind.Module || level == Level.Everything)
+    val keys       = top.map(_.key).toSet
+    val components = if (level == Level.Modules) Nil else diff.modules.flatMap(m => m.components.map(componentNode(m.id, _)))
+    val edges      = mergedEdges(diff.edges.filter(e => keys(e.edge.from) && keys(e.edge.to)), diff.references)
+    Graph(top ++ components, edges, collapsed = false)
   }
 
   private def topLevel(diff: DiffModel): List[GNode] =

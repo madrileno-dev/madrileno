@@ -177,4 +177,11 @@ class MermaidSuite extends munit.FunSuite {
     )
     assertEquals(GraphView.modules(ArchDiff.full(model, "h")).edges.map(_.label), List("uses services.given"))
   }
+
+  test("the full map renders as Mermaid with the current metrics and warnings") {
+    val text = Mermaid.renderFull(ArchDiff.full(Fixtures.diffHead, "working tree"))
+    assert(text.startsWith("### Architecture: `working tree`\n\n```mermaid\n---\nconfig:"), text)
+    assert(text.contains("component_order_OrderService"), text)
+    assert(text.contains("**Architecture metrics:** propagation cost 50%"), text)
+  }
 }

@@ -43,4 +43,9 @@ class CliSuite extends munit.FunSuite {
     assertEquals(Cli.baseLabel("main", "abc1234def"), "main@abc1234")
     assertEquals(Cli.baseLabel("abc1234", "abc1234def"), "abc1234")
   }
+
+  test("mermaid without a diff prints the full map") {
+    val outcome = Cli.run(Options(clean, None, Output.Mermaid, strict = false)).toOption.get
+    assert(outcome.stdout.startsWith("### Architecture: `working tree`"), outcome.stdout)
+  }
 }

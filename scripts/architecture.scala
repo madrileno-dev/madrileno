@@ -17,7 +17,7 @@ object ArchitectureMain {
     project: String = ".",
     @arg(doc = "compare the merge-base of this ref and HEAD with the working tree")
     diff: Option[String] = None,
-    @arg(doc = "print the diff as Mermaid for a PR description (needs --diff)")
+    @arg(doc = "print Mermaid: the diff for a PR description with --diff, the full map without it")
     mermaid: Flag,
     @arg(doc = "print the model as JSON")
     json: Flag,
@@ -29,7 +29,6 @@ object ArchitectureMain {
     val root   = os.Path(project, os.pwd)
     val output =
       if (mermaid.value && json.value) Left("--mermaid and --json are exclusive")
-      else if (mermaid.value && diff.isEmpty) Left("--mermaid needs --diff <ref>")
       else if (mermaid.value) Right(Output.Mermaid)
       else if (json.value) Right(Output.Json)
       else Right(Output.Html(out.map(os.Path(_, os.pwd)).getOrElse(Options.defaultHtml(root, diff.isDefined))))

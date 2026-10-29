@@ -56,7 +56,7 @@ object Cli {
       Try(os.write.over(path, Html.render(diff), createFolders = true)).toEither.left
         .map(error => s"cannot write $path: ${error.getMessage}")
         .map(_ => Outcome("", Some(path), Nil))
-    case Output.Mermaid => Right(Outcome(Mermaid.render(diff), None, Nil))
+    case Output.Mermaid => Right(Outcome(if (diff.isDiff) Mermaid.render(diff) else Mermaid.renderFull(diff), None, Nil))
     case Output.Json    => Right(Outcome(upickle.default.write(diff, indent = 2), None, Nil))
   }
 
