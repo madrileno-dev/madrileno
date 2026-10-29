@@ -109,7 +109,7 @@ object GraphView {
     val imports = inGroup.filterNot(r => InternalLayers(r.layer)).map(_.layer).distinct.sorted
     val uses    = inGroup
       .filter(r => InternalLayers(r.layer) && r.explainedBy.isEmpty)
-      .map(r => if (r.symbol == "*") s"${r.layer}.*" else r.symbol)
+      .map(r => if (r.symbol == "*" || r.symbol == "given") s"${r.layer}.${r.symbol}" else r.symbol)
       .distinct
       .sorted
     val named =

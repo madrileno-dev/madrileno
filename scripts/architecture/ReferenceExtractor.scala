@@ -31,7 +31,8 @@ object ReferenceExtractor {
       .flatMap { ref =>
         (ref.from, ownership.ownerOf(ref.targetPath)) match {
           case (Owner.Module(from), Owner.Module(to)) if from != to && !platformContract.contains(to -> ref.symbol) =>
-            Some(Reference(from, to, layer(to, ref.targetPath), ref.symbol, ref.loc))
+            val (layer, symbol) = locate(to, ref.targetPath, ref.symbol)
+            Some(Reference(from, to, layer, symbol, ref.loc))
           case _ => None
         }
       }
@@ -39,8 +40,19 @@ object ReferenceExtractor {
       .sortBy(r => (r.from, r.to, r.layer, r.symbol))
   }
 
-  private def layer(moduleId: String, targetPath: String): String =
-    if (targetPath == moduleId) "module" else targetPath.stripPrefix(s"$moduleId/").split('/').head
+  private def locate(
+    moduleId: String,
+    targetPath: String,
+    symbol: String
+  ): (String, String) = {
+    val inside   = if (targetPath == moduleId) Nil else targetPath.stripPrefix(s"$moduleId/").split('/').toList
+    val segments = inside :+ symbol
+    segments.indexWhere(_.headOption.exists(_.isUpper)) match {
+      case 0  => ("module", segments.head)
+      case -1 => (inside.headOption.getOrElse("module"), symbol)
+      case i  => (segments.head, segments(i))
+    }
+  }
 
   private def imports(
     file: ParsedFile,

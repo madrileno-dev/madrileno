@@ -99,4 +99,18 @@ class WiringSuite extends munit.FunSuite {
     )
     assertEquals(ReferenceExtractor.extract(files, Ownership.of(files), "app"), Nil)
   }
+
+  test("a type under a module's root package is the symbol, not a layer") {
+    val files = Fixtures.parsed(
+      Fixtures.src("route/RouteModule.scala", "package app.route\ntrait RouteModule"),
+      Fixtures.src("quote/QuoteModule.scala", "package app.quote\ntrait QuoteModule"),
+      Fixtures.src("quote/services/A.scala", "package app.quote.services\nimport app.route.RouteFailure.Retriable\nclass A"),
+      Fixtures.src("quote/services/B.scala", "package app.quote.services\nclass B { def f = app.route.RouteFailure.Fatal(1) }"),
+      Fixtures.src("quote/services/C.scala", "package app.quote.services\nimport app.route.domain.RouteId\nclass C")
+    )
+    assertEquals(
+      ReferenceExtractor.extract(files, Ownership.of(files), "app").map(r => (r.layer, r.symbol)).distinct,
+      List(("domain", "RouteId"), ("module", "RouteFailure"))
+    )
+  }
 }

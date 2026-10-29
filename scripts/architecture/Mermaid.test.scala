@@ -143,7 +143,10 @@ class MermaidSuite extends munit.FunSuite {
           "user/domain/Gone.scala",
           "package app.user.domain\nobject Gone {\n  given DomainEventDescriptor[Gone] = DomainEventDescriptor(\"gone.v1\", \"user\", _.id)\n}"
         ),
-        Fixtures.src("user/services/S.scala", "package app.user.services\nclass S(outbox: Outbox) {\n  def p(id: Id) = outbox.publishTransactionally(Gone(id))\n}"),
+        Fixtures.src(
+          "user/services/S.scala",
+          "package app.user.services\nclass S(outbox: Outbox) {\n  def p(id: Id) = outbox.publishTransactionally(Gone(id))\n}"
+        ),
         Fixtures.src(
           "shop/ShopModule.scala",
           "package app.shop\ntrait ShopModule {\n  override abstract def outboxSubscriptions = super.outboxSubscriptions :+ OutboxSubscription[Gone](\"shop (cleanup) [v2]\")(h)\n}"
@@ -152,5 +155,16 @@ class MermaidSuite extends munit.FunSuite {
     )
     val text = Mermaid.render(ArchDiff.compare(ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil), model, "b", "h"))
     assert(text.contains("""-->|"as shop (cleanup) [v2]"| module_shop"""), text)
+  }
+
+  test("a given import names its package in the label") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+        Fixtures.src("shop/ShopModule.scala", "package app.shop\nimport app.user.services.given\ntrait ShopModule")
+      )
+    )
+    assertEquals(GraphView.modules(ArchDiff.full(model, "h")).edges.map(_.label), List("uses services.given"))
   }
 }
