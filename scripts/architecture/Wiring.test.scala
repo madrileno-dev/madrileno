@@ -30,6 +30,20 @@ class WiringSuite extends munit.FunSuite {
     assertEquals(wiring.warnings.map(_.key), List("unprovided:auth:ghost"))
   }
 
+  test("constructor val parameters of the composition root provide members, plain parameters do not") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "main/ApplicationLoader.scala",
+        "package app.main\nclass ApplicationLoader(val transactor: Transactor, backend: Backend) extends UserModule"
+      ),
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule {\n  val transactor: Transactor\n  val backend: Backend\n}")
+    )
+    val ownership = Ownership.of(files)
+    val result    = WiringExtractor.extract(ModuleExtractor.extract(files, ownership).value, files, ownership)
+    assertEquals(result.value, List(Wiring("transactor", "user", Provider.FromPlatform)))
+    assertEquals(result.warnings.map(_.key), List("unprovided:user:backend"))
+  }
+
   test("platform-contract types and composition-root imports are not references, FQNs are") {
     assertEquals(
       references.map(r => (r.from, r.to, r.layer, r.symbol)),

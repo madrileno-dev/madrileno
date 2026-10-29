@@ -51,5 +51,15 @@ object WiringExtractor {
       case d: Defn.GivenAlias => List(d.name.value)
       case d: Decl.Given      => List(d.name.value)
       case d: Defn.Given      => List(d.name.value)
+      case d: Defn.Class      => d.ctor.paramClauses.flatMap(_.values).filter(isMemberParam(d, _)).map(_.name.value).toList
     }.flatten
+
+  private def isMemberParam(cls: Defn.Class, param: Term.Param): Boolean =
+    cls.mods.exists {
+      case _: Mod.Case => true
+      case _           => false
+    } || param.mods.exists {
+      case _: Mod.ValParam | _: Mod.VarParam => true
+      case _                                 => false
+    }
 }

@@ -1,0 +1,42 @@
+package architecture
+
+object Extractor {
+  def extract(input: ProjectInput): ArchModel = {
+    val parsed                        = Parsing.parseAll(input)
+    val files                         = parsed.value
+    val ownership                     = Ownership.of(files)
+    val modules                       = ModuleExtractor.extract(files, ownership)
+    val wiring                        = WiringExtractor.extract(modules.value, files, ownership)
+    val references                    = ReferenceExtractor.extract(files, ownership, input.rootPackage)
+    val cycles                        = Cycles.warnings(modules.value, wiring.value, references)
+    val events                        = EventExtractor.extract(files, ownership)
+    val tables                        = TableExtractor.extract(files, input.migrations, ownership)
+    val (topics, outboxEvents)        = events.value
+    val (tableDecls, migrationTables) = tables.value
+
+    ArchModel(
+      rootPackage = input.rootPackage,
+      modules = modules.value.map(module => withOwnedCounts(module, topics, outboxEvents, tableDecls)),
+      wirings = wiring.value,
+      references = references,
+      topics = topics,
+      outboxEvents = outboxEvents,
+      tables = tableDecls,
+      migrationTables = migrationTables,
+      warnings = (modules.warnings ++ wiring.warnings ++ cycles ++ events.warnings ++ tables.warnings).sortBy(w => (w.kind.ordinal, w.key)),
+      unclassified = (parsed.unclassified ++ modules.unclassified ++ wiring.unclassified ++ events.unclassified ++ tables.unclassified).sortBy(_.key)
+    )
+  }
+
+  private def withOwnedCounts(
+    module: Module,
+    topics: List[BusTopic],
+    events: List[OutboxEvent],
+    tables: List[TableDecl]
+  ): Module = {
+    val owner = Owner.Module(module.id)
+    module.copy(metrics =
+      module.metrics.copy(tablesOwned = tables.count(_.owner == owner), eventsOwned = topics.count(_.owner == owner) + events.count(_.owner == owner))
+    )
+  }
+}
