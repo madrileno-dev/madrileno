@@ -33,6 +33,22 @@ class ArchDiffSuite extends munit.FunSuite {
     assertEquals(moved.unclassified.map(u => u.item.key -> u.status), List("outbox-publish:user/services/S.scala:S:ev" -> WarningStatus.Existing))
   }
 
+  test("members of a module carry their own status") {
+    def model(members: String) =
+      Extractor.extract(Fixtures.project(Fixtures.src("shop/ShopModule.scala", s"package app.shop\ntrait ShopModule {\n$members\n}")))
+    val diff =
+      ArchDiff.compare(model("  val a: A\n  val b: B\n  lazy val x: X = ???"), model("  val b: B\n  val c: C\n  lazy val x: X = ???"), "b", "h")
+    assertEquals(
+      diff.modules.head.members.map(m => (m.section, m.text, m.status)),
+      List(
+        (MemberSection.Consumes, "a: A", Status.Removed),
+        (MemberSection.Consumes, "b: B", Status.Unchanged),
+        (MemberSection.Consumes, "c: C", Status.Added),
+        (MemberSection.Provides, "x: X", Status.Unchanged)
+      )
+    )
+  }
+
   test("edges carry their own status") {
     assertEquals(
       diff.edges.filter(_.status != Status.Unchanged).map(e => (e.edge.from, e.edge.to, e.status)).toSet,

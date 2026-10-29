@@ -28,12 +28,25 @@ final case class ComponentDiff(
   head: Option[Component])
     derives ReadWriter
 
+enum MemberSection derives ReadWriter {
+  case Consumes, Provides, Contributes
+}
+
+final case class MemberDiff(
+  section: MemberSection,
+  name: String,
+  text: String,
+  status: Status,
+  loc: Loc)
+    derives ReadWriter
+
 final case class ModuleDiff(
   id: String,
   status: Status,
   base: Option[Module],
   head: Option[Module],
-  components: List[ComponentDiff])
+  components: List[ComponentDiff],
+  members: List[MemberDiff])
     derives ReadWriter
 
 final case class NodeDiff[A](
@@ -88,7 +101,8 @@ object ArchDiff {
             status(before.map(moduleFacts(_, base)), after.map(moduleFacts(_, head)))(identity),
             before,
             after,
-            components(before, after)
+            components(before, after),
+            members(before, after)
           )
       },
       tables = nodes(base.tables, head.tables)(_.name)(t => (t.owner, sites(t.users))),
@@ -197,6 +211,30 @@ object ArchDiff {
       model.references.filter(_.from == module.id).map(r => (r.to, r.layer, r.symbol)).toSet
     )
   }
+
+  private def members(before: Option[Module], after: Option[Module]): List[MemberDiff] = {
+    val baseEntries = memberEntries(before)
+    val headEntries = memberEntries(after)
+    keyed(baseEntries, headEntries)(m => s"${m.section}:${m.text}")
+      .flatMap {
+        (
+          _,
+          b,
+          a
+        ) =>
+          a.map(_.copy(status = if (b.isDefined) Status.Unchanged else Status.Added)).orElse(b.map(_.copy(status = Status.Removed)))
+      }
+      .sortBy(m => (m.section.ordinal, m.text))
+  }
+
+  private def memberEntries(module: Option[Module]): List[MemberDiff] =
+    module.toList.flatMap { m =>
+      m.consumes.map(c => MemberDiff(MemberSection.Consumes, c.name, s"${c.name}: ${c.tpe}", Status.Unchanged, c.loc)) ++
+        m.provides.map(p => MemberDiff(MemberSection.Provides, p.name, s"${p.name}: ${p.tpe}", Status.Unchanged, p.loc)) ++
+        m.contributions.map(c =>
+          MemberDiff(MemberSection.Contributes, c.registry.toString, s"${c.registry}: ${c.items.mkString(", ")}", Status.Unchanged, c.loc)
+        )
+    }
 
   private def edgeDiffs(base: Set[Edge], head: Set[Edge]): List[EdgeDiff] =
     (base ++ head).toList

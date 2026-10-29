@@ -278,9 +278,10 @@ body.changed-only [data-status="unchanged"] { display: none; }
       if (!wiring) return 'nothing';
       return wiring.provider['$type'] === 'FromModule' ? wiring.provider.id : 'platform';
     };
-    section('Consumes', mod.consumes.map(c => [`${c.name}: ${c.tpe} ← ${providerOf(c.name)}`, c.loc]));
-    section('Provides', mod.provides.map(p => [`${p.name}: ${p.tpe}`, p.loc]));
-    section('Contributes', mod.contributions.map(c => [`${c.registry}: ${c.items.join(', ')}`, c.loc]));
+    const membersOf = name => diff.members.filter(m => m.section === name);
+    section('Consumes', membersOf('Consumes').map(m => [`${m.text} ← ${providerOf(m.name)}`, m.loc, m.status]));
+    section('Provides', membersOf('Provides').map(m => [m.text, m.loc, m.status]));
+    section('Contributes', membersOf('Contributes').map(m => [m.text, m.loc, m.status]));
     section('Components', diff.components.map(c => { const comp = latest(c); return [`${c.name} (${comp.kind.toLowerCase()})${comp.dependencies.length ? ' ← ' + comp.dependencies.join(', ') : ''}`, comp.loc, c.status]; }));
     section('Tables', data.tables.filter(t => moduleOf(latest(t).owner) === id).map(t => [latest(t).name, latest(t).loc, t.status]));
     section('Topics and events', data.topics.filter(t => moduleOf(latest(t).owner) === id).map(t => [`${latest(t).name} (bus)`, latest(t).loc, t.status])
