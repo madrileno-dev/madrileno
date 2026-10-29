@@ -226,6 +226,13 @@ In a diff, added, removed and changed items are marked, and **Changed only** hid
 
 The Mermaid output shows only the changed modules, tables and events, plus their direct neighbours. Added, removed and changed services and repositories are drawn inside their modules; past 30 boxes they're left out. Past 80 boxes or 300 arrows, which is more than GitHub renders, the output is a list of what was added, removed and changed instead of a diagram. New warnings are listed under the diagram.
 
+Arrows between modules are labelled with the kind of dependency:
+- **`wires`** lists the cake members one module takes from the other, such as `wires userRepository`.
+- **`imports`** lists the other module's packages it imports types from: `domain`, or `module` for its root package.
+- **`uses`** names types from the other module's `services`, `repositories`, `routers` or `gateways` that wiring doesn't explain, such as `uses AnonymiseResult`.
+
+A wired member's type, its supertypes, and a wildcard import of their package all count as explained. So `uses` marks a module reaching into another module's internals around the cake, which is worth a look in review. The template has none.
+
 ### Warnings
 
 - **Not mixed in:** a `*Module` trait that `ApplicationLoader` doesn't extend.
