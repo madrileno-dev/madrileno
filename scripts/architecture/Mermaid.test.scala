@@ -128,10 +128,17 @@ class MermaidSuite extends munit.FunSuite {
   }
 
   test("metrics that did not move collapse to one line") {
-    val text = Mermaid.render(ArchDiff.compare(Fixtures.diffBase, Fixtures.diffHead, "b", "h"))
+    def shop(service: String) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ShopModule"),
+        Fixtures.src("shop/ShopModule.scala", s"package app.shop\ntrait ShopModule {\n  private val s = wire[$service]\n}"),
+        Fixtures.src("shop/services/S.scala", s"package app.shop.services\nclass $service")
+      )
+    )
+    val text = Mermaid.render(ArchDiff.compare(shop("Pricing"), shop("Billing"), "b", "h"))
     assert(
       text.contains(
-        "**Architecture metrics** unchanged: propagation cost 50%, largest cycle 0, stable-dependency violations 0, cake bypasses 0, drift 0."
+        "**Architecture metrics** unchanged: propagation cost 0%, size concentration 100%, largest cycle 0, stable-dependency violations 0, cake bypasses 0, drift 0."
       ),
       text
     )

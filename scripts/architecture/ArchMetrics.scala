@@ -4,6 +4,7 @@ import upickle.default.ReadWriter
 
 final case class ArchMetrics(
   propagationCost: Double,
+  sizeConcentration: Double,
   largestCycle: Int,
   stabilityViolations: Int,
   cakeBypasses: Int,
@@ -30,7 +31,8 @@ final case class MetricRow(
   description: String)
 
 object ArchMetrics {
-  private val percent: Double => String = value => s"${BigDecimal(value * 100).setScale(1, BigDecimal.RoundingMode.HALF_UP).bigDecimal.stripTrailingZeros.toPlainString}%"
+  private val percent: Double => String = value =>
+    s"${BigDecimal(value * 100).setScale(1, BigDecimal.RoundingMode.HALF_UP).bigDecimal.stripTrailingZeros.toPlainString}%"
 
   private val whole: Double => String = value => value.toLong.toString
 
@@ -40,6 +42,12 @@ object ArchMetrics {
       _.propagationCost,
       percent,
       "How far a change can ripple: the share of other modules a change in one module can reach."
+    ),
+    MetricRow(
+      "Size concentration",
+      _.sizeConcentration,
+      percent,
+      "How much of the feature code sits in one module: merging modules raises it, splitting them lowers it."
     ),
     MetricRow("Largest cycle", _.largestCycle.toDouble, whole, "Modules in the biggest group that all depend on each other; 0 means no cycles."),
     MetricRow(
@@ -74,11 +82,17 @@ object ArchMetrics {
     val coupled = coupling(model).map(c => c.id -> c.instability).toMap
     ArchMetrics(
       propagationCost = if (pairs == 0) 0.0 else reached.toDouble / pairs,
+      sizeConcentration = concentration(model.modules.filterNot(_.id.startsWith("utils/")).map(_.metrics.linesOfCode)),
       largestCycle = graph.cycles.map(_.size).maxOption.getOrElse(0),
       stabilityViolations = graph.pairs.count((from, to) => coupled(to) > coupled(from)),
       cakeBypasses = model.references.count(r => Layers.Internal(r.layer) && r.explainedBy.isEmpty),
       drift = model.warnings.size + model.unclassified.size
     )
+  }
+
+  private def concentration(sizes: List[Int]): Double = {
+    val total = sizes.sum.toDouble
+    if (total == 0) 0.0 else sizes.map(size => math.pow(size / total, 2)).sum
   }
 
   def coupling(model: ArchModel): List[ModuleCoupling] = {

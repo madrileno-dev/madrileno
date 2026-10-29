@@ -34,15 +34,38 @@ class MetricsSuite extends munit.FunSuite {
   }
 
   test("a project without modules has zero metrics") {
-    assertEquals(ArchMetrics.of(ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil)), ArchMetrics(0.0, 0, 0, 0, 0))
+    assertEquals(ArchMetrics.of(ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil)), ArchMetrics(0.0, 0.0, 0, 0, 0, 0))
   }
 
   test("percentages show one decimal when needed, and a trend needs a visible move") {
     val row  = ArchMetrics.rows.find(_.name == "Propagation cost").get
-    val base = ArchMetrics(0.2649, 0, 0, 0, 0)
+    val base = ArchMetrics(0.2649, 0.0, 0, 0, 0, 0)
     assertEquals(row.format(0.2649), "26.5%")
     assertEquals(row.format(0.2), "20%")
     assertEquals(ArchMetrics.trend(row, base, base.copy(propagationCost = 0.2651)), None)
     assertEquals(ArchMetrics.trend(row, base, base.copy(propagationCost = 0.2675)), Some(true))
+  }
+
+  test("size concentration is the Herfindahl index of feature modules' code, without utils") {
+    val even = ArchMetrics.of(
+      Extractor.extract(
+        Fixtures.project(
+          Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AModule with BModule with XModule"),
+          Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule"),
+          Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule"),
+          Fixtures.src("utils/x/XModule.scala", "package app.utils.x\ntrait XModule\nclass Big\nclass Bigger\nclass Biggest")
+        )
+      )
+    )
+    val merged = ArchMetrics.of(
+      Extractor.extract(
+        Fixtures.project(
+          Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AbModule"),
+          Fixtures.src("ab/AbModule.scala", "package app.ab\ntrait AbModule\nclass A\nclass B")
+        )
+      )
+    )
+    assertEqualsDouble(even.sizeConcentration, 0.5, 1e-9)
+    assertEqualsDouble(merged.sizeConcentration, 1.0, 1e-9)
   }
 }
