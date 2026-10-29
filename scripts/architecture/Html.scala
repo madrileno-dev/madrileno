@@ -62,29 +62,37 @@ object Html {
   }
 
   private def svg(diff: DiffModel): String = {
-    val graph  = GraphView.modules(diff)
-    val points = Layout.layered(graph.nodes.map(_.key), graph.edges.map(e => e.from -> e.to))
-    val width  = points.values.map(_.x).maxOption.getOrElse(0.0) + NodeWidth + 40
-    val height = points.values.map(_.y).maxOption.getOrElse(0.0) + NodeHeight + 40
-    val edges  = graph.edges.flatMap { edge =>
-      (points.get(edge.from), points.get(edge.to)) match {
-        case (Some(from), Some(to)) =>
-          val (x1, y1) = (from.x + NodeWidth / 2, from.y + NodeHeight)
-          val (x2, y2) = (to.x + NodeWidth / 2, to.y)
-          val bend     = math.max(40.0, math.abs(y2 - y1) / 2)
-          val classes  = s"edge ${statusClass(edge.status)}${if (edge.repositories) " edge-repositories" else ""}"
-          List(
-            s"""<g class="$classes" data-status="${statusClass(edge.status)}"><title>${escape(
-                s"${edge.from} → ${edge.to}: ${edge.label}"
-              )}</title>""" +
-              s"""<path d="M $x1 $y1 C $x1 ${y1 + bend}, $x2 ${y2 - bend}, $x2 $y2" marker-end="url(#arrow)"/></g>"""
-          )
-        case _ => Nil
-      }
+    val graph   = GraphView.modules(diff)
+    val points  = Layout.layered(graph.nodes.map(_.key), graph.edges.map(e => e.from -> e.to))
+    val drawn   = graph.edges.filter(e => points.contains(e.from) && points.contains(e.to))
+    val upward  = drawn.filter(e => points(e.to).y <= points(e.from).y)
+    val rightX  = points.values.map(_.x).maxOption.getOrElse(0.0) + NodeWidth
+    val width   = rightX + 40 + upward.size * 14 + 40
+    val height  = points.values.map(_.y).maxOption.getOrElse(0.0) + NodeHeight + 40
+    val outPort = ports(drawn.filterNot(upward.contains), _.from, e => points(e.to).x, points)
+    val inPort  = ports(drawn.filterNot(upward.contains), _.to, e => points(e.from).x, points)
+    val touched = drawn.filter(_.status != Status.Unchanged).flatMap(e => List(e.from, e.to)).toSet
+    val edges   = drawn.map { edge =>
+      val (from, to) = (points(edge.from), points(edge.to))
+      val path       =
+        if (upward.contains(edge)) {
+          val lane     = rightX + 40 + upward.indexOf(edge) * 14
+          val (y1, y2) = (from.y + NodeHeight / 2, to.y + NodeHeight / 2)
+          s"M ${from.x + NodeWidth} $y1 C $lane $y1, $lane $y2, ${to.x + NodeWidth} $y2"
+        } else {
+          val (x1, y1) = (outPort(edge), from.y + NodeHeight)
+          val (x2, y2) = (inPort(edge), to.y)
+          val bend     = math.max(30.0, (y2 - y1) / 2)
+          s"M $x1 $y1 C $x1 ${y1 + bend}, $x2 ${y2 - bend}, $x2 $y2"
+        }
+      val classes = s"edge ${statusClass(edge.status)}${if (edge.repositories) " edge-repositories" else ""}"
+      s"""<g class="$classes" data-status="${statusClass(edge.status)}"><title>${escape(s"${edge.from} → ${edge.to}: ${edge.label}")}</title>""" +
+        s"""<path d="$path" marker-end="url(#arrow)"/></g>"""
     }
     val nodes = graph.nodes.flatMap { node =>
       points.get(node.key).map { point =>
-        s"""<g class="node ${statusClass(node.status)}" data-key="${escape(node.key)}" data-status="${statusClass(node.status)}" tabindex="0">""" +
+        val visibility = if (node.status == Status.Unchanged && touched(node.key)) "touched" else statusClass(node.status)
+        s"""<g class="node ${statusClass(node.status)}" data-key="${escape(node.key)}" data-status="$visibility" tabindex="0">""" +
           s"""<rect x="${point.x}" y="${point.y}" width="$NodeWidth" height="$NodeHeight" rx="8"/>""" +
           s"""<text x="${point.x + NodeWidth / 2}" y="${point.y + NodeHeight / 2 + 5}">${escape(marker(node.status) + node.label)}</text></g>"""
       }
@@ -93,6 +101,21 @@ object Html {
       """<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker></defs>""" +
       edges.mkString + nodes.mkString + "</svg>"
   }
+
+  private def ports(
+    edges: List[GEdge],
+    end: GEdge => String,
+    otherX: GEdge => Double,
+    points: Map[String, Point]
+  ): Map[GEdge, Double] =
+    edges
+      .groupBy(end)
+      .toList
+      .flatMap { (node, group) =>
+        val sorted = group.sortBy(otherX)
+        sorted.zipWithIndex.map((edge, index) => edge -> (points(node).x + NodeWidth * (index + 1) / (sorted.size + 1)))
+      }
+      .toMap
 
   private def ownerLabel(owner: Owner): String = owner match {
     case Owner.Module(id)      => id
