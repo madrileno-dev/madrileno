@@ -224,7 +224,7 @@ The HTML is one self-contained file. It has:
 
 In a diff, added, removed and changed items are marked, and **Changed only** hides the rest.
 
-The Mermaid output shows only the changed modules, tables and events, plus their direct neighbours. Added, removed and changed services and repositories are drawn inside their modules; past 30 boxes they're left out. New warnings are listed under the diagram.
+The Mermaid output shows only the changed modules, tables and events, plus their direct neighbours. Added, removed and changed services and repositories are drawn inside their modules; past 30 boxes they're left out. Past 80 boxes or 300 arrows, which is more than GitHub renders, the output is a list of what was added, removed and changed instead of a diagram. New warnings are listed under the diagram.
 
 ### Warnings
 
@@ -240,6 +240,8 @@ The Mermaid output shows only the changed modules, tables and events, plus their
 The map reads source, not compiled code, so some things can't be resolved:
 - a `publishTransactionally(event)` whose argument doesn't show its type
 - a `wire[X]` whose class isn't in the module
+- a topic or `Table` whose name isn't a string literal
+- a second `*Module` trait in a package that already has one; only the trait mixed into `ApplicationLoader` is mapped
 - a file that doesn't parse
 
 Instead of guessing, the map lists these under **Unclassified**, each with its location.
