@@ -221,7 +221,7 @@ It reads source only: no compile, no running app, no database. It works on a bra
 The HTML is one file. It has:
 - the metrics
 - a module diagram at three levels of detail: modules only, with their services and repositories, or with tables and events too. Zoom buttons scale it, and it starts fitted to the page.
-- a list of the modules. Clicking a module there or in the diagram shows its details and focuses the diagram on it. The focused diagram has the module and the modules it depends on or that depend on it. With tables and events shown, it also has the modules on the other side of its tables and events. **Show all modules** goes back to the whole map.
+- a list of the modules. Clicking a module there or in the diagram shows its details and focuses the diagram on it. The focused diagram has the module and the modules it depends on or that depend on it. With tables and events shown, it also has the modules on the other side of its tables and events. Clicking the focused module again, or **Show all modules**, goes back to the whole map.
 - the events and tables views
 - the warnings
 

@@ -281,6 +281,7 @@ body.changed-only [data-status="unchanged"] { display: none; }
   const data = JSON.parse(document.getElementById('arch-data').textContent);
   const opt = value => Array.isArray(value) ? value[0] : (value === null ? undefined : value);
   const panel = document.getElementById('details');
+  const placeholder = [...panel.childNodes].map(child => child.cloneNode(true));
   const node = (tag, text, cls) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; };
   const where = loc => loc && loc.path ? `${loc.path}:${loc.line}` : '';
   const moduleOf = owner => owner && owner['$type'] === 'Module' ? owner.id : null;
@@ -361,20 +362,29 @@ body.changed-only [data-status="unchanged"] { display: none; }
       graph.querySelectorAll('g.node, g.cluster').forEach(el => {
         const raw = el.classList.contains('cluster') ? el.id : (el.id.match(/^flowchart-(.+)-[0-9]+$/) || [])[1];
         const id = diagrams.ids[raw];
-        if (id) el.addEventListener('click', event => { event.stopPropagation(); focusOn(id); });
+        if (id) el.addEventListener('click', event => { event.stopPropagation(); focusOn(id, !raw.startsWith('component_')); });
       });
     }).catch(error => graph.replaceChildren(node('p', `The diagram could not be drawn: ${error.message}`, 'muted')));
   };
-  const focusOn = id => { show(id); focused = id; draw(); };
+  const unfocus = () => {
+    focused = null;
+    panel.replaceChildren(...placeholder.map(child => child.cloneNode(true)));
+    document.querySelectorAll('.module-chip').forEach(chip => chip.classList.remove('selected'));
+    draw();
+  };
+  const focusOn = (id, toggles) => {
+    if (toggles && focused === id) unfocus();
+    else { show(id); focused = id; draw(); }
+  };
   if (window.mermaid) window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', flowchart: { useMaxWidth: false } });
-  document.querySelectorAll('.module-chip').forEach(chip => chip.addEventListener('click', () => focusOn(chip.dataset.module)));
-  showAll.addEventListener('click', () => { focused = null; draw(); });
+  document.querySelectorAll('.module-chip').forEach(chip => chip.addEventListener('click', () => focusOn(chip.dataset.module, true)));
+  showAll.addEventListener('click', unfocus);
   document.querySelectorAll('input[name=level]').forEach(radio => radio.addEventListener('change', draw));
   document.querySelectorAll('[data-zoom]').forEach(button => button.addEventListener('click', () => {
     const step = { in: scale * 1.25, out: scale / 1.25 };
     zoom(step[button.dataset.zoom] ?? fitScale());
   }));
-  if (toggle) toggle.addEventListener('change', () => { document.body.classList.toggle('changed-only', toggle.checked); focused = null; draw(); });
+  if (toggle) toggle.addEventListener('change', () => { document.body.classList.toggle('changed-only', toggle.checked); unfocus(); });
   draw();
 })();
 """
