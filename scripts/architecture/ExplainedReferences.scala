@@ -46,7 +46,7 @@ object ExplainedReferences {
               member
             ) => modules.find(_.id == consumer).flatMap(_.consumes.find(_.name == member))
           )
-          .map(m => baseName(m.tpe))
+          .flatMap(m => identifiers(m.tpe))
         val ownDefinitions = definitions.filter(_.module == provider)
         val types          = withSupertypes(declared.toSet, ownDefinitions)
         val wiredDefs      = ownDefinitions.filter(d => types(d.name))
@@ -81,5 +81,5 @@ object ExplainedReferences {
     if (next == names) names else withSupertypes(next, definitions)
   }
 
-  private def baseName(tpe: String): String = tpe.takeWhile(_ != '[').split('.').last.trim
+  private def identifiers(tpe: String): List[String] = """[A-Za-z_][A-Za-z0-9_]*""".r.findAllIn(tpe).toList
 }

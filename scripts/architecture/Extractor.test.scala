@@ -70,4 +70,22 @@ class ExtractorSuite extends munit.FunSuite {
     assertEquals(model.references.map(r => r.symbol -> r.explainedBy), List("UserGone" -> Some(Explanation.Event)))
     assertEquals(ArchMetrics.of(model).cakeBypasses, 0)
   }
+
+  test("type arguments of a wired member are explained too") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends CacheModule with ShopModule"),
+        Fixtures.src("cache/CacheModule.scala", "package app.cache\ntrait CacheModule {\n  lazy val cache: Cache[FooKey, FooValue] = ???\n}"),
+        Fixtures.src("cache/services/Foo.scala", "package app.cache.services\nfinal case class FooKey(id: Int)\nfinal case class FooValue(v: Int)"),
+        Fixtures.src(
+          "shop/ShopModule.scala",
+          "package app.shop\nimport app.cache.services.{FooKey, FooValue}\ntrait ShopModule {\n  lazy val cache: Cache[FooKey, FooValue]\n}"
+        )
+      )
+    )
+    assertEquals(
+      model.references.map(r => r.symbol -> r.explainedBy).sortBy(_._1),
+      List("FooKey" -> Some(Explanation.Wiring), "FooValue" -> Some(Explanation.Wiring))
+    )
+  }
 }
