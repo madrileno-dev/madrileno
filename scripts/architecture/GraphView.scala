@@ -74,12 +74,18 @@ object GraphView {
       .toList
       .sortBy { case ((from, to, status), _) => (from, to, status.ordinal) }
       .map { case ((from, to, status), group) =>
-        GEdge(
-          from,
-          to,
-          group.map(_.edge.label).filter(_.nonEmpty).distinct.mkString(", "),
-          status,
-          group.exists(e => e.edge.kind == EdgeKind.Reference && e.edge.label == "repositories")
-        )
+        GEdge(from, to, labelOf(group), status, group.exists(e => e.edge.kind == EdgeKind.Reference && e.edge.label == "repositories"))
       }
+
+  private def labelOf(group: List[EdgeDiff]): String = {
+    def labels(kind: EdgeKind): List[String] = group.filter(_.edge.kind == kind).map(_.edge.label).filter(_.nonEmpty).distinct
+    val consumers                            = group
+      .filter(e => e.edge.kind == EdgeKind.Subscribes && e.edge.label.nonEmpty && s"module:${e.edge.label}" != e.edge.to)
+      .map(e => s"as ${e.edge.label}")
+      .distinct
+    List(
+      Option.when(labels(EdgeKind.Wiring).nonEmpty)(s"wires ${labels(EdgeKind.Wiring).mkString(", ")}"),
+      Option.when(labels(EdgeKind.Reference).nonEmpty)(s"imports ${labels(EdgeKind.Reference).mkString(", ")}")
+    ).flatten.++(consumers).mkString(" · ")
+  }
 }
