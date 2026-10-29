@@ -29,7 +29,7 @@ object Html {
       if (diff.isDiff) """<label class="toggle"><input type="checkbox" id="changed-only"> Changed only</label>""" else "",
       "</header>",
       "<main>",
-      s"""<section id="metrics"><h2>Metrics</h2><p class="muted">Lower is better. They move only when the module structure or wiring changes.</p>${metricsCards(
+      s"""<section id="metrics"><h2>Metrics</h2><p class="muted">Lower is better. Read propagation cost together with size concentration: merging modules lowers the first and raises the second.</p>${metricsCards(
           diff
         )}</section>""",
       """<section id="modules"><h2>Modules</h2><div class="modules-layout">""",

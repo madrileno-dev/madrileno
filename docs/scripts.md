@@ -229,7 +229,7 @@ The Mermaid output shows only the changed modules, tables and events, plus their
 Arrows between modules are labelled with the kind of dependency:
 - **`wires`** lists the cake members one module takes from the other, such as `wires userRepository`.
 - **`imports`** lists the other module's packages it imports types from: `domain`, or `module` for its root package.
-- **`uses`** names types from the other module's `services`, `repositories`, `routers` or `gateways` that wiring doesn't explain, such as `uses AnonymiseResult`.
+- **`uses`** names types from the other module's `services`, `repositories`, `routers` or `gateways` that wiring doesn't explain, such as `uses PriceCalculator` for a helper object taken from another module's `services`.
 
 Several things count as explained:
 - a wired member's type, its supertypes, and the types in their public method signatures, such as a result type a wired service returns
@@ -240,9 +240,15 @@ So `uses` marks a module reaching into another module's internals around the cak
 
 ### Metrics
 
-Five numbers summarise the architecture. For each one, lower is better. They are computed from the module graph, so they move only when the module structure or wiring changes.
+Six numbers summarise the architecture. For each one, lower is better. They move for different reasons:
+- **Propagation cost, largest cycle and stable-dependency violations** move only when the module structure or wiring changes.
+- **Size concentration** moves a little as code grows.
+- **Cake bypasses** move when an import reaches into another module's internals.
+- **Drift** moves with every new warning or unclassified item.
 
-- **Propagation cost:** the share of other modules a change in one module can reach through dependencies. This is MacCormack, Rusnak and Baldwin's measure, without counting a module as reaching itself, so 0% means no ripple at all.
+The metrics:
+- **Propagation cost:** the share of other modules a change in one module can reach through dependencies. This is MacCormack, Rusnak and Baldwin's measure, without counting a module as reaching itself, so 0% means no ripple at all. Merging modules lowers it, because fewer modules leave fewer pairs to ripple between, so read it together with size concentration.
+- **Size concentration:** how much of the feature code sits in one module. It's the Herfindahl index of each feature module's share of the lines of code, with `utils/` left out: 100% when all the code is in one module, lower as it spreads out. Merging modules always raises it, so collapsing a project into a god module can't pass as an improvement.
 - **Largest cycle:** the number of modules in the biggest group that all depend on each other, or 0 when there are no cycles.
 - **Stable-dependency violations:** dependencies on a module that changes more easily than the one depending on it (Robert Martin's Stable Dependencies Principle). A module's instability is its outgoing dependencies divided by all its dependencies, in and out.
 - **Cake bypasses:** the number of `uses`, meaning types taken from another module's internals around the wiring.
