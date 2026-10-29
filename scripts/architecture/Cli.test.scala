@@ -33,4 +33,9 @@ class CliSuite extends munit.FunSuite {
     val missing = os.temp.dir() / "nope"
     assertEquals(Cli.run(Options(missing, None, Output.Json, strict = false)), Left(s"$missing does not exist"))
   }
+
+  test("a directory without src/main/scala is a Left, so --strict cannot pass vacuously") {
+    val empty = os.temp.dir()
+    assertEquals(Cli.run(Options(empty, None, Output.Json, strict = true)), Left(s"no src/main/scala under $empty; is this a Madrileño project?"))
+  }
 }

@@ -31,6 +31,7 @@ object Cli {
     for {
       _     <- Either.cond(os.exists(options.project), (), s"${options.project} does not exist")
       input <- ProjectInput.load(options.project)
+      _     <- Either.cond(input.scalaFiles.nonEmpty, (), s"no src/main/scala under ${options.project}; is this a Madrileño project?")
       head = Extractor.extract(input)
       diff    <- diffOf(options, head)
       outcome <- emit(options.output, diff)
