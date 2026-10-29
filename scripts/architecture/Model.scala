@@ -72,7 +72,8 @@ final case class Reference(
   to: String,
   layer: String,
   symbol: String,
-  loc: Loc)
+  loc: Loc,
+  wired: Boolean = false)
     derives ReadWriter
 
 final case class Site(

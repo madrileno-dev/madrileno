@@ -322,7 +322,7 @@ body.changed-only [data-status="unchanged"] { display: none; }
     section('Tables', data.tables.filter(t => moduleOf(latest(t).owner) === id).map(t => [latest(t).name, latest(t).loc, t.status]));
     section('Topics and events', data.topics.filter(t => moduleOf(latest(t).owner) === id).map(t => [`${latest(t).name} (bus)`, latest(t).loc, t.status])
       .concat(data.events.filter(e => moduleOf(latest(e).owner) === id).map(e => [`${latest(e).eventType} (outbox)`, latest(e).loc, e.status])));
-    section('References out', data.references.filter(r => latest(r).from === id).map(r => { const ref = latest(r); return [`${ref.to}.${ref.layer}.${ref.symbol}`, ref.loc, r.status]; }));
+    section('References out', data.references.filter(r => latest(r).from === id).map(r => { const ref = latest(r); return [`${ref.to}.${ref.layer}.${ref.symbol}${ref.wired ? ' (wired)' : ''}`, ref.loc, r.status]; }));
     section('References in', data.references.filter(r => latest(r).to === id).map(r => { const ref = latest(r); return [`${ref.from} → ${ref.layer}.${ref.symbol}`, ref.loc, r.status]; }));
     document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
     const selected = document.querySelector(`.node[data-key="module:${CSS.escape(id)}"]`);

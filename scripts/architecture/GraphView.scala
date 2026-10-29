@@ -45,7 +45,8 @@ object GraphView {
     val edges = mergedEdges(
       diff.edges.filter(e =>
         included(e.edge.from) && included(e.edge.to) && (e.status != Status.Unchanged || changed(e.edge.from) || changed(e.edge.to))
-      )
+      ),
+      diff.references
     )
     if (nodes.size + components.size > MaxNodes) Graph(nodes, edges, collapsed = true)
     else Graph(nodes ++ components, edges, collapsed = false)
@@ -53,7 +54,7 @@ object GraphView {
 
   def modules(diff: DiffModel): Graph = {
     val nodes = diff.modules.map(m => GNode(s"module:${m.id}", m.id, NodeKind.Module, None, m.status))
-    val edges = mergedEdges(diff.edges.filter(e => e.edge.from.startsWith("module:") && e.edge.to.startsWith("module:")))
+    val edges = mergedEdges(diff.edges.filter(e => e.edge.from.startsWith("module:") && e.edge.to.startsWith("module:")), diff.references)
     Graph(nodes, edges, collapsed = false)
   }
 
@@ -68,24 +69,56 @@ object GraphView {
     GNode(s"component:$moduleId:${component.name}", s"${component.name} ($kind)", NodeKind.Component, Some(s"module:$moduleId"), component.status)
   }
 
-  private def mergedEdges(edges: List[EdgeDiff]): List[GEdge] =
+  private val InternalLayers = Set("services", "repositories", "routers", "gateways")
+
+  private val MaxNamedTypes = 3
+
+  private def mergedEdges(edges: List[EdgeDiff], references: List[NodeDiff[Reference]]): List[GEdge] =
     edges
       .groupBy(e => (e.edge.from, e.edge.to, e.status))
       .toList
       .sortBy { case ((from, to, status), _) => (from, to, status.ordinal) }
       .map { case ((from, to, status), group) =>
-        GEdge(from, to, labelOf(group), status, group.exists(e => e.edge.kind == EdgeKind.Reference && e.edge.label == "repositories"))
+        GEdge(
+          from,
+          to,
+          labelOf(group, referencesOf(references, from, to, status)),
+          status,
+          group.exists(e => e.edge.kind == EdgeKind.Reference && e.edge.label == "repositories")
+        )
       }
 
-  private def labelOf(group: List[EdgeDiff]): String = {
+  private def referencesOf(
+    references: List[NodeDiff[Reference]],
+    from: String,
+    to: String,
+    status: Status
+  ): List[Reference] =
+    references
+      .flatMap(node => if (status == Status.Removed) node.base else node.head)
+      .filter(r => s"module:${r.from}" == from && s"module:${r.to}" == to)
+
+  private def labelOf(group: List[EdgeDiff], references: List[Reference]): String = {
     def labels(kind: EdgeKind): List[String] = group.filter(_.edge.kind == kind).map(_.edge.label).filter(_.nonEmpty).distinct
     val consumers                            = group
       .filter(e => e.edge.kind == EdgeKind.Subscribes && e.edge.label.nonEmpty && s"module:${e.edge.label}" != e.edge.to)
       .map(e => s"as ${e.edge.label}")
       .distinct
+    val layers  = labels(EdgeKind.Reference).toSet
+    val inGroup = references.filter(r => layers(r.layer))
+    val imports = inGroup.filterNot(r => InternalLayers(r.layer)).map(_.layer).distinct.sorted
+    val uses    = inGroup
+      .filter(r => InternalLayers(r.layer) && !r.wired)
+      .map(r => if (r.symbol == "*") s"${r.layer}.*" else r.symbol)
+      .distinct
+      .sorted
+    val named =
+      if (uses.size > MaxNamedTypes) s"${uses.take(MaxNamedTypes).mkString(", ")}, +${uses.size - MaxNamedTypes} more"
+      else uses.mkString(", ")
     List(
       Option.when(labels(EdgeKind.Wiring).nonEmpty)(s"wires ${labels(EdgeKind.Wiring).mkString(", ")}"),
-      Option.when(labels(EdgeKind.Reference).nonEmpty)(s"imports ${labels(EdgeKind.Reference).mkString(", ")}")
+      Option.when(imports.nonEmpty)(s"imports ${imports.mkString(", ")}"),
+      Option.when(uses.nonEmpty)(s"uses $named")
     ).flatten.++(consumers).mkString(" · ")
   }
 }

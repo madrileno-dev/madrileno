@@ -81,7 +81,22 @@ class MermaidSuite extends munit.FunSuite {
       )
     )
     val labels = GraphView.modules(ArchDiff.full(model, "h")).edges.map(_.label)
-    assertEquals(labels, List("wires userRepository · imports domain, services"))
+    assertEquals(labels, List("wires userRepository · imports domain · uses Users"))
+  }
+
+  test("labels name unwired internal types, leave out wired ones and cap the list") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule {\n  lazy val userRepository: UserRepository = ???\n}"),
+        Fixtures.src("user/repositories/UserRepository.scala", "package app.user.repositories\nclass UserRepository"),
+        Fixtures.src(
+          "shop/ShopModule.scala",
+          "package app.shop\nimport app.user.repositories.UserRepository\nimport app.user.services.{A, B, C, D, E}\ntrait ShopModule {\n  lazy val userRepository: UserRepository\n}"
+        )
+      )
+    )
+    assertEquals(GraphView.modules(ArchDiff.full(model, "h")).edges.map(_.label), List("wires userRepository · uses A, B, C, +2 more"))
   }
 
   test("the diagram uses the Madrileño palette and credits it") {

@@ -2,15 +2,15 @@ package architecture
 
 object Extractor {
   def extract(input: ProjectInput): ArchModel = {
-    val parsed                        = Parsing.parseAll(input)
-    val files                         = parsed.value
-    val ownership                     = Ownership.of(files)
-    val modules                       = ModuleExtractor.extract(files, ownership)
-    val wiring                        = WiringExtractor.extract(modules.value, files, ownership)
-    val references                    = ReferenceExtractor.extract(files, ownership, input.rootPackage)
-    val cycles                        = Cycles.warnings(modules.value, wiring.value, references)
-    val events                        = EventExtractor.extract(files, ownership)
-    val tables                        = TableExtractor.extract(files, input.migrations, ownership)
+    val parsed     = Parsing.parseAll(input)
+    val files      = parsed.value
+    val ownership  = Ownership.of(files)
+    val modules    = ModuleExtractor.extract(files, ownership)
+    val wiring     = WiringExtractor.extract(modules.value, files, ownership)
+    val references = WiredTypes.mark(ReferenceExtractor.extract(files, ownership, input.rootPackage), wiring.value, modules.value, files, ownership)
+    val cycles     = Cycles.warnings(modules.value, wiring.value, references)
+    val events     = EventExtractor.extract(files, ownership)
+    val tables     = TableExtractor.extract(files, input.migrations, ownership)
     val (topics, outboxEvents)        = events.value
     val (tableDecls, migrationTables) = tables.value
 
