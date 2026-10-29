@@ -42,7 +42,11 @@ object GraphView {
     val components = diff.modules
       .filter(m => included(s"module:${m.id}"))
       .flatMap(m => m.components.filter(_.status != Status.Unchanged).map(componentNode(m.id, _)))
-    val edges = mergedEdges(diff.edges.filter(e => included(e.edge.from) && included(e.edge.to)))
+    val edges = mergedEdges(
+      diff.edges.filter(e =>
+        included(e.edge.from) && included(e.edge.to) && (e.status != Status.Unchanged || changed(e.edge.from) || changed(e.edge.to))
+      )
+    )
     if (nodes.size + components.size > MaxNodes) Graph(nodes, edges, collapsed = true)
     else Graph(nodes ++ components, edges, collapsed = false)
   }

@@ -109,7 +109,7 @@ object Mermaid {
   private def idOf(key: String): String = key.replaceAll("[^A-Za-z0-9]", "_")
 
   private def prefix(status: Status): String = status match {
-    case Status.Added     => "#43; "
+    case Status.Added     => "#43;#160;"
     case Status.Removed   => "− "
     case Status.Changed   => "~ "
     case Status.Unchanged => ""

@@ -10,8 +10,8 @@ class MermaidSuite extends munit.FunSuite {
   }
 
   test("added module is a subgraph with its added component, removed module is dashed, user is a neighbour") {
-    assert(out.contains("subgraph module_order[\"#43; order\"]\n    direction LR\n"), out)
-    assert(out.contains("component_order_OrderService[\"#43; OrderService (service)\"]"), out)
+    assert(out.contains("subgraph module_order[\"#43;#160;order\"]\n    direction LR\n"), out)
+    assert(out.contains("component_order_OrderService[\"#43;#160;OrderService (service)\"]"), out)
     assert(out.contains("module_shop[\"− shop\"]"), out)
     assert(out.contains("module_user[\"user\"]"), out)
     assert(out.contains("module_shop -.->|userRepository| module_user"), out)
@@ -20,7 +20,7 @@ class MermaidSuite extends munit.FunSuite {
 
   test("labels are escaped") {
     val node = GNode("table:\"x<y>\"", "\"x<y>\"", NodeKind.Table, None, Status.Added)
-    assertEquals(Mermaid.nodeLine(node), "table__x_y__[(\"#43; #quot;x#lt;y#gt;#quot;\")]")
+    assertEquals(Mermaid.nodeLine(node), "table__x_y__[(\"#43;#160;#quot;x#lt;y#gt;#quot;\")]")
   }
 
   test("no label starts with a Markdown list marker, which Mermaid 11 renders as an error") {
@@ -47,5 +47,19 @@ class MermaidSuite extends munit.FunSuite {
     val text  = Mermaid.render(ArchDiff.compare(empty, Extractor.extract(Fixtures.project(many*)), "b", "h"))
     assert(!text.contains("```mermaid"), text.take(300))
     assert(text.contains("**Added modules (90):** m1, m10, m11"), text.take(600))
+  }
+
+  test("edges between two unchanged neighbours are left out") {
+    def model(extra: String) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AModule with BModule with HubModule"),
+        Fixtures.src("a/AModule.scala", "package app.a\nimport app.b.domain.X\ntrait AModule"),
+        Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule"),
+        Fixtures.src("hub/HubModule.scala", s"package app.hub\nimport app.a.domain.Y\nimport app.b.domain.Z\ntrait HubModule {\n$extra\n}")
+      )
+    )
+    val graph = GraphView.changes(ArchDiff.compare(model(""), model("  lazy val extra: Extra = ???"), "b", "h"))
+    assertEquals(graph.nodes.map(_.key).toSet, Set("module:hub", "module:a", "module:b"))
+    assertEquals(graph.edges.map(e => e.from -> e.to).toSet, Set("module:hub" -> "module:a", "module:hub" -> "module:b"))
   }
 }
