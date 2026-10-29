@@ -11,7 +11,8 @@ object TableExtractor {
     migrations: List[SourceFile],
     ownership: Ownership
   ): Extracted[(List[TableDecl], List[MigrationTable])] = {
-    val declared  = files.flatMap(declarationsIn(_, ownership))
+    val found     = files.flatMap(declarationsIn(_, ownership))
+    val declared  = found.collect { case Right(table) => table }
     val withUsers = declared.map(table => table.copy(users = usersOf(table, declared, files, ownership)))
     val migrated  = migrations.flatMap(migrationTablesIn)
 
@@ -45,18 +46,28 @@ object TableExtractor {
         )
       )
 
-    Extracted((withUsers.sortBy(_.name), migrated), crossModule ++ undeclared, Nil)
+    Extracted((withUsers.sortBy(_.name), migrated), crossModule ++ undeclared, found.collect { case Left(item) => item })
   }
 
-  private def declarationsIn(file: ParsedFile, ownership: Ownership): List[TableDecl] =
+  private def declarationsIn(file: ParsedFile, ownership: Ownership): List[Either[Unclassified, TableDecl]] =
     file.tree.collect { case obj: Defn.Object => obj }.flatMap { obj =>
       obj.templ.inits
         .collectFirst {
-          case init if Trees.typeName(init.tpe) == "Table" =>
-            init.argClauses.headOption.flatMap(_.values.headOption).flatMap(Trees.stringLiteral)
+          case init if Trees.typeName(init.tpe) == "Table" => init.argClauses.headOption.flatMap(_.values.headOption)
         }
         .flatten
-        .map(name => TableDecl(normalize(name), obj.name.value, ownership.ownerOf(file.pkg), Nil, Trees.loc(file, obj)))
+        .map { arg =>
+          Trees
+            .stringLiteral(arg)
+            .map(name => TableDecl(normalize(name), obj.name.value, ownership.ownerOf(file.pkg), Nil, Trees.loc(file, obj)))
+            .toRight(
+              Unclassified(
+                s"table-name:${file.source.packagePath}:${obj.name.value}",
+                s"${obj.name.value} extends Table with the name ${arg.syntax}, not a string literal",
+                Trees.loc(file, obj)
+              )
+            )
+        }
     }
 
   private def usersOf(

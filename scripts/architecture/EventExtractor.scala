@@ -14,7 +14,8 @@ object EventExtractor {
     packagePath: String)
 
   def extract(files: List[ParsedFile], ownership: Ownership): Extracted[(List[BusTopic], List[OutboxEvent])] = {
-    val topics      = files.flatMap(topicsIn(_, ownership))
+    val declared    = files.flatMap(topicsIn(_, ownership))
+    val topics      = declared.collect { case Right(topic) => topic }
     val busUses     = files.flatMap(busUsesIn(_, ownership))
     val descriptors = files.flatMap(descriptorsIn(_, ownership))
     val publishes   = files.flatMap(publishesIn(_, ownership))
@@ -72,22 +73,25 @@ object EventExtractor {
     Extracted(
       (linkedTopics.sortBy(_.name), events.sortBy(_.eventType)),
       warnings,
-      busWithoutTopic ++ publishes.collect { case Left(item) => item } ++ unknownTypes
+      declared.collect { case Left(item) => item } ++ busWithoutTopic ++ publishes.collect { case Left(item) => item } ++ unknownTypes
     )
   }
 
-  private def topicsIn(file: ParsedFile, ownership: Ownership): List[BusTopic] =
+  private def topicsIn(file: ParsedFile, ownership: Ownership): List[Either[Unclassified, BusTopic]] =
     file.tree.collect {
       case call @ Term.Apply.After_4_6_0(Term.ApplyType.After_4_6_0(Term.Select(_, Term.Name("topic")), targs), args)
-          if targs.values.size == 1 && args.values.headOption.flatMap(Trees.stringLiteral).isDefined =>
-        BusTopic(
-          args.values.headOption.flatMap(Trees.stringLiteral).getOrElse(""),
-          targs.values.head.syntax,
-          ownership.ownerOf(file.pkg),
-          Nil,
-          Nil,
-          Trees.loc(file, call)
-        )
+          if targs.values.size == 1 && args.values.nonEmpty =>
+        val eventType = targs.values.head.syntax
+        Trees
+          .stringLiteral(args.values.head)
+          .map(name => BusTopic(name, eventType, ownership.ownerOf(file.pkg), Nil, Nil, Trees.loc(file, call)))
+          .toRight(
+            Unclassified(
+              s"topic-name:${file.source.packagePath}:$eventType",
+              s"topic[$eventType] in ${Trees.enclosingName(call)} is named by ${args.values.head.syntax}, not a string literal",
+              Trees.loc(file, call)
+            )
+          )
     }
 
   private def busUsesIn(file: ParsedFile, ownership: Ownership): List[BusUse] =

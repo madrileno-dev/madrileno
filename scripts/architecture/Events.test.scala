@@ -39,4 +39,14 @@ class EventsSuite extends munit.FunSuite {
     assertEquals(topics.map(t => (t.name, t.eventType, t.subscribers.map(_.enclosing))), List(("shop_events", "ShopEvent", List("ShopRouter"))))
     assertEquals(result.warnings.map(_.key), List("no-publisher:shop_events"))
   }
+
+  test("a topic whose name is not a literal is unclassified") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        "package app.shop\ntrait ShopModule {\n  lazy val bus = eventBusRuntime.topic[OrderEvent](Topics.Orders, maxQueued = 8)\n}"
+      )
+    )
+    assertEquals(EventExtractor.extract(files, Ownership.of(files)).unclassified.map(_.key), List("topic-name:shop/ShopModule.scala:OrderEvent"))
+  }
 }

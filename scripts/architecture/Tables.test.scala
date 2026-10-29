@@ -36,4 +36,15 @@ class TablesSuite extends munit.FunSuite {
   test("warnings: cross-module use and undeclared migration table") {
     assertEquals(result.warnings.map(_.key).sorted, List("cross-module-table:user:shop", "migration-table-without-table:ghost"))
   }
+
+  test("a table whose name is not a literal is unclassified") {
+    val files = Fixtures.parsed(
+      Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),
+      Fixtures.src("shop/repositories/R.scala", "package app.shop.repositories\nobject OrderTable extends Table[OrderRow](Names.Order)")
+    )
+    assertEquals(
+      TableExtractor.extract(files, Nil, Ownership.of(files)).unclassified.map(_.key),
+      List("table-name:shop/repositories/R.scala:OrderTable")
+    )
+  }
 }
