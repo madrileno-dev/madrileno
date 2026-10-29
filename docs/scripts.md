@@ -20,7 +20,7 @@ What it does, in order:
 2. **Deletes the auction demo** — `src/{main,test}/scala/madrileno/auction/` and any Flyway migration whose filename mentions `auction` or `bid`.
 3. **Deletes `LICENSE` and the README's License section** — both describe the template, not your project. The README section explicitly grants projects generated via this script the right to relicense with no attribution required, so add whatever license fits yours.
 4. **Rewrites file contents** under every text file outside `.git`, `target`, IDE caches, `node_modules`, and `scripts/`:
-   - Drops blocks bracketed by `// scripts:auction-block-start` / `// scripts:auction-block-end` — auction-coupled fragments in test support that can't be deleted as whole files (today: two in `TestData.scala`, one in `TestApplicationLoader.scala`, one in `SchedulerAdminRouterSpec.scala`). The markers must occupy their own line — inline mentions in prose are ignored.
+   - Drops blocks bracketed by `// scripts:auction-block-start` / `// scripts:auction-block-end` — auction-coupled fragments in test support that can't be deleted as whole files (today: two in `TestData.scala`, one in `TestApplicationLoader.scala`, one in `SchedulerAdminRouterSpec.scala`, one in `OutboxWiringSpec.scala`). The markers must occupy their own line — inline mentions in prose are ignored.
    - Drops `import madrileno.auction.*` lines and `with AuctionModule` lines from the loaders' `extends` chains.
    - Renames `madrileno.<X>` package references to `<package>.<X>`.
    - Renames standalone `madrileno` to `<project-name>` (HOCON `app.name`, `OTEL_SERVICE_NAME`, `PG_DATABASE`, `MAILER_FROM_ADDRESS`, README/doc references, etc.).

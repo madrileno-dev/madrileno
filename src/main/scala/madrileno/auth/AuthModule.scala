@@ -8,10 +8,11 @@ import madrileno.auth.emails.WelcomeEmailTemplate
 import madrileno.auth.repositories.*
 import madrileno.auth.routers.{AuthRouter, UserAuthenticator}
 import madrileno.auth.services.*
+import madrileno.user.domain.UserAccountDeleted
 import madrileno.user.repositories.UserRepository
 import madrileno.utils.cache.CacheRuntime
 import madrileno.utils.db.transactor.Transactor
-import madrileno.utils.events.outbox.Outbox
+import madrileno.utils.events.outbox.{OutboxSubscription, OutboxSubscriptionProvider}
 import madrileno.utils.http.{AuthRouteProvider, RateLimiterRuntime, RouteProvider}
 import madrileno.utils.mailer.{MailPreview, MailPreviewProvider, Mailer}
 import madrileno.utils.observability.{Fingerprinter, TelemetryContext}
@@ -21,7 +22,7 @@ import pureconfig.*
 import sttp.capabilities.fs2.Fs2Streams
 import sttp.client4.WebSocketStreamBackend
 
-trait AuthModule extends RouteProvider with AuthRouteProvider with RecurringTaskProvider with MailPreviewProvider {
+trait AuthModule extends RouteProvider with AuthRouteProvider with RecurringTaskProvider with MailPreviewProvider with OutboxSubscriptionProvider {
   val config: ConfigSource
   val jwtConfig: JwtService.Config                              = config.at("jwt").loadOrThrow[JwtService.Config]
   val authenticationServiceConfig: AuthenticationService.Config =
@@ -34,7 +35,6 @@ trait AuthModule extends RouteProvider with AuthRouteProvider with RecurringTask
   val cacheRuntime: CacheRuntime
   val rateLimiterRuntime: RateLimiterRuntime
   lazy val httpClient: WebSocketStreamBackend[IO, Fs2Streams[IO]]
-  lazy val outbox: Outbox
   lazy val userRepository: UserRepository
   lazy val mailer: Mailer
 
@@ -63,11 +63,11 @@ trait AuthModule extends RouteProvider with AuthRouteProvider with RecurringTask
     AuthVerifiers((List(firebase, dev).flatten ++ oidc).toMap)
   }
 
-  private val userAuthRepository          = wire[UserAuthRepository]
-  private val refreshTokenRepository      = wire[RefreshTokenRepository]
-  private val authenticationService       = wire[AuthenticationService]
-  private val authRouter                  = wire[AuthRouter]
-  lazy val accountService: AccountService = wire[AccountService]
+  private val userAuthRepository        = wire[UserAuthRepository]
+  private val refreshTokenRepository    = wire[RefreshTokenRepository]
+  private val authAccountCleanupService = wire[AuthAccountCleanupService]
+  private val authenticationService     = wire[AuthenticationService]
+  private val authRouter                = wire[AuthRouter]
 
   override abstract def route(auth: AuthContext): Route = {
     super.route(auth) ~ authRouter.authedRoutes(auth)
@@ -83,6 +83,10 @@ trait AuthModule extends RouteProvider with AuthRouteProvider with RecurringTask
 
   override abstract def mailPreviews: List[MailPreview] = {
     super.mailPreviews :+ WelcomeEmailTemplate.preview
+  }
+
+  override abstract def outboxSubscriptions: List[OutboxSubscription] = {
+    super.outboxSubscriptions :+ OutboxSubscription[UserAccountDeleted]("auth")(authAccountCleanupService.onAccountDeleted)
   }
 }
 

@@ -23,6 +23,7 @@ class AuthenticationService(
   userAuthRepository: UserAuthRepository,
   refreshTokenRepository: RefreshTokenRepository,
   userRepository: UserRepository,
+  accountCleanup: AuthAccountCleanupService,
   verifiers: AuthVerifiers,
   jwtService: JwtService,
   transactor: Transactor,
@@ -67,6 +68,16 @@ class AuthenticationService(
     }
   }
 
+  private def registerAfterDeletedAccount(
+    userAuth: UserAuth,
+    verifiedToken: VerifiedExternalToken,
+    command: AuthenticateWithExternalTokenCommand,
+    now: Instant
+  ): DBInTransaction[AuthenticationResult] =
+    logger.info(s"Login via ${userAuth.provider} matched deleted user ${userAuth.userId}; cleaning up before registering a new user") *>
+      accountCleanup.cleanUp(userAuth.userId, now) *>
+      createNewUser(verifiedToken, command, now)
+
   private def updateExistingUser(
     userAuth: UserAuth,
     verifiedToken: VerifiedExternalToken,
@@ -74,9 +85,12 @@ class AuthenticationService(
     now: Instant
   ): DBInTransaction[AuthenticationResult] = {
     val userUpdater: User => User = _.withUpdatedProfile(verifiedToken.profile)
-    userAuthRepository.updateMetadata(userAuth.id, verifiedToken.metadata) *>
-      userRepository.update(userAuth.userId, userUpdater, now) *>
-      generateTokensInNewFamily(userAuth.userId, command.userAgent, command.ipAddress, now, AuthenticationResult.Authenticated.apply)
+    userRepository.update(userAuth.userId, userUpdater, now).flatMap {
+      case true =>
+        userAuthRepository.updateMetadata(userAuth.id, verifiedToken.metadata) *>
+          generateTokensInNewFamily(userAuth.userId, command.userAgent, command.ipAddress, now, AuthenticationResult.Authenticated.apply)
+      case false => registerAfterDeletedAccount(userAuth, verifiedToken, command, now)
+    }
   }
 
   private def createNewUser(
@@ -85,7 +99,7 @@ class AuthenticationService(
     now: Instant
   ): DBInTransaction[AuthenticationResult] = {
     for {
-      user     <- IdGenerator.generateId(UserId).map(id => User(id, verifiedToken))
+      user     <- IdGenerator.generateId(UserId).map(verifiedToken.toUser)
       userAuth <- IdGenerator.generateId(UserAuthId).map(id => UserAuth(id, user.id, verifiedToken))
       _        <- userRepository.create(user, now)
       _        <- userAuthRepository.save(userAuth, now)
@@ -246,7 +260,12 @@ class AuthenticationService(
                      .valueOrF(revokeAsReplay("its successor is gone"))
                      .ensureF(_.isValid(now), revokeAsReplay("its successor was already used"))
       user <- userRepository
-                .get(successor.userId)
+                .find(successor.userId)
+                .valueOrF[AuthenticationResult](
+                  logger
+                    .warn(s"Refusing to redeliver refresh token ${successor.id} for deleted user ${successor.userId}")
+                    .as(AuthenticationResult.InvalidToken)
+                )
                 .ensure(_.isActive, AuthenticationResult.UserBlocked)
       _ <-
         logger
@@ -278,9 +297,11 @@ class AuthenticationService(
     success: (InternalJwt, IssuedRefreshToken) => AuthenticationResult
   ): DB[AuthenticationResult] = {
     (for {
-      user <- userRepository
-                .get(userId)
-                .ensure(_.isActive, AuthenticationResult.UserBlocked)
+      user <-
+        userRepository
+          .find(userId)
+          .valueOrF[AuthenticationResult](logger.warn(s"Refusing to issue tokens for deleted user $userId").as(AuthenticationResult.InvalidToken))
+          .ensure(_.isActive, AuthenticationResult.UserBlocked)
       jwt = jwtService.encode(AuthContext(user), now)
       id     <- IdGenerator.generateId(RefreshTokenId).seal
       secret <- RandomSecret.generate(RefreshTokenSecret.byteLength).map(RefreshTokenSecret.apply).seal

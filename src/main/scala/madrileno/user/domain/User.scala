@@ -1,6 +1,5 @@
 package madrileno.user.domain
 
-import madrileno.auth.domain.{ExternalProfile, VerifiedExternalToken}
 import pl.iterators.kebs.opaque.Opaque
 
 import java.net.URI
@@ -33,26 +32,5 @@ final case class User(
   emailVerified: Boolean,
   avatarUrl: Option[URI],
   blockedAt: Option[Instant]) {
-  def isActive: Boolean                                          = blockedAt.isEmpty
-  def withUpdatedProfile(externalProfile: ExternalProfile): User = {
-    copy(
-      fullName = externalProfile.fullName.orElse(this.fullName),
-      emailAddress = externalProfile.emailAddress.orElse(this.emailAddress),
-      emailVerified = externalProfile.emailVerified || this.emailVerified,
-      avatarUrl = externalProfile.avatarUrl.orElse(this.avatarUrl)
-    )
-  }
-}
-
-object User {
-  def apply(id: UserId, externalToken: VerifiedExternalToken): User = {
-    User(
-      id,
-      externalToken.profile.fullName,
-      externalToken.profile.emailAddress,
-      externalToken.profile.emailVerified,
-      externalToken.profile.avatarUrl,
-      None
-    )
-  }
+  def isActive: Boolean = blockedAt.isEmpty
 }
