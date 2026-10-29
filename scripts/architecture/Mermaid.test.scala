@@ -30,7 +30,10 @@ class MermaidSuite extends munit.FunSuite {
 
   test("an unchanged diff says so and has no code block") {
     val same = ArchDiff.compare(Fixtures.diffHead, Fixtures.diffHead, "main@abc1234", "working tree")
-    assertEquals(Mermaid.render(same), "No architecture changes between `main@abc1234` and `working tree`.\n")
+    assertEquals(
+      Mermaid.render(same),
+      "No architecture changes between `main@abc1234` and `working tree`.\n\n<sub>Mapped by Madrileño's <code>scripts/architecture.scala</code></sub>\n"
+    )
   }
 
   test("more than 30 boxes collapse components") {

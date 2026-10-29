@@ -34,7 +34,7 @@ object Mermaid {
     val graph  = GraphView.changes(diff)
     val footer = footerOf(diff)
     if (graph.nodes.isEmpty)
-      s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n${if (metricsMoved(diff)) metricsSection(diff) else ""}$footer"
+      s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n${if (metricsMoved(diff)) metricsSection(diff) else ""}$footer$Credit"
     else if (graph.nodes.size > GraphView.MaxDiagramNodes || graph.edges.size > GraphView.MaxDiagramEdges) {
       val intro =
         s"_The diagram would be too large for GitHub to render (${graph.nodes.size} boxes, ${graph.edges.size} arrows). Open the HTML for the full picture._"
