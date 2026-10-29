@@ -41,6 +41,24 @@ object Trees {
 
   def nonBlankLines(content: String): Int = content.linesIterator.count(_.trim.nonEmpty)
 
+  def ancestors(tree: Tree): List[Tree] = tree.parent.toList.flatMap(parent => parent :: ancestors(parent))
+
+  def enclosingName(tree: Tree): String =
+    ancestors(tree)
+      .collectFirst {
+        case d: Defn.Class  => d.name.value
+        case d: Defn.Object => d.name.value
+        case d: Defn.Trait  => d.name.value
+      }
+      .getOrElse("")
+
+  def stringLiteral(term: Term): Option[String] = term match {
+    case Lit.String(value) => Some(value)
+    case _                 => None
+  }
+
+  def loc(file: ParsedFile, tree: Tree): Loc = Loc(file.source.projectPath, Parsing.lineOf(tree))
+
   private def flatten(stats: List[Stat]): List[Stat] = stats.flatMap {
     case pkg: Pkg => flatten(pkg.body.stats)
     case stat     => List(stat)

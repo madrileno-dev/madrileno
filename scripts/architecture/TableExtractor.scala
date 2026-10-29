@@ -1,0 +1,107 @@
+package architecture
+
+import scala.meta.{Member as _, *}
+
+object TableExtractor {
+  private val CreateTable =
+    """(?i)\bcreate\s+table\s+(?:if\s+not\s+exists\s+)?((?:"[^"]+"|[A-Za-z_][A-Za-z0-9_]*)(?:\.(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_]*))?)""".r
+
+  def extract(
+    files: List[ParsedFile],
+    migrations: List[SourceFile],
+    ownership: Ownership
+  ): Extracted[(List[TableDecl], List[MigrationTable])] = {
+    val declared  = files.flatMap(declarationsIn(_, ownership))
+    val withUsers = declared.map(table => table.copy(users = usersOf(table, declared, files, ownership)))
+    val migrated  = migrations.flatMap(migrationTablesIn)
+
+    val crossModule = withUsers.flatMap { table =>
+      table.users
+        .flatMap(site =>
+          site.owner match {
+            case Owner.Module(user) if table.owner != Owner.Module(user) => Some(user -> site)
+            case _                                                       => None
+          }
+        )
+        .distinctBy(_._1)
+        .map((user, site) =>
+          Warning(
+            WarningKind.CrossModuleTableUse,
+            s"cross-module-table:${table.name}:$user",
+            s"$user uses table ${table.name} owned by ${ownerLabel(table.owner)}",
+            site.loc
+          )
+        )
+    }
+    val undeclared = migrated
+      .filterNot(m => declared.exists(_.name == m.name))
+      .distinctBy(_.name)
+      .map(m =>
+        Warning(
+          WarningKind.MigrationTableWithoutTable,
+          s"migration-table-without-table:${m.name}",
+          s"table ${m.name} is created by a migration but no Table object declares it",
+          m.loc
+        )
+      )
+
+    Extracted((withUsers.sortBy(_.name), migrated), crossModule ++ undeclared, Nil)
+  }
+
+  private def declarationsIn(file: ParsedFile, ownership: Ownership): List[TableDecl] =
+    file.tree.collect { case obj: Defn.Object => obj }.flatMap { obj =>
+      obj.templ.inits
+        .collectFirst {
+          case init if Trees.typeName(init.tpe) == "Table" =>
+            init.argClauses.headOption.flatMap(_.values.headOption).flatMap(Trees.stringLiteral)
+        }
+        .flatten
+        .map(name => TableDecl(normalize(name), obj.name.value, ownership.ownerOf(file.pkg), Nil, Trees.loc(file, obj)))
+    }
+
+  private def usersOf(
+    table: TableDecl,
+    declared: List[TableDecl],
+    files: List[ParsedFile],
+    ownership: Ownership
+  ): List[Site] =
+    files.flatMap { file =>
+      val owner = ownership.ownerOf(file.pkg)
+      file.tree
+        .collect {
+          case name: Term.Name if name.value == table.objectName && !isDefinitionName(name) && resolvesTo(table, declared, owner) =>
+            Site(owner, Trees.enclosingName(name), Trees.loc(file, name))
+        }
+        .distinctBy(_.enclosing)
+    }
+
+  private def resolvesTo(
+    table: TableDecl,
+    declared: List[TableDecl],
+    owner: Owner
+  ): Boolean = {
+    val candidates = declared.filter(_.objectName == table.objectName)
+    candidates.find(_.owner == owner).orElse(candidates.headOption).contains(table)
+  }
+
+  private def isDefinitionName(name: Term.Name): Boolean = name.parent.exists {
+    case obj: Defn.Object => obj.name eq name
+    case _                => false
+  }
+
+  private def migrationTablesIn(file: SourceFile): List[MigrationTable] =
+    CreateTable
+      .findAllMatchIn(file.content)
+      .map { m =>
+        MigrationTable(normalize(m.group(1).split('.').last), Loc(file.projectPath, file.content.take(m.start).count(_ == '\n') + 1))
+      }
+      .toList
+
+  private def normalize(name: String): String = name.stripPrefix("\"").stripSuffix("\"").toLowerCase
+
+  private def ownerLabel(owner: Owner): String = owner match {
+    case Owner.Module(id)      => id
+    case Owner.Platform(id)    => s"platform $id"
+    case Owner.CompositionRoot => "main"
+  }
+}
