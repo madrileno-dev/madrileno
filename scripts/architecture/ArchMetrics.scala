@@ -30,7 +30,7 @@ final case class MetricRow(
   description: String)
 
 object ArchMetrics {
-  private val percent: Double => String = value => s"${math.round(value * 100)}%"
+  private val percent: Double => String = value => s"${BigDecimal(value * 100).setScale(1, BigDecimal.RoundingMode.HALF_UP).bigDecimal.stripTrailingZeros.toPlainString}%"
 
   private val whole: Double => String = value => value.toLong.toString
 
