@@ -38,4 +38,9 @@ class CliSuite extends munit.FunSuite {
     val empty = os.temp.dir()
     assertEquals(Cli.run(Options(empty, None, Output.Json, strict = true)), Left(s"no src/main/scala under $empty; is this a Madrileño project?"))
   }
+
+  test("the base label names the ref and its short sha, once when the ref is the sha") {
+    assertEquals(Cli.baseLabel("main", "abc1234def"), "main@abc1234")
+    assertEquals(Cli.baseLabel("abc1234", "abc1234def"), "abc1234")
+  }
 }

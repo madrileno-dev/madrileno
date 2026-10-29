@@ -43,10 +43,13 @@ object Cli {
       case Some(ref) =>
         GitRevision
           .withRevision(options.project, ref) { revision =>
-            ProjectInput.load(revision.root).map(base => ArchDiff.compare(Extractor.extract(base), head, s"$ref@${revision.sha.take(7)}", HeadLabel))
+            ProjectInput.load(revision.root).map(base => ArchDiff.compare(Extractor.extract(base), head, baseLabel(ref, revision.sha), HeadLabel))
           }
           .flatten
     }
+
+  def baseLabel(ref: String, sha: String): String =
+    if (sha.startsWith(ref)) ref else s"$ref@${sha.take(7)}"
 
   private def emit(output: Output, diff: DiffModel): Either[String, Outcome] = output match {
     case Output.Html(path) =>
