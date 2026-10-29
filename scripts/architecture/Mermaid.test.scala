@@ -12,7 +12,7 @@ class MermaidSuite extends munit.FunSuite {
   test("added module is a subgraph with its added component, removed module is dashed, user is a neighbour") {
     assert(out.contains("subgraph module_order[\"#43;#160;order\"]\n    direction LR\n"), out)
     assert(out.contains("component_order_OrderService[\"#43;#160;OrderService (service)\"]"), out)
-    assert(out.contains("module_shop[\"− shop\"]"), out)
+    assert(out.contains("module_shop[\"−#160;shop\"]"), out)
     assert(out.contains("module_user[\"user\"]"), out)
     assert(out.contains("module_shop -.->|userRepository| module_user"), out)
     assert(out.contains("module_order -->|userRepository| module_user"), out)
@@ -61,5 +61,10 @@ class MermaidSuite extends munit.FunSuite {
     val graph = GraphView.changes(ArchDiff.compare(model(""), model("  lazy val extra: Extra = ???"), "b", "h"))
     assertEquals(graph.nodes.map(_.key).toSet, Set("module:hub", "module:a", "module:b"))
     assertEquals(graph.edges.map(e => e.from -> e.to).toSet, Set("module:hub" -> "module:a", "module:hub" -> "module:b"))
+  }
+
+  test("every status marker is glued to its label with a non-breaking space") {
+    assert(Mermaid.nodeLine(GNode("module:a", "a", NodeKind.Module, None, Status.Changed)).contains("~#160;a"))
+    assert(Mermaid.nodeLine(GNode("module:a", "a", NodeKind.Module, None, Status.Removed)).contains("−#160;a"))
   }
 }

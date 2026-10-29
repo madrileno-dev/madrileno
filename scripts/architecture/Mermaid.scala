@@ -110,8 +110,8 @@ object Mermaid {
 
   private def prefix(status: Status): String = status match {
     case Status.Added     => "#43;#160;"
-    case Status.Removed   => "− "
-    case Status.Changed   => "~ "
+    case Status.Removed   => "−#160;"
+    case Status.Changed   => "~#160;"
     case Status.Unchanged => ""
   }
 
