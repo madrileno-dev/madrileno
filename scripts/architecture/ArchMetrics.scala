@@ -72,14 +72,19 @@ object ArchMetrics {
   ): Option[Boolean] =
     if (row.format(row.value(base)) == row.format(row.value(head))) None else Some(row.value(head) > row.value(base))
 
-  def diff(base: ArchModel, head: ArchModel): MetricsDiff = MetricsDiff(of(base), of(head), coupling(head))
+  def diff(base: ArchModel, head: ArchModel): MetricsDiff = {
+    val headCoupling = coupling(head)
+    MetricsDiff(of(base), measured(head, headCoupling), headCoupling)
+  }
 
-  def of(model: ArchModel): ArchMetrics = {
+  def of(model: ArchModel): ArchMetrics = measured(model, coupling(model))
+
+  private def measured(model: ArchModel, modules: List[ModuleCoupling]): ArchMetrics = {
     val graph   = ModuleGraph.of(model)
     val ids     = graph.nodes
     val pairs   = ids.size * (ids.size - 1)
     val reached = ids.map(id => (graph.reachable(id) - id).size).sum
-    val coupled = coupling(model).map(c => c.id -> c.instability).toMap
+    val coupled = modules.map(c => c.id -> c.instability).toMap
     ArchMetrics(
       propagationCost = if (pairs == 0) 0.0 else reached.toDouble / pairs,
       sizeConcentration = concentration(model.modules.filterNot(_.id.startsWith("utils/")).map(_.metrics.linesOfCode)),

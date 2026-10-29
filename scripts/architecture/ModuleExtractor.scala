@@ -21,10 +21,11 @@ object ModuleExtractor {
     if (candidates.size > 1 && candidates.forall(_.value.mixedIn)) {
       val merged = candidates.map(_.value).reduce { (a, b) =>
         val components = (a.components ++ b.components).distinctBy(_.name)
+        val provides   = a.provides ++ b.provides
         a.copy(
           traitName = s"${a.traitName} + ${b.traitName}",
-          consumes = a.consumes ++ b.consumes,
-          provides = a.provides ++ b.provides,
+          consumes = (a.consumes ++ b.consumes).filterNot(member => provides.exists(_.name == member.name)),
+          provides = provides,
           contributions = a.contributions ++ b.contributions,
           components = components,
           metrics = a.metrics.copy(components = components.size)
@@ -84,7 +85,9 @@ object ModuleExtractor {
     case d: Defn.Val if visible(d.mods) =>
       Trees.patNames(d.pats).map(Member(_, d.decltpe.map(_.syntax).orElse(instantiated(d.rhs)).getOrElse(""), Trees.loc(file, d)))
     case d: Defn.GivenAlias if visible(d.mods) => List(Member(d.name.value, d.decltpe.syntax, Trees.loc(file, d)))
-    case _                                     => Nil
+    case d: Defn.Def if visible(d.mods)        =>
+      List(Member(d.name.value, d.decltpe.map(_.syntax).orElse(instantiated(d.body)).getOrElse(""), Trees.loc(file, d)))
+    case _ => Nil
   }
 
   private def visible(mods: List[Mod]): Boolean = !Trees.isPrivate(mods) && !Trees.isOverride(mods)

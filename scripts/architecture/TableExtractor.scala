@@ -34,6 +34,18 @@ object TableExtractor {
           )
         )
     }
+    val byName     = withUsers.groupBy(_.name).values.toList.map(_.sortBy(t => (t.loc.path, t.loc.line)))
+    val merged     = byName.map(same => same.head.copy(users = same.flatMap(_.users).distinct))
+    val duplicates = byName.flatMap { same =>
+      same.find(_.owner != same.head.owner).map { other =>
+        Warning(
+          WarningKind.DuplicateTable,
+          s"duplicate-table:${other.name}",
+          s"table ${other.name} is declared by ${same.map(t => s"${t.objectName} in ${t.owner.label}").mkString(", ")}",
+          other.loc
+        )
+      }
+    }
     val undeclared = migrated
       .filterNot(m => declared.exists(_.name == m.name))
       .distinctBy(_.name)
@@ -46,7 +58,7 @@ object TableExtractor {
         )
       )
 
-    Extracted((withUsers.sortBy(_.name), migrated), crossModule ++ undeclared, found.collect { case Left(item) => item })
+    Extracted((merged.sortBy(_.name), migrated), crossModule ++ duplicates ++ undeclared, found.collect { case Left(item) => item })
   }
 
   private def declarationsIn(file: ParsedFile, ownership: Ownership): List[Either[Unclassified, TableDecl]] =

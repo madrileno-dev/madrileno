@@ -37,6 +37,43 @@ class TablesSuite extends munit.FunSuite {
     assertEquals(result.warnings.map(_.key).sorted, List("cross-module-table:user:shop", "migration-table-without-table:ghost"))
   }
 
+  test("a table two modules declare is one table with the users of both, and a warning") {
+    val files = Fixtures.parsed(
+      Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule"),
+      Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule"),
+      Fixtures.src(
+        "a/repositories/A.scala",
+        "package app.a.repositories\nobject ATable extends Table[ARow](\"shared\")\nclass ARepository { def f = ATable }"
+      ),
+      Fixtures.src(
+        "b/repositories/B.scala",
+        "package app.b.repositories\nobject BTable extends Table[BRow](\"shared\")\nclass BRepository { def f = BTable }"
+      )
+    )
+    val result = TableExtractor.extract(files, Nil, Ownership.of(files))
+    assertEquals(
+      result.value._1.map(t => (t.name, t.owner, t.users.map(_.enclosing))),
+      List(("shared", Owner.Module("a"), List("ARepository", "BRepository")))
+    )
+    assertEquals(
+      result.warnings.map(w => w.key -> w.message),
+      List("duplicate-table:shared" -> "table shared is declared by ATable in a, BTable in b")
+    )
+  }
+
+  test("two Table objects of one module for the same table are one table without a warning") {
+    val files = Fixtures.parsed(
+      Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule"),
+      Fixtures.src(
+        "a/repositories/A.scala",
+        "package app.a.repositories\nobject ATable extends Table[ARow](\"shared\")\nobject ASummaryTable extends Table[ASummary](\"shared\")"
+      )
+    )
+    val result = TableExtractor.extract(files, Nil, Ownership.of(files))
+    assertEquals(result.value._1.map(_.name), List("shared"))
+    assertEquals(result.warnings, Nil)
+  }
+
   test("a table whose name is not a literal is unclassified") {
     val files = Fixtures.parsed(
       Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),

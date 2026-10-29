@@ -27,7 +27,10 @@ object Fixtures {
   lazy val diffHead: ArchModel = Extractor.extract(
     project(
       src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with OrderModule"),
-      src("user/UserModule.scala", "package app.user\n\ntrait UserModule {\n  lazy val userRepository: UserRepository = ???\n  def helper = 1\n}"),
+      src(
+        "user/UserModule.scala",
+        "package app.user\n\ntrait UserModule {\n  lazy val userRepository: UserRepository = ???\n  private def helper = 1\n}"
+      ),
       src(
         "order/OrderModule.scala",
         "package app.order\ntrait OrderModule {\n  lazy val userRepository: UserRepository\n  private val s = wire[OrderService]\n}"

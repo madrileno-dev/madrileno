@@ -42,7 +42,7 @@ object Mermaid {
     } else {
       val note =
         if (graph.collapsed)
-          s"\n_Services and repositories are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
+          s"\n_Services, repositories, routers and gateways are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
         else ""
       s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\n${diagram(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
     }
@@ -59,7 +59,7 @@ object Mermaid {
       else s"```mermaid\n${diagram(graph)}```\n"
     val note =
       if (graph ne detailed)
-        s"\n_Services and repositories are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
+        s"\n_Services, repositories, routers and gateways are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
       else ""
     val metrics =
       s"\n**Architecture metrics:** ${ArchMetrics.rows.map(row => s"${row.name.toLowerCase} ${row.format(row.value(diff.metrics.head))}").mkString(", ")}.\n"
@@ -78,7 +78,6 @@ object Mermaid {
       case NodeKind.Table                       => s"""$id[("$label")]"""
       case NodeKind.Topic                       => s"""$id>"$label"]"""
       case NodeKind.Event                       => s"""$id{{"$label"}}"""
-      case NodeKind.Platform                    => s"""$id(["$label"])"""
       case NodeKind.Module | NodeKind.Component => s"""$id["$label"]"""
     }
   }

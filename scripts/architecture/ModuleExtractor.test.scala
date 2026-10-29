@@ -107,4 +107,16 @@ class ModuleExtractorSuite extends munit.FunSuite {
     assertEquals(result.unclassified.map(_.key), List("component:shop:Missing"))
     assertEquals(WiringExtractor.extract(result.value, files, ownership).warnings, Nil)
   }
+
+  test("a member one merged module trait declares and the other defines is not consumed") {
+    val files = Fixtures.parsed(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ShopModule with ShopAdminModule"),
+      Fixtures.src("shop/ShopAdminModule.scala", "package app.shop\ntrait ShopAdminModule {\n  lazy val shopService: ShopService\n}"),
+      Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule {\n  lazy val shopService: ShopService = ???\n}")
+    )
+    val ownership = Ownership.of(files)
+    val result    = ModuleExtractor.extract(files, ownership)
+    assertEquals(result.value.map(_.consumes), List(Nil))
+    assertEquals(WiringExtractor.extract(result.value, files, ownership).warnings, Nil)
+  }
 }

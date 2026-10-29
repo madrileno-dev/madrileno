@@ -2,10 +2,7 @@ package architecture
 
 import scala.util.Try
 
-final case class Revision(
-  ref: String,
-  sha: String,
-  root: os.Path)
+final case class Revision(sha: String, root: os.Path)
 
 object GitRevision {
   def withRevision[A](project: os.Path, ref: String)(f: Revision => A): Either[String, A] =
@@ -15,7 +12,7 @@ object GitRevision {
                .map(_.trim)
                .left
                .map(_ => s"cannot find a merge-base of '$ref' and HEAD (unknown ref or shallow clone?)")
-      result <- materialized(project, Revision(ref, sha, os.root), f)
+      result <- materialized(project, Revision(sha, os.root), f)
     } yield result
 
   private def materialized[A](

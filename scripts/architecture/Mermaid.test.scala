@@ -83,7 +83,7 @@ class MermaidSuite extends munit.FunSuite {
         )
       )
     )
-    val labels = GraphView.modules(ArchDiff.full(model, "h")).edges.map(_.label)
+    val labels = GraphView.full(ArchDiff.full(model, "h"), Level.Modules).edges.map(_.label)
     assertEquals(labels, List("wires userRepository · imports domain · uses Users"))
   }
 
@@ -99,7 +99,7 @@ class MermaidSuite extends munit.FunSuite {
         )
       )
     )
-    assertEquals(GraphView.modules(ArchDiff.full(model, "h")).edges.map(_.label), List("wires userRepository · uses A, B, C, +2 more"))
+    assertEquals(GraphView.full(ArchDiff.full(model, "h"), Level.Modules).edges.map(_.label), List("wires userRepository · uses A, B, C, +2 more"))
   }
 
   test("the diagram uses the Madrileño palette and credits it") {
@@ -175,7 +175,34 @@ class MermaidSuite extends munit.FunSuite {
         Fixtures.src("shop/ShopModule.scala", "package app.shop\nimport app.user.services.given\ntrait ShopModule")
       )
     )
-    assertEquals(GraphView.modules(ArchDiff.full(model, "h")).edges.map(_.label), List("uses services.given"))
+    assertEquals(GraphView.full(ArchDiff.full(model, "h"), Level.Modules).edges.map(_.label), List("uses services.given"))
+  }
+
+  test("a thick arrow marks another module's repositories used around the wiring, not a wired repository") {
+    def shopArrow(shop: SourceFile*): String = {
+      val model = Extractor.extract(
+        Fixtures.project(
+          (List(
+            Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+            Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule {\n  lazy val userRepository: UserRepository = ???\n}"),
+            Fixtures.src("user/repositories/UserRepository.scala", "package app.user.repositories\nclass UserRepository")
+          ) ++ shop)*
+        )
+      )
+      Mermaid.diagram(GraphView.full(ArchDiff.full(model, "h"), Level.Modules)).linesIterator.find(_.startsWith("  module_shop ")).get
+    }
+    val wired = shopArrow(
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        "package app.shop\nimport app.user.repositories.UserRepository\ntrait ShopModule {\n  lazy val userRepository: UserRepository\n}"
+      )
+    )
+    val bypass = shopArrow(
+      Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),
+      Fixtures.src("shop/services/S.scala", "package app.shop.services\nimport app.user.repositories.UserRepository\nclass S")
+    )
+    assert(wired.contains(" -->"), wired)
+    assert(bypass.contains(" ==>"), bypass)
   }
 
   test("the full map renders as Mermaid with the current metrics and warnings") {

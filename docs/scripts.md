@@ -220,7 +220,7 @@ It reads source only: no compile, no running app, no database. It works on a bra
 
 The HTML is one file. It has:
 - the metrics
-- a module diagram at three levels of detail: modules only, with their services and repositories, or with tables and events too. Zoom buttons scale it, and it starts fitted to the page.
+- a module diagram at three levels of detail: modules only, with their services, repositories, routers and gateways, or with tables and events too. Zoom buttons scale it, and it starts fitted to the page.
 - a list of the modules. Clicking a module there or in the diagram shows its details and focuses the diagram on it. The focused diagram has the module and the modules it depends on or that depend on it. With tables and events shown, it also has the modules on the other side of its tables and events. Clicking the focused module again, or **Show all modules**, goes back to the whole map.
 - the events and tables views
 - the warnings
@@ -229,7 +229,7 @@ The diagram is drawn by Mermaid, which the page loads from jsDelivr: a pinned ve
 
 In a diff, added, removed and changed items are marked. **Changed only** hides the rest and draws the same diagram as the Mermaid output.
 
-Without `--diff`, the Mermaid output is the whole map with the current metrics and warnings. It draws services and repositories inside their modules while that stays within 30 boxes. With `--diff`, it shows only the changed modules, tables and events, plus their direct neighbours. Added, removed and changed services and repositories are drawn inside their modules; past 30 boxes they're left out. Past 80 boxes or 300 arrows, which is more than GitHub renders, the output is a list of what was added, removed and changed instead of a diagram. New warnings are listed under the diagram.
+Without `--diff`, the Mermaid output is the whole map with the current metrics and warnings. It draws services, repositories, routers and gateways inside their modules while that stays within 30 boxes. With `--diff`, it shows only the changed modules, tables and events, plus their direct neighbours. Added, removed and changed services, repositories, routers and gateways are drawn inside their modules; past 30 boxes they're left out. Past 80 boxes or 300 arrows, which is more than GitHub renders, the output is a list of what was added, removed and changed instead of a diagram. New warnings are listed under the diagram.
 
 Arrows between modules are labelled with the kind of dependency:
 - **`wires`** lists the cake members one module takes from the other, such as `wires userRepository`.
@@ -241,7 +241,7 @@ Several things count as explained:
 - a wildcard import of their package
 - event types, wherever they live, since events are how modules are meant to talk
 
-So `uses` marks a module reaching into another module's internals around the cake, which is worth a look in review. The template has none. In the details panel, each reference says whether wiring or an event explains it.
+So `uses` marks a module reaching into another module's internals around the cake, which is worth a look in review. The arrow is thick when those internals include repositories. The template has none. In the details panel, each reference says whether wiring or an event explains it.
 
 ### Metrics
 
@@ -276,6 +276,7 @@ git worktree remove /tmp/arch-at
 - **Module cycle:** modules that depend on each other through imports or wired members. A type that platform code itself imports from a module, such as `AuthContext`, counts as platform and creates no dependency.
 - **Subscriber without publisher:** something subscribes to a topic or outbox event that nothing publishes. Publishing an event nobody subscribes to yet is fine.
 - **Cross-module table use:** a module references another module's `Table` object.
+- **Duplicate table:** `Table` objects in different modules declare the same table. The map shows the table once, owned by the module of the first declaration, with the users of every declaration.
 - **Migration table without `Table`:** a migration creates a table that no `Table` object declares.
 
 ### Unclassified

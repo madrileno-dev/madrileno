@@ -43,7 +43,12 @@ object Cli {
       case Some(ref) =>
         GitRevision
           .withRevision(options.project, ref) { revision =>
-            ProjectInput.load(revision.root).map(base => ArchDiff.compare(Extractor.extract(base), head, baseLabel(ref, revision.sha), HeadLabel))
+            val label = baseLabel(ref, revision.sha)
+            ProjectInput
+              .load(revision.root)
+              .left
+              .map(error => s"in $label: $error")
+              .map(base => ArchDiff.compare(Extractor.extract(base), head, label, HeadLabel))
           }
           .flatten
     }

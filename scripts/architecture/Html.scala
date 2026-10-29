@@ -36,7 +36,7 @@ object Html {
       """<section id="modules"><h2>Modules</h2>""",
       """<div class="graph-controls"><span class="muted">Show</span>""" +
         """<label><input type="radio" name="level" value="modules" checked> modules</label>""" +
-        """<label><input type="radio" name="level" value="components"> with services and repositories</label>""" +
+        """<label><input type="radio" name="level" value="components"> with services, repositories, routers and gateways</label>""" +
         """<label><input type="radio" name="level" value="everything"> with tables and events</label>""" +
         """<button type="button" id="show-all" hidden>Show all modules</button>""" +
         """<span class="zoom"><button type="button" data-zoom="out" aria-label="Zoom out">−</button><button type="button" data-zoom="fit">Fit</button><button type="button" data-zoom="in" aria-label="Zoom in">+</button></span></div>""",
@@ -100,7 +100,9 @@ object Html {
 
   private def moduleList(diff: DiffModel): String = {
     val chips = diff.modules.map { m =>
-      s"""<button class="module-chip ${statusClass(m.status)}" data-module="${escape(m.id)}">${escape(marker(m.status) + m.id)}</button>"""
+      s"""<button class="module-chip ${statusClass(m.status)}" data-module="${escape(m.id)}" data-status="${statusClass(m.status)}">${escape(
+          marker(m.status) + m.id
+        )}</button>"""
     }
     s"""<nav class="module-list" aria-label="Modules">${chips.mkString}</nav>"""
   }
@@ -279,13 +281,12 @@ body.changed-only [data-status="unchanged"] { display: none; }
     """
 (() => {
   const data = JSON.parse(document.getElementById('arch-data').textContent);
-  const opt = value => Array.isArray(value) ? value[0] : (value === null ? undefined : value);
   const panel = document.getElementById('details');
   const placeholder = [...panel.childNodes].map(child => child.cloneNode(true));
   const node = (tag, text, cls) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; };
   const where = loc => loc && loc.path ? `${loc.path}:${loc.line}` : '';
   const moduleOf = owner => owner && owner['$type'] === 'Module' ? owner.id : null;
-  const latest = diff => opt(diff.head) || opt(diff.base);
+  const latest = diff => diff.head || diff.base;
   const section = (title, items) => {
     panel.appendChild(node('h3', title));
     if (items.length === 0) { panel.appendChild(node('p', 'none', 'muted')); return; }
@@ -323,7 +324,7 @@ body.changed-only [data-status="unchanged"] { display: none; }
     section('Tables', data.tables.filter(t => moduleOf(latest(t).owner) === id).map(t => [latest(t).name, latest(t).loc, t.status]));
     section('Topics and events', data.topics.filter(t => moduleOf(latest(t).owner) === id).map(t => [`${latest(t).name} (bus)`, latest(t).loc, t.status])
       .concat(data.events.filter(e => moduleOf(latest(e).owner) === id).map(e => [`${latest(e).eventType} (outbox)`, latest(e).loc, e.status])));
-    section('References out', data.references.filter(r => latest(r).from === id).map(r => { const ref = latest(r); return [`${ref.to}.${ref.layer}.${ref.symbol}${opt(ref.explainedBy) ? ' (' + opt(ref.explainedBy).toLowerCase() + ')' : ''}`, ref.loc, r.status]; }));
+    section('References out', data.references.filter(r => latest(r).from === id).map(r => { const ref = latest(r); return [`${ref.to}.${ref.layer}.${ref.symbol}${ref.explainedBy ? ' (' + ref.explainedBy.toLowerCase() + ')' : ''}`, ref.loc, r.status]; }));
     section('References in', data.references.filter(r => latest(r).to === id).map(r => { const ref = latest(r); return [`${ref.from} → ${ref.layer}.${ref.symbol}`, ref.loc, r.status]; }));
     document.querySelectorAll('.module-chip').forEach(chip => chip.classList.toggle('selected', chip.dataset.module === id));
   };
@@ -340,6 +341,7 @@ body.changed-only [data-status="unchanged"] { display: none; }
   };
   let natural = 0;
   let scale = 1;
+  let drawing = 0;
   const fitScale = () => Math.min(1, (graph.clientWidth - 24) / natural);
   const zoom = next => {
     const svg = graph.querySelector('svg');
@@ -348,11 +350,13 @@ body.changed-only [data-status="unchanged"] { display: none; }
     svg.style.width = `${Math.round(natural * scale)}px`;
   };
   const draw = () => {
+    const ticket = ++drawing;
     showAll.hidden = !focused;
     if (!window.mermaid) { graph.replaceChildren(node('p', 'The diagram loads Mermaid from jsDelivr and needs network access. The module list above still opens each module.', 'muted')); return; }
     const text = source();
     if (!text) { graph.replaceChildren(node('p', 'No architecture changes.', 'muted')); return; }
     window.mermaid.render(`arch-${Math.random().toString(36).slice(2)}`, text).then(({ svg }) => {
+      if (ticket !== drawing) return;
       graph.innerHTML = svg;
       const drawn = graph.querySelector('svg');
       natural = drawn.viewBox.baseVal.width;
@@ -364,7 +368,7 @@ body.changed-only [data-status="unchanged"] { display: none; }
         const id = diagrams.ids[raw];
         if (id) el.addEventListener('click', event => { event.stopPropagation(); focusOn(id, !raw.startsWith('component_')); });
       });
-    }).catch(error => graph.replaceChildren(node('p', `The diagram could not be drawn: ${error.message}`, 'muted')));
+    }).catch(error => { if (ticket === drawing) graph.replaceChildren(node('p', `The diagram could not be drawn: ${error.message}`, 'muted')); });
   };
   const unfocus = () => {
     focused = null;

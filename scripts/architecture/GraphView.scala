@@ -1,7 +1,7 @@
 package architecture
 
 enum NodeKind {
-  case Module, Component, Table, Topic, Event, Platform
+  case Module, Component, Table, Topic, Event
 }
 
 final case class GNode(
@@ -56,8 +56,6 @@ object GraphView {
     else Graph(nodes ++ components, edges, collapsed = false)
   }
 
-  def modules(diff: DiffModel): Graph = full(diff, Level.Modules)
-
   def full(diff: DiffModel, level: Level): Graph = {
     val top        = topLevel(diff).filter(node => node.kind == NodeKind.Module || level == Level.Everything)
     val keys       = top.map(_.key).toSet
@@ -100,12 +98,14 @@ object GraphView {
       .toList
       .sortBy { case ((from, to, status), _) => (from, to, status.ordinal) }
       .map { case ((from, to, status), group) =>
+        val between = referencesOf(references, from, to, status)
         GEdge(
           from,
           to,
-          labelOf(group, referencesOf(references, from, to, status)),
+          labelOf(group, between),
           status,
-          group.exists(e => e.edge.kind == EdgeKind.Reference && e.edge.label == "repositories")
+          group.exists(e => e.edge.kind == EdgeKind.Reference && e.edge.label == "repositories") &&
+            between.exists(r => r.layer == "repositories" && r.explainedBy.isEmpty)
         )
       }
 

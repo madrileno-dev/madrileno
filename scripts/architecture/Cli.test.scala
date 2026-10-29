@@ -44,6 +44,22 @@ class CliSuite extends munit.FunSuite {
     assertEquals(Cli.baseLabel("abc1234", "abc1234def"), "abc1234")
   }
 
+  test("an error reading the base names the base revision") {
+    val dir                = project("src/main/scala/app/user/UserModule.scala" -> "package app.user\ntrait UserModule")
+    def git(args: String*) = os.proc(Seq("git", "-c", "user.name=t", "-c", "user.email=t@t") ++ args).call(cwd = dir)
+    git("init", "-q", "-b", "main")
+    git("add", ".")
+    git("commit", "-q", "-m", "init")
+    os.write(
+      dir / "src" / "main" / "scala" / "app" / "main" / "ApplicationLoader.scala",
+      "package app.main\nclass ApplicationLoader extends UserModule",
+      createFolders = true
+    )
+    val error = Cli.run(Options(dir, Some("main"), Output.Json, strict = false)).left.toOption.get
+    assert(error.startsWith("in main@"), error)
+    assert(error.endsWith(": no main/ApplicationLoader.scala under src/main/scala; is this a Madrileño project?"), error)
+  }
+
   test("mermaid without a diff prints the full map") {
     val outcome = Cli.run(Options(clean, None, Output.Mermaid, strict = false)).toOption.get
     assert(outcome.stdout.startsWith("### Architecture: `working tree`"), outcome.stdout)

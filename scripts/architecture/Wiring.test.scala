@@ -44,6 +44,18 @@ class WiringSuite extends munit.FunSuite {
     assertEquals(result.warnings.map(_.key), List("unprovided:user:backend"))
   }
 
+  test("a def one module defines provides the member another module declares") {
+    val files = Fixtures.parsed(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AModule with BModule"),
+      Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule {\n  def clock: Clock = Clock.system\n}"),
+      Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule {\n  def clock: Clock\n}")
+    )
+    val ownership = Ownership.of(files)
+    val result    = WiringExtractor.extract(ModuleExtractor.extract(files, ownership).value, files, ownership)
+    assertEquals(result.value, List(Wiring("clock", "b", Provider.FromModule("a"))))
+    assertEquals(result.warnings, Nil)
+  }
+
   test("platform-contract types and composition-root imports are not references, FQNs are") {
     assertEquals(
       references.map(r => (r.from, r.to, r.layer, r.symbol)),
