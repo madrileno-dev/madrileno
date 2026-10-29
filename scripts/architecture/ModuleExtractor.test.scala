@@ -76,4 +76,15 @@ class ModuleExtractorSuite extends munit.FunSuite {
     assert(user.metrics.linesOfCode >= 18)
     assertEquals(user.metrics.components, 3)
   }
+
+  test("a second module trait in the same package is unclassified and the mixed-in one is kept") {
+    val files = Fixtures.parsed(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ShopModule"),
+      Fixtures.src("shop/ShopAdminModule.scala", "package app.shop\ntrait ShopAdminModule {\n  lazy val admin: Admin = ???\n}"),
+      Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule {\n  lazy val shop: Shop = ???\n}")
+    )
+    val result = ModuleExtractor.extract(files, Ownership.of(files))
+    assertEquals(result.value.map(m => m.id -> m.traitName), List("shop" -> "ShopModule"))
+    assertEquals(result.unclassified.map(_.key), List("module-duplicate:shop:ShopAdminModule"))
+  }
 }

@@ -12,7 +12,18 @@ object ModuleExtractor {
     val results = files.flatMap { file =>
       Ownership.moduleTraits(file).map(module(file, _, files, ownership, mixedIn))
     }
-    Extracted(results.map(_.value).sortBy(_.id), results.flatMap(_.warnings), results.flatMap(_.unclassified))
+    val perPackage = results.groupBy(_.value.id).values.toList.map { candidates =>
+      val kept    = candidates.find(_.value.mixedIn).getOrElse(candidates.head)
+      val dropped = candidates.filterNot(_ eq kept).map { other =>
+        Unclassified(
+          s"module-duplicate:${other.value.id}:${other.value.traitName}",
+          s"${other.value.traitName} shares package ${other.value.id} with ${kept.value.traitName}; only ${kept.value.traitName} is mapped",
+          other.value.loc
+        )
+      }
+      kept.copy(unclassified = kept.unclassified ++ dropped)
+    }
+    Extracted(perPackage.map(_.value).sortBy(_.id), perPackage.flatMap(_.warnings), perPackage.flatMap(_.unclassified))
   }
 
   private def module(
