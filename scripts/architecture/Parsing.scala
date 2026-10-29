@@ -19,7 +19,8 @@ object Parsing {
     dialects.Scala3(file.content).parse[Source] match {
       case Parsed.Success(tree) =>
         val declared = packageOf(tree.stats).mkString(".")
-        relativePackage(rootPackage, declared)
+        Packages
+          .relative(rootPackage, declared)
           .map(ParsedFile(file, _, tree))
           .toRight(Unclassified(s"outside-root:${file.packagePath}", s"package $declared is outside $rootPackage", Loc(file.projectPath, 1)))
       case error: Parsed.Error =>
@@ -34,10 +35,4 @@ object Parsing {
 
   private def packageOf(stats: List[Stat]): List[String] =
     stats.collectFirst { case pkg: Pkg => pkg.ref.syntax :: packageOf(pkg.body.stats) }.getOrElse(Nil)
-
-  private def relativePackage(rootPackage: String, declared: String): Option[String] =
-    if (rootPackage.isEmpty) Some(declared.replace('.', '/'))
-    else if (declared == rootPackage) Some("")
-    else if (declared.startsWith(s"$rootPackage.")) Some(declared.stripPrefix(s"$rootPackage.").replace('.', '/'))
-    else None
 }
