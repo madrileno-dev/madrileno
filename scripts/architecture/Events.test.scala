@@ -32,7 +32,7 @@ class EventsSuite extends munit.FunSuite {
   }
 
   test("an outbox publish without a visible type is unclassified, not guessed") {
-    assertEquals(result.unclassified.map(_.key), List("outbox-publish:user/services/UserService.scala:4"))
+    assertEquals(result.unclassified.map(_.key), List("outbox-publish:user/services/UserService.scala:UserService:ev"))
   }
 
   test("a bus topic with a subscriber and no publisher warns") {

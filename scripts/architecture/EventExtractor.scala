@@ -138,7 +138,7 @@ object EventExtractor {
           .map(_ -> site)
           .toRight(
             Unclassified(
-              s"outbox-publish:${file.source.packagePath}:${site.loc.line}",
+              s"outbox-publish:${file.source.packagePath}:${site.enclosing}:${Trees.collapse(args.values.head.syntax, 80)}",
               s"publishTransactionally argument ${args.values.head.syntax} has no visible event type",
               site.loc
             )

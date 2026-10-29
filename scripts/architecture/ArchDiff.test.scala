@@ -20,6 +20,19 @@ class ArchDiffSuite extends munit.FunSuite {
     assertEquals(changed.modules.map(m => m.id -> m.status), List("shop" -> Status.Changed, "user" -> Status.Unchanged))
   }
 
+  test("an unclassified item that only moved lines stays Existing") {
+    def model(padding: String) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src(
+          "user/services/S.scala",
+          s"package app.user.services\n${padding}class S(outbox: Outbox) {\n  def p(ev: E) = outbox.publishTransactionally(ev)\n}"
+        )
+      )
+    )
+    val moved = ArchDiff.compare(model(""), model("\n\n"), "b", "h")
+    assertEquals(moved.unclassified.map(u => u.item.key -> u.status), List("outbox-publish:user/services/S.scala:S:ev" -> WarningStatus.Existing))
+  }
+
   test("edges carry their own status") {
     assertEquals(
       diff.edges.filter(_.status != Status.Unchanged).map(e => (e.edge.from, e.edge.to, e.status)).toSet,
