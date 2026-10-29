@@ -33,17 +33,18 @@ object Mermaid {
   def render(diff: DiffModel): String = {
     val graph  = GraphView.changes(diff)
     val footer = footerOf(diff)
-    if (graph.nodes.isEmpty) s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n$footer"
+    if (graph.nodes.isEmpty)
+      s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n${if (metricsMoved(diff)) metricsSection(diff) else ""}$footer"
     else if (graph.nodes.size > GraphView.MaxDiagramNodes || graph.edges.size > GraphView.MaxDiagramEdges) {
       val intro =
         s"_The diagram would be too large for GitHub to render (${graph.nodes.size} boxes, ${graph.edges.size} arrows). Open the HTML for the full picture._"
-      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n$intro\n\n${summary(diff)}$footer$Credit"
+      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n$intro\n\n${summary(diff)}${metricsSection(diff)}$footer$Credit"
     } else {
       val note =
         if (graph.collapsed)
           s"\n_Services and repositories are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
         else ""
-      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\n$Theme---\nflowchart LR\n${body(graph)}```\n$note$footer$Credit"
+      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\n$Theme---\nflowchart LR\n${body(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
     }
   }
 
@@ -111,6 +112,26 @@ object Mermaid {
       if names.nonEmpty
     } yield s"- **$status $kind (${names.size}):** ${names.mkString(", ")}"
     lines.mkString("", "\n", "\n")
+  }
+
+  private def metricsMoved(diff: DiffModel): Boolean =
+    ArchMetrics.rows.exists(row => ArchMetrics.trend(row, diff.metrics.base, diff.metrics.head).isDefined)
+
+  private def metricsSection(diff: DiffModel): String = {
+    val (base, head) = (diff.metrics.base, diff.metrics.head)
+    if (!metricsMoved(diff))
+      s"\n**Architecture metrics** unchanged: ${ArchMetrics.rows.map(row => s"${row.name.toLowerCase} ${row.format(row.value(head))}").mkString(", ")}.\n"
+    else {
+      val rows = ArchMetrics.rows.map { row =>
+        val trend = ArchMetrics.trend(row, base, head) match {
+          case Some(true)  => "▲ worse"
+          case Some(false) => "▼ better"
+          case None        => "same"
+        }
+        s"| ${row.name} | ${row.format(row.value(base))} | ${row.format(row.value(head))} | $trend |"
+      }
+      s"\n**Architecture metrics** (lower is better)\n\n| Metric | `${diff.baseLabel}` | `${diff.headLabel}` | |\n|---|---:|---:|---|\n${rows.mkString("\n")}\n"
+    }
   }
 
   private def footerOf(diff: DiffModel): String = {

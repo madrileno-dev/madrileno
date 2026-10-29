@@ -233,6 +233,26 @@ Arrows between modules are labelled with the kind of dependency:
 
 A wired member's type, its supertypes, and a wildcard import of their package all count as explained. So `uses` marks a module reaching into another module's internals around the cake, which is worth a look in review. The template has none.
 
+### Metrics
+
+Five numbers summarise the architecture. For each one, lower is better. They are computed from the module graph, so they move only when the module structure or wiring changes.
+
+- **Propagation cost:** the share of other modules a change in one module can reach through dependencies. This is MacCormack, Rusnak and Baldwin's measure, without counting a module as reaching itself, so 0% means no ripple at all.
+- **Largest cycle:** the number of modules in the biggest group that all depend on each other, or 0 when there are no cycles.
+- **Stable-dependency violations:** dependencies on a module that changes more easily than the one depending on it (Robert Martin's Stable Dependencies Principle). A module's instability is its outgoing dependencies divided by all its dependencies, in and out.
+- **Cake bypasses:** the number of `uses`, meaning types taken from another module's internals around the wiring.
+- **Drift:** warnings plus unclassified items.
+
+With `--diff`, the Mermaid output adds a table under the diagram with the base and branch values, each marked better, worse or the same. When nothing moved, it's a single line. The HTML page shows the same numbers in a metrics section, and the details panel gives each module's dependents, dependencies and instability.
+
+The metrics are also in the `--json` output, under `metrics`. To follow them over time, run the script at the commits you care about, for example in a temporary worktree:
+
+```bash
+git worktree add /tmp/arch-at abc1234
+./scripts/architecture.scala --project /tmp/arch-at --json | jq '.metrics.head'
+git worktree remove /tmp/arch-at
+```
+
 ### Warnings
 
 - **Not mixed in:** a `*Module` trait that `ApplicationLoader` doesn't extend.

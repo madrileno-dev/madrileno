@@ -69,4 +69,27 @@ class HtmlSuite extends munit.FunSuite {
     assert(page.contains("--accent: #b5122b"))
     assert(page.contains("Manrope"))
   }
+
+  test("the page shows the metrics, with base and branch in a diff") {
+    val cyclic = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AModule with BModule"),
+        Fixtures.src("a/AModule.scala", "package app.a\nimport app.b.domain.X\ntrait AModule"),
+        Fixtures.src("b/BModule.scala", "package app.b\nimport app.a.domain.Y\ntrait BModule")
+      )
+    )
+    val flat = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AModule with BModule"),
+        Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule"),
+        Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule")
+      )
+    )
+    val diffPage = Html.render(ArchDiff.compare(flat, cyclic, "b", "h"))
+    assert(diffPage.contains("""<section id="metrics">"""))
+    assert(diffPage.contains("Propagation cost"))
+    assert(diffPage.contains("0% → 100%"))
+    assert(Html.render(ArchDiff.full(cyclic, "h")).contains(">100%<"))
+    assert(diffPage.contains("\"dependents\""))
+  }
 }

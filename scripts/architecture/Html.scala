@@ -29,6 +29,9 @@ object Html {
       if (diff.isDiff) """<label class="toggle"><input type="checkbox" id="changed-only"> Changed only</label>""" else "",
       "</header>",
       "<main>",
+      s"""<section id="metrics"><h2>Metrics</h2><p class="muted">Lower is better. They move only when the module structure or wiring changes.</p>${metricsCards(
+          diff
+        )}</section>""",
       """<section id="modules"><h2>Modules</h2><div class="modules-layout">""",
       s"""<div class="graph">${svg(diff)}</div>""",
       """<aside id="details"><p class="muted">Click a module to see what it consumes, provides and contributes.</p></aside>""",
@@ -52,6 +55,22 @@ object Html {
     """<svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true">""" +
       """<path d="M22 90 V60 a14 14 0 0 1 28 0 V90 M50 60 a14 14 0 0 1 28 0 V90" fill="none" stroke="currentColor" stroke-width="8" stroke-linejoin="round" stroke-linecap="round"/>""" +
       """<path class="wave" d="M29 24 C36 13 45 13 50 22 C55 31 64 31 71 20" fill="none" stroke-width="7" stroke-linecap="round"/></svg>"""
+
+  private def metricsCards(diff: DiffModel): String = {
+    val (base, head) = (diff.metrics.base, diff.metrics.head)
+    val cards        = ArchMetrics.rows.map { row =>
+      val value = ArchMetrics.trend(row, base, head) match {
+        case Some(worse) if diff.isDiff =>
+          val (arrow, kind) = if (worse) ("▲ worse", "worse") else ("▼ better", "better")
+          s"""${escape(row.format(row.value(base)))} → ${escape(row.format(row.value(head)))} <span class="trend $kind">$arrow</span>"""
+        case _ => escape(row.format(row.value(head)))
+      }
+      s"""<div class="metric"><div class="metric-name">${escape(row.name)}</div><div class="metric-value">$value</div><div class="muted">${escape(
+          row.description
+        )}</div></div>"""
+    }
+    s"""<div class="metrics">${cards.mkString}</div>"""
+  }
 
   private def summary(diff: DiffModel): String = {
     val warnings = if (diff.isDiff) diff.warnings.count(_.status == WarningStatus.New) else diff.warnings.size
@@ -273,6 +292,12 @@ code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .badge.new { color: var(--removed); border-color: var(--removed); }
 .badge.resolved { color: var(--added); border-color: var(--added); }
 .status { font-size: 11px; margin-left: 6px; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.metric { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: var(--panel); }
+.metric-name { font-family: var(--display); font-weight: 600; }
+.metric-value { font-size: 22px; font-weight: 600; margin: 4px 0; }
+.trend { font-size: 13px; margin-left: 6px; }
+.trend.worse { color: var(--removed); } .trend.better { color: var(--added); }
 .status.added { color: var(--added); } .status.removed { color: var(--removed); } .status.changed { color: var(--changed); }
 body.changed-only [data-status="unchanged"] { display: none; }
 """
@@ -309,6 +334,8 @@ body.changed-only [data-status="unchanged"] { display: none; }
     panel.appendChild(node('p', `${mod.traitName}${diff.status !== 'Unchanged' ? ' · ' + diff.status.toLowerCase() : ''}`, 'muted'));
     const m = mod.metrics;
     panel.appendChild(node('p', `${m.linesOfCode} lines · ${m.components} components · ${m.tablesOwned} tables · ${m.eventsOwned} events`, 'muted'));
+    const coupling = data.metrics.coupling.find(c => c.id === id);
+    if (coupling) panel.appendChild(node('p', `used by ${coupling.dependents} modules · depends on ${coupling.dependencies} · instability ${coupling.instability.toFixed(2)}`, 'muted'));
     const providerOf = member => {
       const wiring = data.wirings.map(latest).find(w => w.consumer === id && w.member === member);
       if (!wiring) return 'nothing';

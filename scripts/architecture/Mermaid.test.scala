@@ -105,4 +105,32 @@ class MermaidSuite extends munit.FunSuite {
     assert(!out.contains("fontFamily"), "a font GitHub lacks makes Mermaid measure and render with different fonts, clipping labels")
     assert(out.contains("<sub>Mapped by Madrileño's <code>scripts/architecture.scala</code></sub>"), out)
   }
+
+  private def pair(cyclic: Boolean) = Extractor.extract(
+    Fixtures.project(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AModule with BModule"),
+      Fixtures.src("a/AModule.scala", if (cyclic) "package app.a\nimport app.b.domain.X\ntrait AModule" else "package app.a\ntrait AModule"),
+      Fixtures.src("b/BModule.scala", if (cyclic) "package app.b\nimport app.a.domain.Y\ntrait BModule" else "package app.b\ntrait BModule")
+    )
+  )
+
+  test("a metrics table compares base and branch, lower is better") {
+    val text = Mermaid.render(ArchDiff.compare(pair(cyclic = false), pair(cyclic = true), "main@abc1234", "working tree"))
+    assert(text.contains("**Architecture metrics** (lower is better)"), text)
+    assert(text.contains("| Metric | `main@abc1234` | `working tree` | |"), text)
+    assert(text.contains("| Propagation cost | 0% | 100% | ▲ worse |"), text)
+    assert(text.contains("| Largest cycle | 0 | 2 | ▲ worse |"), text)
+    assert(text.contains("| Cake bypasses | 0 | 0 | same |"), text)
+    assert(text.indexOf("**Architecture metrics**") < text.indexOf("**New warnings**"), text)
+  }
+
+  test("metrics that did not move collapse to one line") {
+    val text = Mermaid.render(ArchDiff.compare(Fixtures.diffBase, Fixtures.diffHead, "b", "h"))
+    assert(
+      text.contains(
+        "**Architecture metrics** unchanged: propagation cost 50%, largest cycle 0, stable-dependency violations 0, cake bypasses 0, drift 0."
+      ),
+      text
+    )
+  }
 }

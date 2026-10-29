@@ -74,7 +74,8 @@ final case class DiffModel(
   references: List[NodeDiff[Reference]],
   wirings: List[NodeDiff[Wiring]],
   warnings: List[WarningDiff],
-  unclassified: List[UnclassifiedDiff])
+  unclassified: List[UnclassifiedDiff],
+  metrics: MetricsDiff)
     derives ReadWriter
 
 object ArchDiff {
@@ -128,7 +129,8 @@ object ArchDiff {
           after
         ) =>
           after.map(UnclassifiedDiff(_, presence(before))).orElse(before.map(UnclassifiedDiff(_, WarningStatus.Resolved)))
-      }
+      },
+      metrics = ArchMetrics.diff(base, head)
     )
 
   def edges(model: ArchModel): Set[Edge] = {
