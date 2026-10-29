@@ -12,7 +12,26 @@ object ModuleExtractor {
     val results = files.flatMap { file =>
       Ownership.moduleTraits(file).map(module(file, _, files, ownership, mixedIn))
     }
-    val perPackage = results.groupBy(_.value.id).values.toList.map { candidates =>
+    val perPackage = results.groupBy(_.value.id).values.toList.map(candidates => onePerPackage(candidates.sortBy(_.value.traitName)))
+    Extracted(perPackage.map(_.value).sortBy(_.id), perPackage.flatMap(_.warnings), perPackage.flatMap(_.unclassified))
+  }
+
+  private def onePerPackage(candidates: List[Extracted[Module]]): Extracted[Module] = {
+    val unclassified = candidates.flatMap(_.unclassified).distinctBy(_.key)
+    if (candidates.size > 1 && candidates.forall(_.value.mixedIn)) {
+      val merged = candidates.map(_.value).reduce { (a, b) =>
+        val components = (a.components ++ b.components).distinctBy(_.name)
+        a.copy(
+          traitName = s"${a.traitName} + ${b.traitName}",
+          consumes = a.consumes ++ b.consumes,
+          provides = a.provides ++ b.provides,
+          contributions = a.contributions ++ b.contributions,
+          components = components,
+          metrics = a.metrics.copy(components = components.size)
+        )
+      }
+      Extracted(merged, candidates.flatMap(_.warnings), unclassified)
+    } else {
       val kept    = candidates.find(_.value.mixedIn).getOrElse(candidates.head)
       val dropped = candidates.filterNot(_ eq kept).map { other =>
         Unclassified(
@@ -21,9 +40,8 @@ object ModuleExtractor {
           other.value.loc
         )
       }
-      kept.copy(unclassified = kept.unclassified ++ dropped)
+      Extracted(kept.value, candidates.flatMap(_.warnings), unclassified ++ dropped)
     }
-    Extracted(perPackage.map(_.value).sortBy(_.id), perPackage.flatMap(_.warnings), perPackage.flatMap(_.unclassified))
   }
 
   private def module(

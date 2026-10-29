@@ -87,4 +87,24 @@ class ModuleExtractorSuite extends munit.FunSuite {
     assertEquals(result.value.map(m => m.id -> m.traitName), List("shop" -> "ShopModule"))
     assertEquals(result.unclassified.map(_.key), List("module-duplicate:shop:ShopAdminModule"))
   }
+
+  test("module traits in one package that are all mixed in are merged into one module") {
+    val files = Fixtures.parsed(
+      Fixtures
+        .src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ShopModule with ShopAdminModule with BillingModule"),
+      Fixtures.src(
+        "shop/ShopAdminModule.scala",
+        "package app.shop\ntrait ShopAdminModule {\n  lazy val admin: Admin = ???\n  private val x = wire[Missing]\n}"
+      ),
+      Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule {\n  lazy val shopService: ShopService = ???\n}"),
+      Fixtures.src("billing/BillingModule.scala", "package app.billing\ntrait BillingModule {\n  lazy val shopService: ShopService\n}")
+    )
+    val ownership = Ownership.of(files)
+    val result    = ModuleExtractor.extract(files, ownership)
+    val shop      = result.value.find(_.id == "shop").get
+    assertEquals(shop.traitName, "ShopAdminModule + ShopModule")
+    assertEquals(shop.provides.map(_.name).sorted, List("admin", "shopService"))
+    assertEquals(result.unclassified.map(_.key), List("component:shop:Missing"))
+    assertEquals(WiringExtractor.extract(result.value, files, ownership).warnings, Nil)
+  }
 }
