@@ -8,11 +8,11 @@ object Trees {
   def members(template: Template): List[Stat] = template.body.stats
 
   def typeName(tpe: Type): String = tpe match {
-    case Type.Name(name)        => name
-    case Type.Select(_, name)   => name.value
-    case Type.Apply(base, _)    => typeName(base)
-    case Type.Annotate(base, _) => typeName(base)
-    case other                  => other.syntax
+    case Type.Name(name)                 => name
+    case Type.Select(_, name)            => name.value
+    case Type.Apply.After_4_6_0(base, _) => typeName(base)
+    case Type.Annotate(base, _)          => typeName(base)
+    case other                           => other.syntax
   }
 
   def parentNames(template: Template): List[String] = template.inits.map(init => typeName(init.tpe))

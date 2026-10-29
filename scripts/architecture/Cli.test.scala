@@ -1,0 +1,36 @@
+package architecture
+
+class CliSuite extends munit.FunSuite {
+  private def project(files: (String, String)*): os.Path = {
+    val dir = os.temp.dir()
+    files.foreach { case (path, content) => os.write(dir / os.RelPath(path), content, createFolders = true) }
+    dir
+  }
+
+  private val clean = project(
+    "src/main/scala/app/main/ApplicationLoader.scala" -> "package app.main\nclass ApplicationLoader extends UserModule",
+    "src/main/scala/app/user/UserModule.scala"        -> "package app.user\ntrait UserModule"
+  )
+
+  test("default html paths and writing the page") {
+    assertEquals(Options.defaultHtml(clean, isDiff = false), clean / "target" / "architecture" / "architecture.html")
+    assertEquals(Options.defaultHtml(clean, isDiff = true), clean / "target" / "architecture" / "architecture-diff.html")
+    val outcome = Cli.run(Options(clean, None, Output.Html(Options.defaultHtml(clean, isDiff = false)), strict = false)).toOption.get
+    assertEquals(outcome.written, Some(Options.defaultHtml(clean, isDiff = false)))
+    assert(os.read(outcome.written.get).contains("<title>Architecture: working tree</title>"))
+  }
+
+  test("strict lists warnings in full mode") {
+    val dirty = project(
+      "src/main/scala/app/main/ApplicationLoader.scala" -> "package app.main\nclass ApplicationLoader",
+      "src/main/scala/app/user/UserModule.scala"        -> "package app.user\ntrait UserModule"
+    )
+    val outcome = Cli.run(Options(dirty, None, Output.Json, strict = true)).toOption.get
+    assertEquals(outcome.strictFailures, List("src/main/scala/app/user/UserModule.scala:2 UserModule is not mixed into ApplicationLoader"))
+  }
+
+  test("a missing project is a Left") {
+    val missing = os.temp.dir() / "nope"
+    assertEquals(Cli.run(Options(missing, None, Output.Json, strict = false)), Left(s"$missing does not exist"))
+  }
+}
