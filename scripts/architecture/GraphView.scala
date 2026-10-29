@@ -69,8 +69,6 @@ object GraphView {
     GNode(s"component:$moduleId:${component.name}", s"${component.name} ($kind)", NodeKind.Component, Some(s"module:$moduleId"), component.status)
   }
 
-  private val InternalLayers = Set("services", "repositories", "routers", "gateways")
-
   private val MaxNamedTypes = 3
 
   private def mergedEdges(edges: List[EdgeDiff], references: List[NodeDiff[Reference]]): List[GEdge] =
@@ -106,9 +104,9 @@ object GraphView {
       .distinct
     val layers  = labels(EdgeKind.Reference).toSet
     val inGroup = references.filter(r => layers(r.layer))
-    val imports = inGroup.filterNot(r => InternalLayers(r.layer)).map(_.layer).distinct.sorted
+    val imports = inGroup.filterNot(r => Layers.Internal(r.layer)).map(_.layer).distinct.sorted
     val uses    = inGroup
-      .filter(r => InternalLayers(r.layer) && r.explainedBy.isEmpty)
+      .filter(r => Layers.Internal(r.layer) && r.explainedBy.isEmpty)
       .map(r => if (r.symbol == "*" || r.symbol == "given") s"${r.layer}.${r.symbol}" else r.symbol)
       .distinct
       .sorted

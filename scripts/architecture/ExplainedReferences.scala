@@ -22,8 +22,8 @@ object ExplainedReferences {
       ownership.ownerOf(file.pkg) match {
         case Owner.Module(id) =>
           file.tree.collect {
-            case d: Defn.Class => Definition(id, d.name.value, layerOf(id, file.pkg), Trees.parentNames(d.templ), signatureTypes(d.templ))
-            case d: Defn.Trait => Definition(id, d.name.value, layerOf(id, file.pkg), Trees.parentNames(d.templ), signatureTypes(d.templ))
+            case d: Defn.Class => Definition(id, d.name.value, Layers.of(id, file.pkg), Trees.parentNames(d.templ), signatureTypes(d.templ))
+            case d: Defn.Trait => Definition(id, d.name.value, Layers.of(id, file.pkg), Trees.parentNames(d.templ), signatureTypes(d.templ))
           }
         case _ => Nil
       }
@@ -82,7 +82,4 @@ object ExplainedReferences {
   }
 
   private def baseName(tpe: String): String = tpe.takeWhile(_ != '[').split('.').last.trim
-
-  private def layerOf(moduleId: String, pkg: String): String =
-    if (pkg == moduleId) "module" else pkg.stripPrefix(s"$moduleId/").split('/').head
 }

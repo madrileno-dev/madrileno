@@ -67,7 +67,7 @@ object ReferenceExtractor {
         .orElse(Option.when(file.opensRoot && topPackages(ref.split('.').head))(ref.replace('.', '/')))
         .toList
         .flatMap { path =>
-          importer.importees.flatMap(symbolOf).map(RawReference(from, path, _, loc(file, importer)))
+          importer.importees.flatMap(symbolOf).map(RawReference(from, path, _, Trees.loc(file, importer)))
         }
     }
 
@@ -83,12 +83,12 @@ object ReferenceExtractor {
       }
       .flatMap { select =>
         val segments = select.syntax.stripPrefix(s"$rootPackage.").split('.').toList
-        segments.lastOption.map(symbol => RawReference(from, segments.dropRight(1).mkString("/"), symbol, loc(file, select)))
+        segments.lastOption.map(symbol => RawReference(from, segments.dropRight(1).mkString("/"), symbol, Trees.loc(file, select)))
       }
 
   private def outermostQualified(tree: Tree, rootPackage: String): Boolean =
     tree.syntax.startsWith(s"$rootPackage.") && !tree.parent.exists(parent => enclosesQualified(parent, tree, rootPackage)) &&
-      !ancestors(tree).exists {
+      !Trees.ancestors(tree).exists {
         case _: Import => true
         case _         => false
       }
@@ -103,8 +103,6 @@ object ReferenceExtractor {
     case _                               => false
   }
 
-  private def ancestors(tree: Tree): List[Tree] = tree.parent.toList.flatMap(parent => parent :: ancestors(parent))
-
   private def symbolOf(importee: Importee): Option[String] = importee match {
     case Importee.Name(name)      => Some(name.value)
     case Importee.Rename(name, _) => Some(name.value)
@@ -114,5 +112,4 @@ object ReferenceExtractor {
     case _                        => None
   }
 
-  private def loc(file: ParsedFile, tree: Tree): Loc = Loc(file.source.projectPath, Parsing.lineOf(tree))
 }

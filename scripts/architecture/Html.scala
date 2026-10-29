@@ -143,13 +143,7 @@ object Html {
       }
       .toMap
 
-  private def ownerLabel(owner: Owner): String = owner match {
-    case Owner.Module(id)      => id
-    case Owner.Platform(id)    => s"platform ($id)"
-    case Owner.CompositionRoot => "main"
-  }
-
-  private def siteLabel(site: Site): String = s"${ownerLabel(site.owner)} / ${site.enclosing}"
+  private def siteLabel(site: Site): String = s"${site.owner.label} / ${site.enclosing}"
 
   private def row(status: Status, cells: List[String]): String =
     s"""<tr data-status="${statusClass(status)}" class="${statusClass(status)}">${cells.map(cell => s"<td>$cell</td>").mkString}</tr>"""
@@ -165,7 +159,7 @@ object Html {
             escape(marker(node.status) + topic.name),
             "bus",
             escape(topic.eventType),
-            escape(ownerLabel(topic.owner)),
+            escape(topic.owner.label),
             escape(topic.publishers.map(siteLabel).mkString(", ")),
             escape(topic.subscribers.map(siteLabel).mkString(", ")),
             locCell(topic.loc)
@@ -181,7 +175,7 @@ object Html {
             escape(marker(node.status) + event.eventType),
             "outbox",
             escape(event.typeName),
-            escape(ownerLabel(event.owner)),
+            escape(event.owner.label),
             escape(event.publishers.map(siteLabel).mkString(", ")),
             escape(event.subscribers.map(s => s"${s.consumer} (${siteLabel(s.site)})").mkString(", ")),
             locCell(event.loc)
@@ -207,7 +201,7 @@ object Html {
           else if (table.users.exists(_.owner == Owner.Module(id))) """<span title="user">○</span>"""
           else ""
         }
-        row(status, escape(marker(status) + table.name) :: escape(ownerLabel(table.owner)) :: cells)
+        row(status, escape(marker(status) + table.name) :: escape(table.owner.label) :: cells)
       }
       s"""<p class="muted">● owner · ○ uses it</p><div class="scroll"><table class="matrix"><thead><tr><th>Table</th><th>Owner</th>$header</tr></thead><tbody>${rows.mkString}</tbody></table></div>"""
     }

@@ -29,7 +29,7 @@ object TableExtractor {
           Warning(
             WarningKind.CrossModuleTableUse,
             s"cross-module-table:${table.name}:$user",
-            s"$user uses table ${table.name} owned by ${ownerLabel(table.owner)}",
+            s"$user uses table ${table.name} owned by ${table.owner.label}",
             site.loc
           )
         )
@@ -109,10 +109,4 @@ object TableExtractor {
       .toList
 
   private def normalize(name: String): String = name.stripPrefix("\"").stripSuffix("\"").toLowerCase
-
-  private def ownerLabel(owner: Owner): String = owner match {
-    case Owner.Module(id)      => id
-    case Owner.Platform(id)    => s"platform $id"
-    case Owner.CompositionRoot => "main"
-  }
 }

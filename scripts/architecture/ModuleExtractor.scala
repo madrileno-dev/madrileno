@@ -66,7 +66,7 @@ object ModuleExtractor {
         contributions = stats.flatMap(contribution(file, _)),
         components = resolved,
         metrics = Metrics(ownFiles.map(f => Trees.nonBlankLines(f.source.content)).sum, resolved.size, 0, 0),
-        loc = loc(file, defn)
+        loc = Trees.loc(file, defn)
       ),
       Nil,
       components.collect { case Left(item) => item }
@@ -74,16 +74,16 @@ object ModuleExtractor {
   }
 
   private def consumed(file: ParsedFile, stat: Stat): List[Member] = stat match {
-    case d: Decl.Val if !Trees.isOverride(d.mods)   => Trees.patNames(d.pats).map(Member(_, d.decltpe.syntax, loc(file, d)))
-    case d: Decl.Given if !Trees.isOverride(d.mods) => List(Member(d.name.value, d.decltpe.syntax, loc(file, d)))
-    case d: Decl.Def if !Trees.isOverride(d.mods)   => List(Member(d.name.value, d.decltpe.syntax, loc(file, d)))
+    case d: Decl.Val if !Trees.isOverride(d.mods)   => Trees.patNames(d.pats).map(Member(_, d.decltpe.syntax, Trees.loc(file, d)))
+    case d: Decl.Given if !Trees.isOverride(d.mods) => List(Member(d.name.value, d.decltpe.syntax, Trees.loc(file, d)))
+    case d: Decl.Def if !Trees.isOverride(d.mods)   => List(Member(d.name.value, d.decltpe.syntax, Trees.loc(file, d)))
     case _                                          => Nil
   }
 
   private def provided(file: ParsedFile, stat: Stat): List[Member] = stat match {
     case d: Defn.Val if visible(d.mods) =>
-      Trees.patNames(d.pats).map(Member(_, d.decltpe.map(_.syntax).orElse(instantiated(d.rhs)).getOrElse(""), loc(file, d)))
-    case d: Defn.GivenAlias if visible(d.mods) => List(Member(d.name.value, d.decltpe.syntax, loc(file, d)))
+      Trees.patNames(d.pats).map(Member(_, d.decltpe.map(_.syntax).orElse(instantiated(d.rhs)).getOrElse(""), Trees.loc(file, d)))
+    case d: Defn.GivenAlias if visible(d.mods) => List(Member(d.name.value, d.decltpe.syntax, Trees.loc(file, d)))
     case _                                     => Nil
   }
 
@@ -98,7 +98,7 @@ object ModuleExtractor {
   private def contribution(file: ParsedFile, stat: Stat): Option[Contribution] = stat match {
     case d: Defn.Def if Trees.isAbstractOverride(d.mods) =>
       registry(d.name.value, d.paramClauseGroups.flatMap(_.paramClauses.flatMap(_.values)).size).map { registry =>
-        Contribution(registry, operands(lastExpression(d.body)).map(t => Trees.collapse(t.syntax, ItemLength)), loc(file, d))
+        Contribution(registry, operands(lastExpression(d.body)).map(t => Trees.collapse(t.syntax, ItemLength)), Trees.loc(file, d))
       }
     case _ => None
   }
@@ -145,7 +145,11 @@ object ModuleExtractor {
         case Term.ApplyType.After_4_6_0(Term.Name("wire"), targs) =>
           targs.values.headOption.map(Trees.typeName).map { name =>
             component(name, ownFiles).toRight(
-              Unclassified(s"component:$moduleId:$name", s"wire[$name] in ${defn.name.value} has no class $name in module $moduleId", loc(file, d))
+              Unclassified(
+                s"component:$moduleId:$name",
+                s"wire[$name] in ${defn.name.value} has no class $name in module $moduleId",
+                Trees.loc(file, d)
+              )
             )
           }
         case Term.New(init) => component(Trees.typeName(init.tpe), ownFiles).map(Right(_))
@@ -157,7 +161,7 @@ object ModuleExtractor {
   private def component(name: String, ownFiles: List[ParsedFile]): Option[Component] =
     ownFiles.view.flatMap { file =>
       file.tree.collect { case cls: Defn.Class if cls.name.value == name => cls }.map { cls =>
-        Component(name, kindOf(file.pkg), dependencies(cls), loc(file, cls))
+        Component(name, Layers.kindOf(file.pkg), dependencies(cls), Trees.loc(file, cls))
       }
     }.headOption
 
@@ -169,14 +173,6 @@ object ModuleExtractor {
       })
       .flatMap(_.values.map(_.decltpe.map(_.syntax).getOrElse("")))
       .toList
-
-  private def kindOf(pkg: String): ComponentKind = pkg.split('/').lastOption match {
-    case Some("services")     => ComponentKind.Service
-    case Some("repositories") => ComponentKind.Repository
-    case Some("routers")      => ComponentKind.Router
-    case Some("gateways")     => ComponentKind.Gateway
-    case _                    => ComponentKind.Other
-  }
 
   private def applicationLoaderParents(files: List[ParsedFile], ownership: Ownership): Set[String] =
     files
@@ -193,5 +189,4 @@ object ModuleExtractor {
       )
       .toSet
 
-  private def loc(file: ParsedFile, tree: Tree): Loc = Loc(file.source.projectPath, Parsing.lineOf(tree))
 }
