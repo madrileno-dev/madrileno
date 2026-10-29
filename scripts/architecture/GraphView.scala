@@ -26,6 +26,10 @@ final case class Graph(
 object GraphView {
   val MaxNodes: Int = 30
 
+  val MaxDiagramNodes: Int = 80
+
+  val MaxDiagramEdges: Int = 300
+
   def changes(diff: DiffModel): Graph = {
     val top        = topLevel(diff)
     val changed    = top.filter(_.status != Status.Unchanged).map(_.key).toSet

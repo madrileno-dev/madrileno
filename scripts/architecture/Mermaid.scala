@@ -16,7 +16,11 @@ object Mermaid {
     val graph  = GraphView.changes(diff)
     val footer = footerOf(diff)
     if (graph.nodes.isEmpty) s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n$footer"
-    else {
+    else if (graph.nodes.size > GraphView.MaxDiagramNodes || graph.edges.size > GraphView.MaxDiagramEdges) {
+      val intro =
+        s"_The diagram would be too large for GitHub to render (${graph.nodes.size} boxes, ${graph.edges.size} arrows). Open the HTML for the full picture._"
+      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n$intro\n\n${summary(diff)}$footer"
+    } else {
       val note =
         if (graph.collapsed)
           s"\n_Services and repositories are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
@@ -73,6 +77,22 @@ object Mermaid {
       else "-->"
     val label = if (edge.label.isEmpty) "" else s"|${escape(edge.label).replace("|", "#124;")}|"
     s"  ${idOf(edge.from)} $arrow$label ${idOf(edge.to)}"
+  }
+
+  private def summary(diff: DiffModel): String = {
+    val groups = List(
+      "modules" -> diff.modules.map(m => m.id -> m.status),
+      "tables"  -> diff.tables.map(t => t.key -> t.status),
+      "topics"  -> diff.topics.map(t => t.key -> t.status),
+      "events"  -> diff.events.map(e => e.head.orElse(e.base).map(_.typeName).getOrElse(e.key) -> e.status)
+    )
+    val lines = for {
+      status          <- List(Status.Added, Status.Removed, Status.Changed)
+      (kind, entries) <- groups
+      names = entries.collect { case (name, `status`) => name }
+      if names.nonEmpty
+    } yield s"- **$status $kind (${names.size}):** ${names.mkString(", ")}"
+    lines.mkString("", "\n", "\n")
   }
 
   private def footerOf(diff: DiffModel): String = {
