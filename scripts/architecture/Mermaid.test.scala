@@ -87,6 +87,7 @@ class MermaidSuite extends munit.FunSuite {
   test("the diagram uses the Madrileño palette and credits it") {
     assert(out.contains("    primaryTextColor: \"#1e1e24\""), out)
     assert(out.contains("    clusterBkg: \"#f5f1ea\""), out)
+    assert(!out.contains("fontFamily"), "a font GitHub lacks makes Mermaid measure and render with different fonts, clipping labels")
     assert(out.contains("<sub>Mapped by Madrileño's <code>scripts/architecture.scala</code></sub>"), out)
   }
 }

@@ -18,7 +18,6 @@ object Mermaid {
       "config:",
       "  theme: base",
       "  themeVariables:",
-      "    fontFamily: \"Manrope, ui-sans-serif, system-ui, sans-serif\"",
       "    primaryColor: \"#fffdf9\"",
       "    primaryBorderColor: \"#cfc9be\"",
       "    primaryTextColor: \"#1e1e24\"",
