@@ -58,6 +58,8 @@ final case class DiffModel(
   topics: List[NodeDiff[BusTopic]],
   events: List[NodeDiff[OutboxEvent]],
   edges: List[EdgeDiff],
+  references: List[NodeDiff[Reference]],
+  wirings: List[NodeDiff[Wiring]],
   warnings: List[WarningDiff],
   unclassified: List[UnclassifiedDiff])
     derives ReadWriter
@@ -95,6 +97,8 @@ object ArchDiff {
         (e.typeName, e.owner, sites(e.publishers), e.subscribers.map(s => (s.consumer, s.site.owner, s.site.enclosing)).toSet)
       ),
       edges = edgeDiffs(edges(base), edges(head)),
+      references = nodes(base.references, head.references)(r => s"${r.from}->${r.to}:${r.layer}.${r.symbol}")(_ => ()),
+      wirings = nodes(base.wirings, head.wirings)(w => s"${w.consumer}:${w.member}:${w.provider}")(_ => ()),
       warnings = keyed(base.warnings, head.warnings)(_.key).flatMap {
         (
           _,
