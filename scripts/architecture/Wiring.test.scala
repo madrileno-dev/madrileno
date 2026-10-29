@@ -90,4 +90,13 @@ class WiringSuite extends munit.FunSuite {
     assertEquals(result.value.map(_.member).sorted, List("logger", "transactor"))
     assertEquals(result.warnings.map(_.key).sorted, List("unprovided:user:routes", "unprovided:user:seeds"))
   }
+
+  test("a library import that shares its first segment with a module is not a reference outside chained clauses") {
+    val files = Fixtures.parsed(
+      Fixtures.src("io/IoModule.scala", "package app.io\ntrait IoModule"),
+      Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),
+      Fixtures.src("shop/services/S.scala", "package app.shop.services\nimport io.circe.Json\nclass S")
+    )
+    assertEquals(ReferenceExtractor.extract(files, Ownership.of(files), "app"), Nil)
+  }
 }

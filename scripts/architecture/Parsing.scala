@@ -5,7 +5,8 @@ import scala.meta.*
 final case class ParsedFile(
   source: SourceFile,
   pkg: String,
-  tree: Source)
+  tree: Source,
+  opensRoot: Boolean = false)
 
 object Parsing {
   def parseAll(input: ProjectInput): Extracted[List[ParsedFile]] = {
@@ -18,10 +19,12 @@ object Parsing {
   private def parse(rootPackage: String, file: SourceFile): Either[Unclassified, ParsedFile] =
     dialects.Scala3(file.content).parse[Source] match {
       case Parsed.Success(tree) =>
-        val declared = packageOf(tree.stats).mkString(".")
+        val clauses   = packageOf(tree.stats)
+        val declared  = clauses.mkString(".")
+        val opensRoot = clauses.indices.drop(1).exists(k => clauses.take(k).mkString(".") == rootPackage)
         Packages
           .relative(rootPackage, declared)
-          .map(ParsedFile(file, _, tree))
+          .map(ParsedFile(file, _, tree, opensRoot))
           .toRight(Unclassified(s"outside-root:${file.packagePath}", s"package $declared is outside $rootPackage", Loc(file.projectPath, 1)))
       case error: Parsed.Error =>
         Left(

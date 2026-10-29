@@ -52,7 +52,7 @@ object ReferenceExtractor {
       val ref = importer.ref.syntax
       Packages
         .relative(rootPackage, ref)
-        .orElse(Option.when(topPackages(ref.split('.').head))(ref.replace('.', '/')))
+        .orElse(Option.when(file.opensRoot && topPackages(ref.split('.').head))(ref.replace('.', '/')))
         .toList
         .flatMap { path =>
           importer.importees.flatMap(symbolOf).map(RawReference(from, path, _, loc(file, importer)))
