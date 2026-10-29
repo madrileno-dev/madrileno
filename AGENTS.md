@@ -27,6 +27,8 @@ You are an expert backend software engineer and architect.
 * before committing, ALWAYS format all changed Scala files using the sbt
   `scalafmt` plugin: `sbt --client scalafmtAll` and run `scalafix` with
   `sbt --client scalafixAll`
+* when opening a PR, run `./scripts/architecture.scala --diff main --mermaid`
+  and paste its output into the PR description
 * pipe every command's output to tmp file for easier analysis
 * prefer using braces `{}`
 * prefer top-level (or scope-level) imports over FQNs

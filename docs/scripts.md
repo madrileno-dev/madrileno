@@ -194,15 +194,74 @@ The checks:
 - Doesn't check OS-level prereqs (sbt installed, JDK version, etc.). Those would have failed earlier (you couldn't have run this script). If you want a full bootstrap check, that's a different scope.
 - Doesn't follow `S3_ENDPOINT` / `OTEL_EXPORTER_OTLP_*_ENDPOINT` from `.env`. The Silo / OpenObserve port checks use the host ports from `docker-compose.yml` (59000 / 55080). Doctor's scope is "is the local dev stack up", not "is whatever the app is configured to talk to up". If you've pointed the app at remote Silo / OpenObserve, the local doctor checks are still meaningful for the dev stack itself; if you've also customised the compose port mappings, doctor needs a matching tweak.
 
+## `architecture.scala`
+
+Draws a map of the project's architecture from its source:
+- modules, what each one consumes and provides, and the routes, tasks, outbox subscriptions and mail previews it contributes
+- the services, repositories, routers and gateways each module wires
+- references between modules
+- event-bus topics and outbox events, with their publishers and subscribers
+- tables, with the module that owns each one and the modules that use it
+- warnings where the code drifts from the template's conventions
+
+It reads source only: no compile, no running app, no database. It works on a branch that doesn't compile and on any checkout you point it at.
+
+```bash
+./scripts/architecture.scala                          # the working tree → target/architecture/architecture.html
+./scripts/architecture.scala --diff main              # what changed since main → target/architecture/architecture-diff.html
+./scripts/architecture.scala --diff main --mermaid    # the same diff as Mermaid, for a PR description
+./scripts/architecture.scala --project ../other-app   # another checkout
+./scripts/architecture.scala --out /tmp/map.html      # write the HTML elsewhere
+./scripts/architecture.scala --json                   # print the model as JSON
+```
+
+`--diff <ref>` compares the merge-base of `<ref>` and `HEAD` (what a GitHub pull request compares against) with the working tree, uncommitted and untracked files included. The base revision is read from a temporary copy; the working tree, index and branches are left alone. Modules, tables and events are matched by their path below the project's package, so a diff across `init-project`'s rename still lines up.
+
+The HTML is one self-contained file. It has:
+- a module graph, where clicking a module shows its details
+- the events and tables views
+- the warnings
+
+In a diff, added, removed and changed items are marked, and **Changed only** hides the rest.
+
+The Mermaid output shows only the changed modules, tables and events, plus their direct neighbours. Added, removed and changed services and repositories are drawn inside their modules; past 30 boxes they're left out. New warnings are listed under the diagram.
+
+### Warnings
+
+- **Not mixed in:** a `*Module` trait that `ApplicationLoader` doesn't extend.
+- **Unprovided member:** a module consumes a member that nothing provides, neither another module, nor `main/`, nor the platform packages.
+- **Module cycle:** modules that depend on each other through imports or wired members. A type that platform code itself imports from a module, such as `AuthContext`, counts as platform and creates no dependency.
+- **Subscriber without publisher:** something subscribes to a topic or outbox event that nothing publishes. Publishing an event nobody subscribes to yet is fine.
+- **Cross-module table use:** a module references another module's `Table` object.
+- **Migration table without `Table`:** a migration creates a table that no `Table` object declares.
+
+### Unclassified
+
+The map reads source, not compiled code, so some things can't be resolved:
+- a `publishTransactionally(event)` whose argument doesn't show its type
+- a `wire[X]` whose class isn't in the module
+- a file that doesn't parse
+
+Instead of guessing, the map lists these under **Unclassified**, each with its location.
+
+`--strict` exits 1 when there are warnings or unclassified items. With `--diff`, only new ones count. The template's CI runs it on the template and on a freshly initialised project.
+
+### What it doesn't do
+
+- **Doesn't read hand-written SQL.** It knows a table only through its `Table` object.
+- **Doesn't analyse tests.**
+- **Doesn't resolve types.** A wildcard import counts as a reference to the package, not to each symbol in it.
+
 ## Template-internal CI workflows
 
 The repo ships four GitHub Actions. `.github/workflows/scala.yml` is the project's own CI (format check, scalafix, compile, test) — kept on init like any other project file. The other three are **template-internal**: they validate template content and are deleted by `init-project.scala` (along with `scripts/check-links.scala`, which only the link-check workflow uses):
 
 - **`.github/workflows/link-check.yml`** — runs `scripts/check-links.scala` on PRs touching markdown. The script walks every `.md`, extracts `[text](target)` links, verifies internal targets exist (relative paths + `#anchor` heading slugs). Externals + `mailto:` / `tel:` are skipped. Code spans + fenced blocks are stripped first so Scala signatures inside code samples don't trip the regex.
-- **`.github/workflows/script-tests.yml`** — four jobs:
+- **`.github/workflows/script-tests.yml`** — five jobs:
   - `compile-scripts` — `scala-cli compile` every `scripts/*.scala`, catches dep/import drift in the scripts themselves
+  - `test-architecture` — runs the architecture map's unit tests, then `./scripts/architecture.scala --strict` on the template, which fails on any warning or unclassified item
   - `run-doctor` — smoke-runs `scripts/doctor.scala`, accepts exit `0` or `1` (CI has no dev stack so doctor's "checks failed" exit is expected; anything else is a real crash)
-  - `test-init-project` — `git clone`s the repo into a temp dir, runs `./scripts/init-project.scala wine-cellar`, asserts the rename / auction-drop / workflow-cleanup happened, then `sbt compile`s
+  - `test-init-project` — `git clone`s the repo into a temp dir, runs `./scripts/init-project.scala wine-cellar`, asserts the rename / auction-drop / workflow-cleanup happened, runs `./scripts/architecture.scala --strict` on the result, then `sbt compile`s
   - `test-scaffold-module` — same shape, runs `./scripts/scaffold-module.scala Wine wines`, asserts generated files exist + `WineModule` is wired into `ApplicationLoader`, then `sbt compile`s
 - **`.github/workflows/site-dispatch.yml`** — on a push to `main` touching `docs/**` or `README.md`, sends a `docs-updated` repository dispatch to `madrileno-dev/madrileno-dev.github.io` so the website rebuilds. Needs the `SITE_DISPATCH_TOKEN` secret (a fine-grained PAT scoped to the site repo, Contents read/write).
 
@@ -214,4 +273,5 @@ All workflows verify template content (our docs, our scripts). A forked project 
 - `scaffold-module.scala` + `templates/module/` — generator + templates
 - `dev-console.scala` — wrapper. The REPL predef is embedded as a string inside the wrapper (top of the file), written to a temp file at launch and passed to scala-cli's REPL. One file, at the cost of no syntax highlighting on the predef section in most editors.
 - `doctor.scala` — standalone, no companion files
+- `architecture.scala` + `architecture/` — entry point (CLI) + the extractor, diff and renderers it includes; `architecture/*.test.scala` are its unit tests (`scala-cli test scripts/architecture.scala`)
 - `check-links.scala` — standalone; template-only, deleted on init

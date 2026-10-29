@@ -43,7 +43,7 @@ object Mermaid {
     val nodeLines = graph.nodes.filter(_.parent.isEmpty).flatMap { node =>
       children.get(node.key) match {
         case Some(inner) =>
-          List(s"""  subgraph ${idOf(node.key)}["${prefix(node.status)}${escape(node.label)}"]""") ++
+          List(s"""  subgraph ${idOf(node.key)}["${prefix(node.status)}${escape(node.label)}"]""", "    direction LR") ++
             inner.map(child => s"    ${nodeLine(child)}") ++ List("  end")
         case None => List(s"  ${nodeLine(node)}")
       }
@@ -89,7 +89,7 @@ object Mermaid {
   private def idOf(key: String): String = key.replaceAll("[^A-Za-z0-9]", "_")
 
   private def prefix(status: Status): String = status match {
-    case Status.Added     => "+ "
+    case Status.Added     => "#43; "
     case Status.Removed   => "− "
     case Status.Changed   => "~ "
     case Status.Unchanged => ""

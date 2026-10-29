@@ -27,6 +27,17 @@ jobs:
             scala-cli compile "$f"
           done
 
+  test-architecture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: VirtusLab/scala-cli-setup@d320e01a605bf27128a5657575382668f83ef34e # v1
+      - name: Unit-test the architecture map and require a clean map of the template
+        run: |
+          set -e
+          scala-cli test scripts/architecture.scala
+          ./scripts/architecture.scala --strict --out /tmp/architecture.html
+
   run-doctor:
     runs-on: ubuntu-latest
     steps:
@@ -79,6 +90,7 @@ jobs:
           test ! -f scripts/check-links.scala || { echo "check-links.scala not deleted"; exit 1; }
           test ! -f LICENSE || { echo "LICENSE not deleted"; exit 1; }
           ! grep -q '^## License' README.md || { echo "README License section not stripped"; exit 1; }
+          ./scripts/architecture.scala --strict --out /tmp/architecture.html
           sbt "scalafixAll; scalafixAll; coverage; compile; testFull; coverageReport; shutdown"
 
   test-scaffold-module:

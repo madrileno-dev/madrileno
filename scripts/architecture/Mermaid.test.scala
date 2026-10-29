@@ -10,8 +10,8 @@ class MermaidSuite extends munit.FunSuite {
   }
 
   test("added module is a subgraph with its added component, removed module is dashed, user is a neighbour") {
-    assert(out.contains("subgraph module_order[\"+ order\"]"), out)
-    assert(out.contains("component_order_OrderService[\"+ OrderService (service)\"]"), out)
+    assert(out.contains("subgraph module_order[\"#43; order\"]\n    direction LR\n"), out)
+    assert(out.contains("component_order_OrderService[\"#43; OrderService (service)\"]"), out)
     assert(out.contains("module_shop[\"− shop\"]"), out)
     assert(out.contains("module_user[\"user\"]"), out)
     assert(out.contains("module_shop -.->|userRepository| module_user"), out)
@@ -20,7 +20,11 @@ class MermaidSuite extends munit.FunSuite {
 
   test("labels are escaped") {
     val node = GNode("table:\"x<y>\"", "\"x<y>\"", NodeKind.Table, None, Status.Added)
-    assertEquals(Mermaid.nodeLine(node), "table__x_y__[(\"+ #quot;x#lt;y#gt;#quot;\")]")
+    assertEquals(Mermaid.nodeLine(node), "table__x_y__[(\"#43; #quot;x#lt;y#gt;#quot;\")]")
+  }
+
+  test("no label starts with a Markdown list marker, which Mermaid 11 renders as an error") {
+    assert(!"""\["\+ """.r.findFirstIn(out).isDefined, out)
   }
 
   test("an unchanged diff says so and has no code block") {
