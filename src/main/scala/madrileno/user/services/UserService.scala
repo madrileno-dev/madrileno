@@ -8,10 +8,6 @@ import madrileno.utils.events.outbox.Outbox
 import madrileno.utils.observability.{LoggingSupport, TelemetryContext}
 import pl.iterators.sealedmonad.syntax.*
 
-enum DeleteAccountResult {
-  case Deleted, AlreadyDeleted
-}
-
 class UserService(
   userRepository: UserRepository,
   outbox: Outbox,
@@ -36,4 +32,8 @@ class UserService(
         case DeleteAccountResult.Deleted        => logger.info(s"account deleted: $userId")
         case DeleteAccountResult.AlreadyDeleted => IO.unit
       }
+}
+
+enum DeleteAccountResult {
+  case Deleted, AlreadyDeleted
 }
