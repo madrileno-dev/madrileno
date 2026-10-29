@@ -13,7 +13,7 @@ import madrileno.auth.routers.dto.{
   SessionDto
 }
 import madrileno.support.{BaseRouteSpec, TestApplicationLoader, TestData}
-import madrileno.user.domain.{EmailAddress, User, UserId}
+import madrileno.user.domain.{EmailAddress, UserId}
 import madrileno.utils.http.Error
 import madrileno.utils.json.JsonProtocol.*
 import org.http4s.Method.*
@@ -43,7 +43,7 @@ class AuthRouterSpec extends BaseRouteSpec with TestApplicationLoader {
             }
           case None =>
             val userId   = TestData.randomUserId()
-            val user     = User(userId, firebaseToken).copy(blockedAt = blockedAt)
+            val user     = firebaseToken.toUser(userId).copy(blockedAt = blockedAt)
             val userAuth = UserAuth(TestData.randomUserAuthId(), userId, firebaseToken)
             application.userRepository.create(user, now) *>
               userAuthRepository.save(userAuth, now).as(userId)
@@ -63,7 +63,7 @@ class AuthRouterSpec extends BaseRouteSpec with TestApplicationLoader {
     )
     val now      = Instant.now()
     val userId   = TestData.randomUserId()
-    val user     = User(userId, devToken)
+    val user     = devToken.toUser(userId)
     val userAuth = UserAuth(TestData.randomUserAuthId(), userId, devToken)
     val _        = application.transactor
       .inTransaction {

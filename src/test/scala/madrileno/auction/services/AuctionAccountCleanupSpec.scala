@@ -6,11 +6,10 @@ import cats.effect.{Clock, IO}
 import io.opentelemetry.api.OpenTelemetry
 import madrileno.auction.domain.*
 import madrileno.auction.repositories.{AuctionRepository, BidRepository}
-import madrileno.auth.repositories.{RefreshTokenRepository, UserAuthRepository}
-import madrileno.auth.services.AccountService
 import madrileno.support.{TestData, TestGivens, TestTransactor}
 import madrileno.user.domain.{User, UserAccountDeleted}
 import madrileno.user.repositories.UserRepository
+import madrileno.user.services.UserService
 import madrileno.utils.events.bus.EventBusRuntime
 import madrileno.utils.events.outbox.*
 import madrileno.utils.mailer.*
@@ -113,9 +112,7 @@ class AuctionAccountCleanupSpec extends AsyncWordSpec with AsyncIOSpec with Matc
       val dispatcher = new OutboxDispatcher(List(auctionSub), outboxRepo, deliveryRepo, transactor, OutboxConfig())
       val outbox     = new Outbox(outboxRepo, deliveryRepo, scheduler.client, dispatcher)
 
-      val userAuthRepo     = new UserAuthRepository
-      val refreshTokenRepo = new RefreshTokenRepository
-      val accountService   = new AccountService(userRepo, userAuthRepo, refreshTokenRepo, outbox, transactor)
+      val userService = new UserService(userRepo, outbox, transactor)
 
       def runDelivery(
         d: OutboxDispatcher,
@@ -128,7 +125,7 @@ class AuctionAccountCleanupSpec extends AsyncWordSpec with AsyncIOSpec with Matc
 
       for {
         fx     <- seedAll
-        _      <- accountService.deleteAccount(fx.seller.id)
+        _      <- userService.deleteAccount(fx.seller.id)
         events <- transactor.inSession(outboxRepo.findByAggregate("user", fx.seller.id.unwrap))
         id = events.head.id
         st0  <- transactor.inTransaction(deliveryRepo.lockForDelivery(id, "auction"))
