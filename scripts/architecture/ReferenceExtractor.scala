@@ -14,9 +14,10 @@ object ReferenceExtractor {
     ownership: Ownership,
     rootPackage: String
   ): List[Reference] = {
-    val raw = files.flatMap { file =>
+    val topPackages = files.map(_.pkg.split('/').head).filter(_.nonEmpty).toSet
+    val raw         = files.flatMap { file =>
       val from = ownership.ownerOf(file.pkg)
-      imports(file, from, rootPackage) ++ qualified(file, from, rootPackage)
+      imports(file, from, rootPackage, topPackages) ++ qualified(file, from, rootPackage)
     }
     val platformContract = raw.flatMap {
       case RawReference(Owner.Platform(_), path, symbol, _) if symbol != "*" && symbol != "given" =>
@@ -44,12 +45,18 @@ object ReferenceExtractor {
   private def imports(
     file: ParsedFile,
     from: Owner,
-    rootPackage: String
+    rootPackage: String,
+    topPackages: Set[String]
   ): List[RawReference] =
     file.tree.collect { case importStat: Import => importStat.importers }.flatten.flatMap { importer =>
-      Packages.relative(rootPackage, importer.ref.syntax).toList.flatMap { path =>
-        importer.importees.flatMap(symbolOf).map(RawReference(from, path, _, loc(file, importer)))
-      }
+      val ref = importer.ref.syntax
+      Packages
+        .relative(rootPackage, ref)
+        .orElse(Option.when(topPackages(ref.split('.').head))(ref.replace('.', '/')))
+        .toList
+        .flatMap { path =>
+          importer.importees.flatMap(symbolOf).map(RawReference(from, path, _, loc(file, importer)))
+        }
     }
 
   private def qualified(

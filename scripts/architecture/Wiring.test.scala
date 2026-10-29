@@ -58,4 +58,16 @@ class WiringSuite extends munit.FunSuite {
   test("no cycle when the dependency goes one way") {
     assertEquals(Cycles.warnings(modules, wiring.value, references.filterNot(_.from == "user")), Nil)
   }
+
+  test("imports relative to the root under chained package clauses are references") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),
+      Fixtures.src("shop/services/S.scala", "package app\npackage shop.services\nimport user.repositories.UserRepository\nclass S")
+    )
+    assertEquals(
+      ReferenceExtractor.extract(files, Ownership.of(files), "app").map(r => (r.from, r.to, r.layer, r.symbol)),
+      List(("shop", "user", "repositories", "UserRepository"))
+    )
+  }
 }
