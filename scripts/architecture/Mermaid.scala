@@ -94,7 +94,7 @@ object Mermaid {
       if (edge.status == Status.Removed) "-.->"
       else if (edge.repositories) "==>"
       else "-->"
-    val label = if (edge.label.isEmpty) "" else s"|${escape(edge.label).replace("|", "#124;")}|"
+    val label = if (edge.label.isEmpty) "" else s"""|"${escape(edge.label).replace("|", "#124;")}"|"""
     s"  ${idOf(edge.from)} $arrow$label ${idOf(edge.to)}"
   }
 

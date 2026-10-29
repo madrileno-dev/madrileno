@@ -15,8 +15,8 @@ class MermaidSuite extends munit.FunSuite {
     assert(out.contains("component_order_OrderService[\"#43;#160;OrderService (service)\"]"), out)
     assert(out.contains("module_shop[\"−#160;shop\"]"), out)
     assert(out.contains("module_user[\"user\"]"), out)
-    assert(out.contains("module_shop -.->|wires userRepository| module_user"), out)
-    assert(out.contains("module_order -->|wires userRepository| module_user"), out)
+    assert(out.contains("module_shop -.->|\"wires userRepository\"| module_user"), out)
+    assert(out.contains("module_order -->|\"wires userRepository\"| module_user"), out)
   }
 
   test("labels are escaped") {
@@ -132,5 +132,25 @@ class MermaidSuite extends munit.FunSuite {
       ),
       text
     )
+  }
+
+  test("edge labels are quoted so consumer names with brackets cannot break the diagram") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+        Fixtures.src(
+          "user/domain/Gone.scala",
+          "package app.user.domain\nobject Gone {\n  given DomainEventDescriptor[Gone] = DomainEventDescriptor(\"gone.v1\", \"user\", _.id)\n}"
+        ),
+        Fixtures.src("user/services/S.scala", "package app.user.services\nclass S(outbox: Outbox) {\n  def p(id: Id) = outbox.publishTransactionally(Gone(id))\n}"),
+        Fixtures.src(
+          "shop/ShopModule.scala",
+          "package app.shop\ntrait ShopModule {\n  override abstract def outboxSubscriptions = super.outboxSubscriptions :+ OutboxSubscription[Gone](\"shop (cleanup) [v2]\")(h)\n}"
+        )
+      )
+    )
+    val text = Mermaid.render(ArchDiff.compare(ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil), model, "b", "h"))
+    assert(text.contains("""-->|"as shop (cleanup) [v2]"| module_shop"""), text)
   }
 }
