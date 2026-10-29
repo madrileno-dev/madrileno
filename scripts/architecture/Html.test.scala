@@ -73,6 +73,10 @@ class HtmlSuite extends munit.FunSuite {
     assert(page.contains("useMaxWidth: false"), "the script sizes the diagram itself")
   }
 
+  test("a focused diagram has a way back to all modules") {
+    assert(page.contains("""<button type="button" id="show-all" hidden>Show all modules</button>"""), page)
+  }
+
   test("the click handler's pattern finds the node id inside the id Mermaid gives a node") {
     val pattern = """el\.id\.match\(/(.*?)/\)""".r.findFirstMatchIn(page).get.group(1)
     assertEquals(pattern.r.findFirstMatchIn("flowchart-module_order-12").map(_.group(1)), Some("module_order"))
@@ -81,7 +85,9 @@ class HtmlSuite extends munit.FunSuite {
   test("the page embeds one Mermaid diagram per detail level, plus the changes in a diff") {
     val diagrams = """<script type="application/json" id="arch-diagrams">(.*?)</script>""".r.findFirstMatchIn(page).get.group(1)
     val parsed   = ujson.read(diagrams)
-    assertEquals(parsed.obj.keySet.toSet, Set("modules", "components", "everything", "changed", "ids"))
+    assertEquals(parsed.obj.keySet.toSet, Set("modules", "components", "everything", "changed", "ids", "focus"))
+    assertEquals(parsed("focus")("order").obj.keySet.toSet, Set("modules", "components", "everything"))
+    assert(parsed("focus")("order")("modules").str.contains("module_order"))
     assert(parsed("modules").str.contains("flowchart LR"))
     assert(parsed("changed").str.contains("module_order"))
     assertEquals(parsed("ids")("module_order").str, "order")

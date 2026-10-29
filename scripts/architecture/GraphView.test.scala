@@ -38,4 +38,48 @@ class GraphViewSuite extends munit.FunSuite {
     assert(graph.nodes.exists(_.key == "table:user"))
     assert(graph.edges.exists(e => e.from == "module:user" && e.to == "table:user"))
   }
+
+  private val web = ArchDiff.full(
+    Extractor.extract(
+      Fixtures.project(
+        Fixtures
+          .src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AModule with BModule with CModule with DModule"),
+        Fixtures.src("a/AModule.scala", "package app.a\nimport app.b.domain.X\ntrait AModule {\n  private val s = wire[AService]\n}"),
+        Fixtures.src(
+          "a/services/AService.scala",
+          "package app.a.services\nclass AService(outbox: Outbox) {\n  def p(id: Id) = outbox.publishTransactionally(Gone(id))\n}"
+        ),
+        Fixtures.src(
+          "a/domain/Gone.scala",
+          "package app.a.domain\nobject Gone {\n  given DomainEventDescriptor[Gone] = DomainEventDescriptor(\"gone.v1\", \"a\", _.id)\n}"
+        ),
+        Fixtures.src("b/BModule.scala", "package app.b\nimport app.d.domain.Y\ntrait BModule {\n  private val s = wire[BService]\n}"),
+        Fixtures.src("b/services/BService.scala", "package app.b.services\nclass BService"),
+        Fixtures.src("c/CModule.scala", "package app.c\nimport app.a.domain.Z\nimport app.b.domain.W\ntrait CModule"),
+        Fixtures.src(
+          "d/DModule.scala",
+          "package app.d\ntrait DModule {\n  override abstract def outboxSubscriptions = super.outboxSubscriptions :+ OutboxSubscription[Gone](\"d\")(h)\n}"
+        )
+      )
+    ),
+    "h"
+  )
+
+  test("a focused module shows its direct neighbours and only the edges that touch it") {
+    val graph = GraphView.focus(web, "a", Level.Modules)
+    assertEquals(graph.nodes.map(_.key).toSet, Set("module:a", "module:b", "module:c"))
+    assertEquals(graph.edges.map(e => e.from -> e.to).toSet, Set("module:a" -> "module:b", "module:c" -> "module:a"))
+  }
+
+  test("only the focused module opens up into its services and repositories") {
+    val graph = GraphView.focus(web, "a", Level.Components)
+    assertEquals(graph.nodes.filter(_.kind == NodeKind.Component).map(_.key), List("component:a:AService"))
+  }
+
+  test("with tables and events, the modules on the other side of its events join the focus") {
+    val graph = GraphView.focus(web, "a", Level.Everything)
+    assert(graph.nodes.exists(_.key == "module:d"), graph.nodes)
+    assert(graph.edges.exists(e => e.from == "event:gone.v1" && e.to == "module:d"), graph.edges)
+    assert(!graph.edges.exists(e => e.from == "module:b" && e.to == "module:d"), graph.edges)
+  }
 }

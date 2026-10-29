@@ -66,6 +66,21 @@ object GraphView {
     Graph(top ++ components, edges, collapsed = false)
   }
 
+  def focus(
+    diff: DiffModel,
+    moduleId: String,
+    level: Level
+  ): Graph = {
+    val graph   = full(diff, level)
+    val center  = s"module:$moduleId"
+    val shared  = graph.nodes.filter(_.kind != NodeKind.Module).map(_.key).toSet
+    val direct  = graph.edges.filter(e => e.from == center || e.to == center)
+    val through = direct.flatMap(e => List(e.from, e.to)).filter(shared).toSet
+    val edges   = graph.edges.filter(e => e.from == center || e.to == center || through(e.from) || through(e.to))
+    val keys    = edges.flatMap(e => List(e.from, e.to)).toSet + center
+    Graph(graph.nodes.filter(node => keys(node.key) || node.parent.contains(center)), edges, collapsed = false)
+  }
+
   private def topLevel(diff: DiffModel): List[GNode] =
     diff.modules.map(m => GNode(s"module:${m.id}", m.id, NodeKind.Module, None, m.status)) ++
       diff.tables.map(t => GNode(s"table:${t.key}", t.key, NodeKind.Table, None, t.status)) ++

@@ -38,11 +38,12 @@ object Html {
         """<label><input type="radio" name="level" value="modules" checked> modules</label>""" +
         """<label><input type="radio" name="level" value="components"> with services and repositories</label>""" +
         """<label><input type="radio" name="level" value="everything"> with tables and events</label>""" +
+        """<button type="button" id="show-all" hidden>Show all modules</button>""" +
         """<span class="zoom"><button type="button" data-zoom="out" aria-label="Zoom out">−</button><button type="button" data-zoom="fit">Fit</button><button type="button" data-zoom="in" aria-label="Zoom in">+</button></span></div>""",
       moduleList(diff),
       """<div class="modules-layout">""",
       """<div class="graph" id="graph"><p class="muted">Drawing the diagram…</p></div>""",
-      """<aside id="details"><p class="muted">Click a module to see what it consumes, provides and contributes.</p></aside>""",
+      """<aside id="details"><p class="muted">Click a module to focus the diagram on it and see what it consumes, provides and contributes.</p></aside>""",
       "</div></section>",
       s"""<section id="events"><h2>Events</h2>${eventsTable(diff)}</section>""",
       s"""<section id="tables"><h2>Tables</h2>${tablesMatrix(diff)}</section>""",
@@ -104,10 +105,13 @@ object Html {
     s"""<nav class="module-list" aria-label="Modules">${chips.mkString}</nav>"""
   }
 
+  private val Levels = List("modules" -> Level.Modules, "components" -> Level.Components, "everything" -> Level.Everything)
+
   private def diagrams(diff: DiffModel): String = {
-    val levels = List("modules" -> Level.Modules, "components" -> Level.Components, "everything" -> Level.Everything).map { (name, level) =>
-      name -> ujson.Str(Mermaid.diagram(GraphView.full(diff, level)))
-    }
+    val levels = Levels.map((name, level) => name -> ujson.Str(Mermaid.diagram(GraphView.full(diff, level))))
+    val focus  = "focus" -> ujson.Obj.from(diff.modules.map { m =>
+      m.id -> ujson.Obj.from(Levels.map((name, level) => name -> ujson.Str(Mermaid.diagram(GraphView.focus(diff, m.id, level)))))
+    })
     val changed = Option.when(diff.isDiff) {
       val graph = GraphView.changes(diff)
       "changed" -> ujson.Str(if (graph.nodes.isEmpty) "" else Mermaid.diagram(graph))
@@ -115,7 +119,9 @@ object Html {
     val ids = diff.modules.flatMap { m =>
       (Mermaid.nodeId(s"module:${m.id}") -> m.id) :: m.components.map(c => Mermaid.nodeId(s"component:${m.id}:${c.name}") -> m.id)
     }
-    ujson.write(ujson.Obj.from(levels ++ changed.toList :+ ("ids" -> ujson.Obj.from(ids.map((k, v) => k -> ujson.Str(v)))))).replace("<", "\\u003c")
+    ujson
+      .write(ujson.Obj.from(levels ++ changed.toList :+ focus :+ ("ids" -> ujson.Obj.from(ids.map((k, v) => k -> ujson.Str(v))))))
+      .replace("<", "\\u003c")
   }
 
   private def siteLabel(site: Site): String = s"${site.owner.label} / ${site.enclosing}"
@@ -241,7 +247,7 @@ main { padding: 0 24px 40px; }
 .graph g.node, .graph g.cluster { cursor: pointer; }
 .graph-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 8px; }
 .zoom { margin-left: auto; display: inline-flex; gap: 4px; }
-.zoom button { font: inherit; font-size: 13px; min-width: 32px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--fg); cursor: pointer; }
+.zoom button, #show-all { font: inherit; font-size: 13px; min-width: 32px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--fg); cursor: pointer; }
 .module-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .module-chip { font: inherit; font-size: 13px; padding: 3px 10px; border-radius: 14px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--fg); cursor: pointer; }
 .module-chip:hover, .module-chip.selected { border-color: var(--fg); border-width: 2px; padding: 2px 9px; }
@@ -323,10 +329,13 @@ body.changed-only [data-status="unchanged"] { display: none; }
   const diagrams = JSON.parse(document.getElementById('arch-diagrams').textContent);
   const graph = document.getElementById('graph');
   const toggle = document.getElementById('changed-only');
+  const showAll = document.getElementById('show-all');
+  let focused = null;
+  const levelName = () => { const level = document.querySelector('input[name=level]:checked'); return level ? level.value : 'modules'; };
   const source = () => {
+    if (focused && diagrams.focus[focused]) return diagrams.focus[focused][levelName()];
     if (toggle && toggle.checked && 'changed' in diagrams) return diagrams.changed;
-    const level = document.querySelector('input[name=level]:checked');
-    return diagrams[level ? level.value : 'modules'];
+    return diagrams[levelName()];
   };
   let natural = 0;
   let scale = 1;
@@ -338,6 +347,7 @@ body.changed-only [data-status="unchanged"] { display: none; }
     svg.style.width = `${Math.round(natural * scale)}px`;
   };
   const draw = () => {
+    showAll.hidden = !focused;
     if (!window.mermaid) { graph.replaceChildren(node('p', 'The diagram loads Mermaid from jsDelivr and needs network access. The module list above still opens each module.', 'muted')); return; }
     const text = source();
     if (!text) { graph.replaceChildren(node('p', 'No architecture changes.', 'muted')); return; }
@@ -351,18 +361,20 @@ body.changed-only [data-status="unchanged"] { display: none; }
       graph.querySelectorAll('g.node, g.cluster').forEach(el => {
         const raw = el.classList.contains('cluster') ? el.id : (el.id.match(/^flowchart-(.+)-[0-9]+$/) || [])[1];
         const id = diagrams.ids[raw];
-        if (id) el.addEventListener('click', event => { event.stopPropagation(); show(id); });
+        if (id) el.addEventListener('click', event => { event.stopPropagation(); focusOn(id); });
       });
     }).catch(error => graph.replaceChildren(node('p', `The diagram could not be drawn: ${error.message}`, 'muted')));
   };
+  const focusOn = id => { show(id); focused = id; draw(); };
   if (window.mermaid) window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', flowchart: { useMaxWidth: false } });
-  document.querySelectorAll('.module-chip').forEach(chip => chip.addEventListener('click', () => show(chip.dataset.module)));
+  document.querySelectorAll('.module-chip').forEach(chip => chip.addEventListener('click', () => focusOn(chip.dataset.module)));
+  showAll.addEventListener('click', () => { focused = null; draw(); });
   document.querySelectorAll('input[name=level]').forEach(radio => radio.addEventListener('change', draw));
   document.querySelectorAll('[data-zoom]').forEach(button => button.addEventListener('click', () => {
     const step = { in: scale * 1.25, out: scale / 1.25 };
     zoom(step[button.dataset.zoom] ?? fitScale());
   }));
-  if (toggle) toggle.addEventListener('change', () => { document.body.classList.toggle('changed-only', toggle.checked); draw(); });
+  if (toggle) toggle.addEventListener('change', () => { document.body.classList.toggle('changed-only', toggle.checked); focused = null; draw(); });
   draw();
 })();
 """
