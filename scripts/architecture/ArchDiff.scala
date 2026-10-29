@@ -1,0 +1,201 @@
+package architecture
+
+import upickle.default.ReadWriter
+
+enum Status derives ReadWriter {
+  case Added, Removed, Changed, Unchanged
+}
+
+enum WarningStatus derives ReadWriter {
+  case New, Existing, Resolved
+}
+
+enum EdgeKind derives ReadWriter {
+  case Wiring, Reference, TableUse, Publishes, Subscribes
+}
+
+final case class Edge(
+  kind: EdgeKind,
+  from: String,
+  to: String,
+  label: String)
+    derives ReadWriter
+
+final case class ComponentDiff(
+  name: String,
+  status: Status,
+  base: Option[Component],
+  head: Option[Component])
+    derives ReadWriter
+
+final case class ModuleDiff(
+  id: String,
+  status: Status,
+  base: Option[Module],
+  head: Option[Module],
+  components: List[ComponentDiff])
+    derives ReadWriter
+
+final case class NodeDiff[A](
+  key: String,
+  status: Status,
+  base: Option[A],
+  head: Option[A])
+    derives ReadWriter
+
+final case class EdgeDiff(edge: Edge, status: Status) derives ReadWriter
+
+final case class WarningDiff(warning: Warning, status: WarningStatus) derives ReadWriter
+
+final case class UnclassifiedDiff(item: Unclassified, status: WarningStatus) derives ReadWriter
+
+final case class DiffModel(
+  isDiff: Boolean,
+  baseLabel: String,
+  headLabel: String,
+  modules: List[ModuleDiff],
+  tables: List[NodeDiff[TableDecl]],
+  topics: List[NodeDiff[BusTopic]],
+  events: List[NodeDiff[OutboxEvent]],
+  edges: List[EdgeDiff],
+  warnings: List[WarningDiff],
+  unclassified: List[UnclassifiedDiff])
+    derives ReadWriter
+
+object ArchDiff {
+  def full(model: ArchModel, label: String): DiffModel = compare(model, model, label, label).copy(isDiff = false)
+
+  def compare(
+    base: ArchModel,
+    head: ArchModel,
+    baseLabel: String,
+    headLabel: String
+  ): DiffModel =
+    DiffModel(
+      isDiff = true,
+      baseLabel = baseLabel,
+      headLabel = headLabel,
+      modules = keyed(base.modules, head.modules)(_.id).map {
+        (
+          id,
+          before,
+          after
+        ) =>
+          ModuleDiff(
+            id,
+            status(before.map(moduleFacts(_, base)), after.map(moduleFacts(_, head)))(identity),
+            before,
+            after,
+            components(before, after)
+          )
+      },
+      tables = nodes(base.tables, head.tables)(_.name)(t => (t.owner, sites(t.users))),
+      topics = nodes(base.topics, head.topics)(_.name)(t => (t.eventType, t.owner, sites(t.publishers), sites(t.subscribers))),
+      events = nodes(base.outboxEvents, head.outboxEvents)(_.eventType)(e =>
+        (e.typeName, e.owner, sites(e.publishers), e.subscribers.map(s => (s.consumer, s.site.owner, s.site.enclosing)).toSet)
+      ),
+      edges = edgeDiffs(edges(base), edges(head)),
+      warnings = keyed(base.warnings, head.warnings)(_.key).flatMap {
+        (
+          _,
+          before,
+          after
+        ) =>
+          after.map(WarningDiff(_, presence(before))).orElse(before.map(WarningDiff(_, WarningStatus.Resolved)))
+      },
+      unclassified = keyed(base.unclassified, head.unclassified)(_.key).flatMap {
+        (
+          _,
+          before,
+          after
+        ) =>
+          after.map(UnclassifiedDiff(_, presence(before))).orElse(before.map(UnclassifiedDiff(_, WarningStatus.Resolved)))
+      }
+    )
+
+  def edges(model: ArchModel): Set[Edge] = {
+    val wirings = model.wirings.collect { case Wiring(member, consumer, Provider.FromModule(provider)) =>
+      Edge(EdgeKind.Wiring, s"module:$consumer", s"module:$provider", member)
+    }
+    val references = model.references.map(r => Edge(EdgeKind.Reference, s"module:${r.from}", s"module:${r.to}", r.layer))
+    val tableUses  = model.tables.flatMap(t => moduleIds(t.users).map(id => Edge(EdgeKind.TableUse, s"module:$id", s"table:${t.name}", "")))
+    val topics     = model.topics.flatMap { t =>
+      moduleIds(t.publishers).map(id => Edge(EdgeKind.Publishes, s"module:$id", s"topic:${t.name}", "")) ++
+        moduleIds(t.subscribers).map(id => Edge(EdgeKind.Subscribes, s"topic:${t.name}", s"module:$id", ""))
+    }
+    val events = model.outboxEvents.flatMap { e =>
+      moduleIds(e.publishers).map(id => Edge(EdgeKind.Publishes, s"module:$id", s"event:${e.eventType}", "")) ++
+        e.subscribers.flatMap(s => moduleId(s.site.owner).map(id => Edge(EdgeKind.Subscribes, s"event:${e.eventType}", s"module:$id", s.consumer)))
+    }
+    (wirings ++ references ++ tableUses ++ topics ++ events).toSet
+  }
+
+  private final case class ModuleFacts(
+    consumes: Set[(String, String)],
+    provides: Set[(String, String)],
+    contributions: Set[(Registry, List[String])],
+    components: Set[(String, ComponentKind, List[String])],
+    tables: Set[String],
+    topics: Set[String],
+    events: Set[String],
+    references: Set[(String, String, String)])
+
+  private def presence(before: Option[?]): WarningStatus = if (before.isDefined) WarningStatus.Existing else WarningStatus.New
+
+  private def moduleId(owner: Owner): Option[String] = owner match {
+    case Owner.Module(id) => Some(id)
+    case _                => None
+  }
+
+  private def moduleIds(sites: List[Site]): List[String] = sites.flatMap(site => moduleId(site.owner)).distinct
+
+  private def sites(list: List[Site]): Set[(Owner, String)] = list.map(site => (site.owner, site.enclosing)).toSet
+
+  private def keyed[A](base: List[A], head: List[A])(key: A => String): List[(String, Option[A], Option[A])] =
+    (base.map(key) ++ head.map(key)).distinct.sorted.map(k => (k, base.find(key(_) == k), head.find(key(_) == k)))
+
+  private def status[A, F](before: Option[A], after: Option[A])(facts: A => F): Status = (before, after) match {
+    case (None, Some(_))    => Status.Added
+    case (Some(_), None)    => Status.Removed
+    case (Some(b), Some(a)) => if (facts(b) == facts(a)) Status.Unchanged else Status.Changed
+    case (None, None)       => Status.Unchanged
+  }
+
+  private def nodes[A, F](base: List[A], head: List[A])(key: A => String)(facts: A => F): List[NodeDiff[A]] =
+    keyed(base, head)(key).map(
+      (
+        k,
+        before,
+        after
+      ) => NodeDiff(k, status(before, after)(facts), before, after)
+    )
+
+  private def components(before: Option[Module], after: Option[Module]): List[ComponentDiff] =
+    keyed(before.toList.flatMap(_.components), after.toList.flatMap(_.components))(_.name).map {
+      (
+        name,
+        b,
+        a
+      ) =>
+        ComponentDiff(name, status(b, a)(c => (c.kind, c.dependencies)), b, a)
+    }
+
+  private def moduleFacts(module: Module, model: ArchModel): ModuleFacts = {
+    val owner = Owner.Module(module.id)
+    ModuleFacts(
+      module.consumes.map(m => (m.name, m.tpe)).toSet,
+      module.provides.map(m => (m.name, m.tpe)).toSet,
+      module.contributions.map(c => (c.registry, c.items)).toSet,
+      module.components.map(c => (c.name, c.kind, c.dependencies)).toSet,
+      model.tables.filter(_.owner == owner).map(_.name).toSet,
+      model.topics.filter(_.owner == owner).map(_.name).toSet,
+      model.outboxEvents.filter(_.owner == owner).map(_.eventType).toSet,
+      model.references.filter(_.from == module.id).map(r => (r.to, r.layer, r.symbol)).toSet
+    )
+  }
+
+  private def edgeDiffs(base: Set[Edge], head: Set[Edge]): List[EdgeDiff] =
+    (base ++ head).toList
+      .sortBy(e => (e.kind.ordinal, e.from, e.to, e.label))
+      .map(edge => EdgeDiff(edge, if (base(edge) && head(edge)) Status.Unchanged else if (head(edge)) Status.Added else Status.Removed))
+}

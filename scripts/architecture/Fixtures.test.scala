@@ -15,4 +15,24 @@ object Fixtures {
 
   def parsed(files: SourceFile*): List[ParsedFile] =
     Parsing.parseAll(project(files*)).value
+
+  lazy val diffBase: ArchModel = Extractor.extract(
+    project(
+      src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+      src("user/UserModule.scala", "package app.user\ntrait UserModule {\n  lazy val userRepository: UserRepository = ???\n}"),
+      src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule {\n  lazy val userRepository: UserRepository\n}")
+    )
+  )
+
+  lazy val diffHead: ArchModel = Extractor.extract(
+    project(
+      src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with OrderModule"),
+      src("user/UserModule.scala", "package app.user\n\ntrait UserModule {\n  lazy val userRepository: UserRepository = ???\n  def helper = 1\n}"),
+      src(
+        "order/OrderModule.scala",
+        "package app.order\ntrait OrderModule {\n  lazy val userRepository: UserRepository\n  private val s = wire[OrderService]\n}"
+      ),
+      src("order/services/OrderService.scala", "package app.order.services\nclass OrderService(r: UserRepository)")
+    )
+  )
 }
