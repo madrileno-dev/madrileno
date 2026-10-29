@@ -1,0 +1,99 @@
+package architecture
+
+object Mermaid {
+  private final case class Palette(
+    fill: String,
+    stroke: String,
+    extra: String)
+
+  private val palettes = Map(
+    Status.Added   -> Palette("#2da44e", "#1a7f37", ""),
+    Status.Removed -> Palette("#cf222e", "#a40e26", ",stroke-dasharray:4 3"),
+    Status.Changed -> Palette("#bf8700", "#9a6700", "")
+  )
+
+  def render(diff: DiffModel): String = {
+    val graph  = GraphView.changes(diff)
+    val footer = footerOf(diff)
+    if (graph.nodes.isEmpty) s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n$footer"
+    else {
+      val note =
+        if (graph.collapsed)
+          s"\n_Services and repositories are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
+        else ""
+      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\nflowchart LR\n${body(graph)}```\n$note$footer"
+    }
+  }
+
+  def nodeLine(node: GNode): String = {
+    val id    = idOf(node.key)
+    val label = s"${prefix(node.status)}${escape(node.label)}"
+    node.kind match {
+      case NodeKind.Table                       => s"""$id[("$label")]"""
+      case NodeKind.Topic                       => s"""$id>"$label"]"""
+      case NodeKind.Event                       => s"""$id{{"$label"}}"""
+      case NodeKind.Platform                    => s"""$id(["$label"])"""
+      case NodeKind.Module | NodeKind.Component => s"""$id["$label"]"""
+    }
+  }
+
+  private def body(graph: Graph): String = {
+    val children  = graph.nodes.filter(_.parent.isDefined).groupBy(_.parent.getOrElse(""))
+    val subgraphs = graph.nodes.filter(node => node.parent.isEmpty && children.contains(node.key))
+    val nodeLines = graph.nodes.filter(_.parent.isEmpty).flatMap { node =>
+      children.get(node.key) match {
+        case Some(inner) =>
+          List(s"""  subgraph ${idOf(node.key)}["${prefix(node.status)}${escape(node.label)}"]""") ++
+            inner.map(child => s"    ${nodeLine(child)}") ++ List("  end")
+        case None => List(s"  ${nodeLine(node)}")
+      }
+    }
+    val edgeLines  = graph.edges.map(edgeLine)
+    val classLines = graph.nodes.filter(_.status != Status.Unchanged).map { node =>
+      if (subgraphs.contains(node)) {
+        val palette = palettes(node.status)
+        s"  style ${idOf(node.key)} fill:${palette.fill},stroke:${palette.stroke},color:#ffffff${palette.extra}"
+      } else s"  class ${idOf(node.key)} ${node.status.toString.toLowerCase}"
+    }
+    val linkStyles = graph.edges.zipWithIndex.collect {
+      case (edge, index) if edge.status == Status.Added   => s"  linkStyle $index stroke:#2da44e,stroke-width:2px"
+      case (edge, index) if edge.status == Status.Removed => s"  linkStyle $index stroke:#cf222e"
+    }
+    val classDefs = List(Status.Added, Status.Removed, Status.Changed).map { status =>
+      val palette = palettes(status)
+      s"  classDef ${status.toString.toLowerCase} fill:${palette.fill},stroke:${palette.stroke},color:#ffffff${palette.extra}"
+    }
+    (classDefs ++ nodeLines ++ edgeLines ++ classLines ++ linkStyles).map(_ + "\n").mkString
+  }
+
+  private def edgeLine(edge: GEdge): String = {
+    val arrow =
+      if (edge.status == Status.Removed) "-.->"
+      else if (edge.repositories) "==>"
+      else "-->"
+    val label = if (edge.label.isEmpty) "" else s"|${escape(edge.label).replace("|", "#124;")}|"
+    s"  ${idOf(edge.from)} $arrow$label ${idOf(edge.to)}"
+  }
+
+  private def footerOf(diff: DiffModel): String = {
+    val warnings =
+      diff.warnings.filter(_.status == WarningStatus.New).map(w => s"- `${w.warning.loc.path}:${w.warning.loc.line}` — ${w.warning.message}")
+    val unclassified =
+      diff.unclassified.filter(_.status == WarningStatus.New).map(u => s"- `${u.item.loc.path}:${u.item.loc.line}` — ${u.item.description}")
+    section("New warnings", warnings) + section("New unclassified", unclassified)
+  }
+
+  private def section(title: String, lines: List[String]): String =
+    if (lines.isEmpty) "" else s"\n**$title**\n\n${lines.mkString("\n")}\n"
+
+  private def idOf(key: String): String = key.replaceAll("[^A-Za-z0-9]", "_")
+
+  private def prefix(status: Status): String = status match {
+    case Status.Added     => "+ "
+    case Status.Removed   => "− "
+    case Status.Changed   => "~ "
+    case Status.Unchanged => ""
+  }
+
+  private def escape(text: String): String = text.replace("\"", "#quot;").replace("<", "#lt;").replace(">", "#gt;")
+}
