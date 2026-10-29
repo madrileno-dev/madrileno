@@ -121,7 +121,7 @@ class AuthRouterSpec extends BaseRouteSpec with TestApplicationLoader {
           // Unblock the user so subsequent tests aren't poisoned
           application.transactor
             .inTransaction {
-              application.userRepository.update(userId, _.copy(blockedAt = None), Instant.now())
+              application.userRepository.update(userId, _.copy(blockedAt = None), Instant.now()).void
             }
             .unsafeRunSync()
         },

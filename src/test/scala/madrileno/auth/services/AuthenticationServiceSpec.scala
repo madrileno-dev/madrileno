@@ -291,6 +291,19 @@ class AuthenticationServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matc
       }
     }
 
+    "refuse to redeliver the successor once the account is deleted" in {
+      val (service, token) = serviceWithFreshAuth()
+      for {
+        login <- service.authenticateWithProvider(Provider.Firebase, command)
+        first = issuedOf(login)
+        _      <- service.authenticateWithRefreshToken(refreshWith(first.secret))
+        userId <- linkedUserId(token).map(_.getOrElse(fail("no identity after login")))
+        _      <- transactor.inTransaction(userRepo.anonymize(userId, testClock.now))
+        _ = testClock.advance(reuseGrace.minusSeconds(1).toMillis)
+        replay <- service.authenticateWithRefreshToken(refreshWith(first.secret))
+      } yield replay shouldBe AuthenticationResult.InvalidToken
+    }
+
     "treat a replay within the grace window as theft once the successor was used" in {
       val (service, _) = serviceWithFreshAuth()
       for {

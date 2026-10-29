@@ -59,6 +59,7 @@ External identity is verified once; from then on the app trusts its own short-li
 | `DevAuthVerifier`                 | Treats an email-shaped token as a verified identity; reached via `POST /v1/auth/dev`. Registered only when `dev-auth.enabled = true` (`DEV_AUTH_ENABLED`); the route is always wired but returns 404 `unknown-provider` when the verifier isn't registered. |
 | `JwtService`                      | Encodes / decodes the app's own JWT (`InternalJwt`). HS256 (`com.auth0:java-jwt`). Signs an `AuthContext`.    |
 | `AuthenticationService`           | `authenticateWithProvider(provider, cmd)`: verify external → upsert `User` + `UserAuth` → mint internal JWT + refresh token. |
+| `AuthAccountCleanupService`       | Outbox consumer of `UserAccountDeleted`: soft-deletes the user's `UserAuth` identities and revokes their refresh tokens. `AuthenticationService` runs the same `cleanUp` inline when a login matches an identity of a deleted user. |
 | `AuthRouter`                      | `POST /v1/auth/firebase`, `POST /v1/auth/oidc/{provider}`, `POST /v1/auth/dev` (dev only), `POST /v1/auth/refresh-token`, `POST /v1/auth/logout` (all answer with `Cache-Control: no-store`), `GET/DELETE /v1/auth/sessions`. |
 | `UserAuthenticator`               | The function passed to `authenticateOrRejectWithChallenge`. Decodes the internal JWT, returns `AuthContext`.  |
 | `RefreshTokenRepository`          | Persists refresh tokens (secret hash only, never the secret in the clear; a used row also carries its successor's secret sealed under a key only the old secret derives); lookup by secret hash under the family lock, live-token listing by user, user agent, or family, family revocation. |
@@ -209,7 +210,7 @@ For browser-based OIDC (Authorization Code + PKCE), this template assumes the fr
 
 Until auth's consumer has run, the deleted account's identities and refresh tokens are still live rows, but they lead nowhere. Issuing tokens looks the user up, so a refresh for a deleted user returns `InvalidToken`, and a login whose identity points at a deleted user runs the same cleanup inline before registering.
 
-Signing in again with the same provider identity is a *fresh registration* — the soft-deleted `user_auth` row no longer matches, so a new `User` is created. That's the intended semantics of "delete", not a bug.
+Signing in again with the same provider identity is a *fresh registration* — the old `user_auth` row is soft-deleted (by auth's consumer, or by the login itself if the consumer hasn't run yet), so it no longer matches and a new `User` is created. That's the intended semantics of "delete", not a bug.
 
 **The residual access-token window.** Refresh tokens stop working with the account, but already-issued JWTs are stateless and stay valid until they expire. During that window `GET /v1/users/me` returns 401 `account-deleted` (the router treats "authenticated user's row is gone" as a dead session, so clients drop their tokens), while other authenticated endpoints that load the user may surface errors. This transiently-inconsistent window is accepted and bounded by the JWT lifetime; closing it for real means a revocation check on every request (a denylist or a `deleted_at` lookup in the auth gate), which this template deliberately doesn't spend a DB round-trip on.
 

@@ -50,8 +50,6 @@ class ProviderAccumulationSpec extends AnyFunSpec with Matchers {
     }
   }
 
-  // Synthetic contributors: only one production module registers subscriptions today, so a dropped `super`
-  // there is undetectable — these two lock the idiom for when a second real subscriber appears.
   private def dummySubscription(consumer: String): OutboxSubscription =
     OutboxSubscription(consumer, s"evt-$consumer", (_, _) => IO.pure(Reaction.Drop("test")))
 

@@ -7,7 +7,7 @@ import org.scalatest.wordspec.AnyWordSpec
 
 import java.net.URI
 
-class ExternalProfileSpec extends AnyWordSpec with Matchers {
+class UserAuthSpec extends AnyWordSpec with Matchers {
 
   "withUpdatedProfile" should {
     "fill in missing fields from the external provider" in {

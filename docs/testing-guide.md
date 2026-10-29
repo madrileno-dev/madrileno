@@ -34,7 +34,7 @@ Pure functions, no IO, no containers.
 Extend `AsyncWordSpec with AsyncIOSpec with Matchers` (or `AnyWordSpec with Matchers` for non-IO tests). Use `TestData` builders for domain objects. Use `TestGivens.fixedClock()` and `TestGivens.deterministicUUIDs()` when deterministic time or IDs matter.
 
 **What belongs here:**
-- Domain model logic: `RefreshToken.isValid`, `User.isActive`, `User.withUpdatedProfile`
+- Domain model logic: `RefreshToken.isValid`, `User.isActive`, `withUpdatedProfile` (merging an external profile into a `User`)
 - JWT encoding/decoding round-trip, expiry validation
 - Cron expression parsing and next-time computation
 - Email template rendering: subject line, greeting, CTA URL, language-dependent text

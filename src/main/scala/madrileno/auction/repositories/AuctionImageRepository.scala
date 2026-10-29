@@ -167,10 +167,9 @@ class AuctionImageRepository {
     format: ImageFormat,
     now: Instant
   ): DB[Unit] =
-    repository.updateById(
-      id,
-      _.copy(sizeBytes = sizeBytes, width = Some(width), height = Some(height), format = Some(format), analyzedAt = Some(now))
-    )
+    repository
+      .updateById(id, _.copy(sizeBytes = sizeBytes, width = Some(width), height = Some(height), format = Some(format), analyzedAt = Some(now)))
+      .void
 
   def saveVariant(variant: AuctionImageVariant): DB[Unit] = {
     val table   = AuctionImageVariantRowTable

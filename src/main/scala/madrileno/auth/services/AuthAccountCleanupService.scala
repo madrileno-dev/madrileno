@@ -21,7 +21,7 @@ class AuthAccountCleanupService(
     for {
       now <- Clock[IO].realTimeInstant
       _   <- cleanUp(event.userId, now)
-      _   <- logger.info(s"revoked provider identities and refresh tokens after account deletion of ${event.userId}")
+      _   <- logger.info(s"ran auth cleanup after account deletion of ${event.userId}")
     } yield Reaction.Done
 
   def cleanUp(userId: UserId, now: Instant): DB[Unit] =

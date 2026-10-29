@@ -62,12 +62,8 @@ class AuthenticationService(
     : DBInTransaction[AuthenticationResult] = {
     Clock[IO].realTimeInstant.flatMap { now =>
       userAuthRepository.findForUpdate(verifiedToken.provider, verifiedToken.providerUserId).flatMap {
-        case Some(userAuth) =>
-          userRepository.find(userAuth.userId).flatMap {
-            case Some(_) => updateExistingUser(userAuth, verifiedToken, command, now)
-            case None    => registerAfterDeletedAccount(userAuth, verifiedToken, command, now)
-          }
-        case None => createNewUser(verifiedToken, command, now)
+        case Some(userAuth) => updateExistingUser(userAuth, verifiedToken, command, now)
+        case None           => createNewUser(verifiedToken, command, now)
       }
     }
   }
@@ -89,9 +85,12 @@ class AuthenticationService(
     now: Instant
   ): DBInTransaction[AuthenticationResult] = {
     val userUpdater: User => User = _.withUpdatedProfile(verifiedToken.profile)
-    userAuthRepository.updateMetadata(userAuth.id, verifiedToken.metadata) *>
-      userRepository.update(userAuth.userId, userUpdater, now) *>
-      generateTokensInNewFamily(userAuth.userId, command.userAgent, command.ipAddress, now, AuthenticationResult.Authenticated.apply)
+    userRepository.update(userAuth.userId, userUpdater, now).flatMap {
+      case true =>
+        userAuthRepository.updateMetadata(userAuth.id, verifiedToken.metadata) *>
+          generateTokensInNewFamily(userAuth.userId, command.userAgent, command.ipAddress, now, AuthenticationResult.Authenticated.apply)
+      case false => registerAfterDeletedAccount(userAuth, verifiedToken, command, now)
+    }
   }
 
   private def createNewUser(
