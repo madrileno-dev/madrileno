@@ -5,8 +5,9 @@ class MermaidSuite extends munit.FunSuite {
   private val out  = Mermaid.render(diff)
 
   test("header, flowchart and class definitions") {
-    assert(out.startsWith("### Architecture changes: `main@abc1234` → `working tree`\n\n```mermaid\nflowchart LR\n"), out)
-    assert(out.contains("classDef added fill:#2da44e,stroke:#1a7f37,color:#ffffff"))
+    assert(out.startsWith("### Architecture changes: `main@abc1234` → `working tree`\n\n```mermaid\n---\nconfig:\n  theme: base\n"), out)
+    assert(out.contains("---\nflowchart LR\n"), out)
+    assert(out.contains("classDef added fill:#2f7d4a,stroke:#1f5c35,color:#ffffff"))
   }
 
   test("added module is a subgraph with its added component, removed module is dashed, user is a neighbour") {
@@ -14,8 +15,8 @@ class MermaidSuite extends munit.FunSuite {
     assert(out.contains("component_order_OrderService[\"#43;#160;OrderService (service)\"]"), out)
     assert(out.contains("module_shop[\"−#160;shop\"]"), out)
     assert(out.contains("module_user[\"user\"]"), out)
-    assert(out.contains("module_shop -.->|userRepository| module_user"), out)
-    assert(out.contains("module_order -->|userRepository| module_user"), out)
+    assert(out.contains("module_shop -.->|wires userRepository| module_user"), out)
+    assert(out.contains("module_order -->|wires userRepository| module_user"), out)
   }
 
   test("labels are escaped") {
@@ -66,5 +67,26 @@ class MermaidSuite extends munit.FunSuite {
   test("every status marker is glued to its label with a non-breaking space") {
     assert(Mermaid.nodeLine(GNode("module:a", "a", NodeKind.Module, None, Status.Changed)).contains("~#160;a"))
     assert(Mermaid.nodeLine(GNode("module:a", "a", NodeKind.Module, None, Status.Removed)).contains("−#160;a"))
+  }
+
+  test("edge labels name what kind of dependency they carry") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule {\n  lazy val userRepository: UserRepository = ???\n}"),
+        Fixtures.src(
+          "shop/ShopModule.scala",
+          "package app.shop\nimport app.user.domain.UserId\nimport app.user.services.Users\ntrait ShopModule {\n  lazy val userRepository: UserRepository\n}"
+        )
+      )
+    )
+    val labels = GraphView.modules(ArchDiff.full(model, "h")).edges.map(_.label)
+    assertEquals(labels, List("wires userRepository · imports domain, services"))
+  }
+
+  test("the diagram uses the Madrileño palette and credits it") {
+    assert(out.contains("    primaryTextColor: \"#1e1e24\""), out)
+    assert(out.contains("    clusterBkg: \"#f5f1ea\""), out)
+    assert(out.contains("<sub>Mapped by Madrileño's <code>scripts/architecture.scala</code></sub>"), out)
   }
 }

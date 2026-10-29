@@ -7,10 +7,29 @@ object Mermaid {
     extra: String)
 
   private val palettes = Map(
-    Status.Added   -> Palette("#2da44e", "#1a7f37", ""),
-    Status.Removed -> Palette("#cf222e", "#a40e26", ",stroke-dasharray:4 3"),
-    Status.Changed -> Palette("#bf8700", "#9a6700", "")
+    Status.Added   -> Palette("#2f7d4a", "#1f5c35", ""),
+    Status.Removed -> Palette("#b5122b", "#7a0c1d", ",stroke-dasharray:4 3"),
+    Status.Changed -> Palette("#a8660b", "#7a4a08", "")
   )
+
+  private val Theme: String =
+    List(
+      "---",
+      "config:",
+      "  theme: base",
+      "  themeVariables:",
+      "    fontFamily: \"Manrope, ui-sans-serif, system-ui, sans-serif\"",
+      "    primaryColor: \"#fffdf9\"",
+      "    primaryBorderColor: \"#cfc9be\"",
+      "    primaryTextColor: \"#1e1e24\"",
+      "    lineColor: \"#5c5b63\"",
+      "    clusterBkg: \"#f5f1ea\"",
+      "    clusterBorder: \"#cfc9be\"",
+      "    edgeLabelBackground: \"#f5f1ea\"",
+      "    tertiaryColor: \"#f5f1ea\""
+    ).mkString("", "\n", "\n")
+
+  private val Credit: String = "\n<sub>Mapped by Madrileño's <code>scripts/architecture.scala</code></sub>\n"
 
   def render(diff: DiffModel): String = {
     val graph  = GraphView.changes(diff)
@@ -19,13 +38,13 @@ object Mermaid {
     else if (graph.nodes.size > GraphView.MaxDiagramNodes || graph.edges.size > GraphView.MaxDiagramEdges) {
       val intro =
         s"_The diagram would be too large for GitHub to render (${graph.nodes.size} boxes, ${graph.edges.size} arrows). Open the HTML for the full picture._"
-      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n$intro\n\n${summary(diff)}$footer"
+      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n$intro\n\n${summary(diff)}$footer$Credit"
     } else {
       val note =
         if (graph.collapsed)
           s"\n_Services and repositories are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
         else ""
-      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\nflowchart LR\n${body(graph)}```\n$note$footer"
+      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\n$Theme---\nflowchart LR\n${body(graph)}```\n$note$footer$Credit"
     }
   }
 
@@ -60,8 +79,8 @@ object Mermaid {
       } else s"  class ${idOf(node.key)} ${node.status.toString.toLowerCase}"
     }
     val linkStyles = graph.edges.zipWithIndex.collect {
-      case (edge, index) if edge.status == Status.Added   => s"  linkStyle $index stroke:#2da44e,stroke-width:2px"
-      case (edge, index) if edge.status == Status.Removed => s"  linkStyle $index stroke:#cf222e"
+      case (edge, index) if edge.status == Status.Added   => s"  linkStyle $index stroke:#2f7d4a,stroke-width:2px"
+      case (edge, index) if edge.status == Status.Removed => s"  linkStyle $index stroke:#b5122b"
     }
     val classDefs = List(Status.Added, Status.Removed, Status.Changed).map { status =>
       val palette = palettes(status)

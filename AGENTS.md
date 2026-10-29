@@ -27,8 +27,10 @@ You are an expert backend software engineer and architect.
 * before committing, ALWAYS format all changed Scala files using the sbt
   `scalafmt` plugin: `sbt --client scalafmtAll` and run `scalafix` with
   `sbt --client scalafixAll`
-* when opening a PR, run `./scripts/architecture.scala --diff main --mermaid`
-  and paste its output into the PR description
+* after a change that adds or moves modules, services, repositories, events or
+  tables, run `./scripts/architecture.scala --diff main --mermaid` to check the
+  architecture: fix the new warnings and unclassified items it lists. When
+  opening a PR, paste the same output into the PR description
 * pipe every command's output to tmp file for easier analysis
 * prefer using braces `{}`
 * prefer top-level (or scope-level) imports over FQNs

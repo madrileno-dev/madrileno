@@ -23,6 +23,7 @@ object Html {
       "</head>",
       "<body>",
       "<header>",
+      s"""<div class="brand">$brandMark<span class="eyebrow">Madrileño</span></div>""",
       s"<h1>${escape(title)}</h1>",
       s"""<p class="summary">${escape(summary(diff))}</p>""",
       if (diff.isDiff) """<label class="toggle"><input type="checkbox" id="changed-only"> Changed only</label>""" else "",
@@ -39,12 +40,18 @@ object Html {
       """<p class="muted">The map reads source, not compiled code. Anything it saw but could not place is listed here instead of being guessed.</p>""",
       s"${unclassifiedList(diff)}</section>",
       "</main>",
+      "<footer>Madrileño architecture map · read from source, not compiled code</footer>",
       s"""<script type="application/json" id="arch-data">$data</script>""",
       s"<script>$script</script>",
       "</body>",
       "</html>"
     ).mkString("", "\n", "\n")
   }
+
+  private val brandMark: String =
+    """<svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true">""" +
+      """<path d="M22 90 V60 a14 14 0 0 1 28 0 V90 M50 60 a14 14 0 0 1 28 0 V90" fill="none" stroke="currentColor" stroke-width="8" stroke-linejoin="round" stroke-linecap="round"/>""" +
+      """<path class="wave" d="M29 24 C36 13 45 13 50 22 C55 31 64 31 71 20" fill="none" stroke-width="7" stroke-linecap="round"/></svg>"""
 
   private def summary(diff: DiffModel): String = {
     val warnings = if (diff.isDiff) diff.warnings.count(_.status == WarningStatus.New) else diff.warnings.size
@@ -217,13 +224,19 @@ object Html {
 
   private val styles: String =
     """
-:root { --bg:#ffffff; --fg:#1f2328; --muted:#59636e; --border:#d1d9e0; --panel:#f6f8fa; --node:#ffffff; --added:#1a7f37; --removed:#cf222e; --changed:#9a6700; --accent:#0969da; }
-@media (prefers-color-scheme: dark) { :root { --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --border:#3d444d; --panel:#151b23; --node:#151b23; --added:#3fb950; --removed:#f85149; --changed:#d29922; --accent:#4493f8; } }
+:root { --bg: #f5f1ea; --panel: #fffdf9; --fg: #1e1e24; --muted: #5c5b63; --border: #e2dcd2; --border-strong: #cfc9be; --node: #fffdf9; --accent: #b5122b; --added: #2f7d4a; --removed: #b5122b; --changed: #a8660b; --display: "Manrope", ui-sans-serif, system-ui, sans-serif; }
+@media (prefers-color-scheme: dark) { :root { --bg: #1e1e24; --panel: #27272e; --fg: #f5f1ea; --muted: #b3ada3; --border: #35353d; --border-strong: #45454d; --node: #27272e; --accent: #e0304a; --added: #4caf73; --removed: #e0304a; --changed: #e0a43a; } }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
 header { padding: 20px 24px 8px; border-bottom: 1px solid var(--border); }
-h1 { font-size: 20px; margin: 0 0 4px; }
+h1, h2, h3 { font-family: var(--display); }
+h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
 h2 { font-size: 16px; margin: 24px 0 8px; }
+.brand { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.brand-mark { width: 26px; height: 26px; color: var(--fg); }
+.brand-mark .wave { stroke: var(--accent); }
+.eyebrow { color: var(--accent); font-family: var(--display); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; font-size: 12px; }
+footer { padding: 16px 24px 32px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); }
 h3 { font-size: 13px; margin: 16px 0 4px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 main { padding: 0 24px 40px; }
 .summary, .muted { color: var(--muted); }
@@ -235,14 +248,14 @@ main { padding: 0 24px 40px; }
 #details ul { margin: 0; padding-left: 18px; }
 #details li { margin: 2px 0; }
 svg text { font-size: 13px; fill: var(--fg); text-anchor: middle; pointer-events: none; }
-.node rect { fill: var(--node); stroke: var(--border); stroke-width: 1.5; }
+.node rect { fill: var(--node); stroke: var(--border-strong); stroke-width: 1.5; }
 .node { cursor: pointer; }
-.node:hover rect, .node.selected rect, .node:focus rect { stroke: var(--accent); stroke-width: 2.5; }
+.node:hover rect, .node.selected rect, .node:focus rect { stroke: var(--fg); stroke-width: 3; }
 .node.added rect { stroke: var(--added); stroke-width: 2.5; }
 .node.removed rect { stroke: var(--removed); stroke-width: 2.5; stroke-dasharray: 5 3; }
 .node.changed rect { stroke: var(--changed); stroke-width: 2.5; }
 .edge path { fill: none; stroke: var(--muted); stroke-width: 1.4; }
-.edge:hover path { stroke: var(--accent); stroke-width: 2.4; }
+.edge:hover path { stroke: var(--fg); stroke-width: 2.4; }
 .edge.added path { stroke: var(--added); stroke-width: 2.2; }
 .edge.removed path { stroke: var(--removed); stroke-dasharray: 5 3; }
 .edge-repositories path { stroke-width: 2.6; stroke-dasharray: 7 3; }

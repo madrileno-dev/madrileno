@@ -51,7 +51,7 @@ class HtmlSuite extends munit.FunSuite {
 
   test("edges of a cyclic graph stay inside the canvas") {
     val out     = Html.render(ArchDiff.full(cyclic, "working tree"))
-    val viewBox = """viewBox="0 0 ([0-9.]+) ([0-9.]+)"""".r.findFirstMatchIn(out).get
+    val viewBox = """<svg viewBox="0 0 ([0-9.]+) ([0-9.]+)"""".r.findFirstMatchIn(out).get
     val (w, h)  = (viewBox.group(1).toDouble, viewBox.group(2).toDouble)
     val numbers =
       """<path d="M ([^"]+)" marker-end""".r.findAllMatchIn(out).flatMap(_.group(1).split("[ ,MC]+").filter(_.nonEmpty).map(_.toDouble)).toList
@@ -61,5 +61,12 @@ class HtmlSuite extends munit.FunSuite {
 
   test("changed-only keeps unchanged nodes that a changed edge points at") {
     assert("""data-key="module:user" data-status="touched"""".r.findFirstIn(page).isDefined)
+  }
+
+  test("the page carries the Madrileño brand") {
+    assert(page.contains("""<svg class="brand-mark""""), page.take(2000))
+    assert(page.contains(">Madrileño<"))
+    assert(page.contains("--accent: #b5122b"))
+    assert(page.contains("Manrope"))
   }
 }
