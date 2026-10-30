@@ -1,9 +1,9 @@
 package madrileno.utils.events.outbox
 
 import cats.effect.IO
+import cats.syntax.all.*
 import madrileno.utils.db.dsl.*
 import madrileno.utils.db.transactor.{DB, DBInTransaction}
-import madrileno.utils.task.ScheduledTasks
 import skunk.*
 import skunk.codec.all.*
 import skunk.implicits.*
@@ -123,14 +123,12 @@ class OutboxDeliveryRepository {
     }
   }
 
-  def pendingWithoutTask(taskNamePrefix: String, limit: Int): DB[List[(DomainEventId, String)]] = {
-    val session = summon[Session[IO]]
-    session
-      .execute(sql"""SELECT ${T.eventId.n("od")}, ${T.consumer.n("od")} FROM ${T.n} od
-              WHERE ${T.status.n("od")} = ${T.status.c}
-                AND NOT ${ScheduledTasks.exist(sql"$text || ${T.consumer.n("od")}", sql"${T.eventId.n("od")}::text")}
-              ORDER BY ${T.updatedAt.n("od")}
-              LIMIT $int4""".query(T.eventId.c ~ T.consumer.c))((DeliveryStatus.Pending, taskNamePrefix, limit))
+  def pendingAfter(after: Option[(DomainEventId, String)], limit: Int): DB[List[(DomainEventId, String)]] = {
+    val pending = sql"SELECT ${T.eventId.n}, ${T.consumer.n} FROM ${T.n} WHERE ${T.status.n} = ${T.status.c}".apply(DeliveryStatus.Pending)
+    val cursor  = after.fold(AppliedFragment.empty)(sql" AND (${T.eventId.n}, ${T.consumer.n}) > (${T.eventId.c}, ${T.consumer.c})".apply)
+    val page    = pending |+| cursor |+| sql" ORDER BY ${T.eventId.n}, ${T.consumer.n} LIMIT $int4".apply(limit)
+    summon[Session[IO]]
+      .execute(page.fragment.query(T.eventId.c ~ T.consumer.c))(page.argument)
       .map(_.map { case id ~ consumer => (id, consumer) })
   }
 

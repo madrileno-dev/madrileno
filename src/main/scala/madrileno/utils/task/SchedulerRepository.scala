@@ -9,7 +9,7 @@ import skunk.circe.codec.all.*
 import skunk.codec.all.*
 import skunk.data.Completion
 import skunk.implicits.*
-import skunk.{Codec, Fragment, Session, Void}
+import skunk.{Codec, Session}
 
 import java.time.Instant
 
@@ -93,14 +93,6 @@ private[task] object TaskRowTable extends Table[TaskRow]("scheduled_task") {
     )
 }
 
-object ScheduledTasks {
-  def exist(taskName: Fragment[String], taskInstance: Fragment[Void]): Fragment[String] =
-    sql"""EXISTS (
-            SELECT 1 FROM ${TaskRowTable.n} st
-            WHERE ${TaskRowTable.taskName.n("st")} = $taskName AND ${TaskRowTable.taskInstance.n("st")} = $taskInstance
-          )"""
-}
-
 private[task] class ClientSchedulerRepository(using clock: Clock[IO]) {
   def save[A](task: Task[A]): DB[Boolean] = {
     val session = summon[Session[IO]]
@@ -117,6 +109,19 @@ private[task] class ClientSchedulerRepository(using clock: Clock[IO]) {
            WHERE ${table.n}.${table.picked.n} = false
            RETURNING ${table.*}""".query(table.c))(row)
         .map(_.isDefined)
+    }
+  }
+
+  def saveIfAbsent[A](tasks: List[Task[A]]): DB[Int] = {
+    val session = summon[Session[IO]]
+
+    clock.realTimeInstant.flatMap { now =>
+      val rows = tasks.map(TaskRow.fromTask(_, now))
+      session
+        .execute(sql"""INSERT INTO ${table.n} VALUES ${table.c.values.list(rows.size)}
+           ON CONFLICT (${table.taskName.n}, ${table.taskInstance.n}) DO NOTHING
+           RETURNING ${table.taskName.n}""".query(text))(rows)
+        .map(_.size)
     }
   }
 

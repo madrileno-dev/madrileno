@@ -2,17 +2,17 @@ package madrileno.utils.events.outbox
 
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
+import cats.syntax.all.*
 import io.circe.Json
 import madrileno.support.{TestData, TestTransactor}
 import madrileno.utils.db.transactor.DBInTransaction
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
 import skunk.Session
-import skunk.circe.codec.all.*
 import skunk.codec.all.*
 import skunk.implicits.*
 
-import java.time.{Instant, ZoneOffset}
+import java.time.Instant
 
 class OutboxDeliveryRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
@@ -28,20 +28,6 @@ class OutboxDeliveryRepositorySpec extends AsyncWordSpec with AsyncIOSpec with M
       payload = Json.obj("k" -> Json.fromString("v")),
       occurredAt = Instant.parse("2026-06-28T10:00:00Z")
     )
-
-  private def insertScheduledTask(
-    taskName: String,
-    taskInstance: String,
-    now: Instant
-  ): DBInTransaction[Unit] = {
-    val session = summon[Session[IO]]
-    session
-      .execute(sql"""INSERT INTO scheduled_task (task_name, task_instance, task_data, next_execution, picked, version, priority)
-              VALUES ($text, $text, $jsonb, $timestamptz, $bool, $int8, $int2)""".command)(
-        (taskName, taskInstance, Json.obj(), now.atOffset(ZoneOffset.UTC), false, 0L, 0.toShort)
-      )
-      .void
-  }
 
   "OutboxDeliveryRepository" should {
     "openDelivery is idempotent on (event_id, consumer)" in withRollback {
@@ -96,24 +82,21 @@ class OutboxDeliveryRepositorySpec extends AsyncWordSpec with AsyncIOSpec with M
       }
     }
 
-    "pendingWithoutTask returns pending deliveries with no matching scheduled task" in withRollback {
+    "pendingAfter pages through the pending deliveries and skips the finished ones" in withRollback {
       val e1  = event("sample-event.v1")
       val e2  = event("sample-event.v1")
       val now = Instant.parse("2026-06-28T10:00:01Z")
       for {
-        _    <- outbox.append(e1)
-        _    <- outbox.append(e2)
-        _    <- delivery.openDelivery(e1.id, "billing", now)
-        _    <- delivery.openDelivery(e2.id, "billing", now)
-        both <- delivery.pendingWithoutTask(OutboxDeliveryTasks.TaskNamePrefix, 100)
-        _    <- insertScheduledTask(OutboxDeliveryTasks.taskName("billing"), OutboxDeliveryTasks.taskInstance(e1.id), now)
-        one  <- delivery.pendingWithoutTask(OutboxDeliveryTasks.TaskNamePrefix, 100)
-        _    <- delivery.markCompleted(e2.id, "billing", now)
-        none <- delivery.pendingWithoutTask(OutboxDeliveryTasks.TaskNamePrefix, 100)
+        _ <- outbox.append(e1)
+        _ <- outbox.append(e2)
+        _ <- List(e1, e2).flatMap(e => List(e.id -> "billing", e.id -> "audit")).traverse_((id, consumer) => delivery.openDelivery(id, consumer, now))
+        _ <- delivery.markCompleted(e2.id, "audit", now)
+        first  <- delivery.pendingAfter(None, 2)
+        second <- delivery.pendingAfter(first.lastOption, 2)
+        third  <- delivery.pendingAfter(second.lastOption, 2)
       } yield {
-        both should contain theSameElementsAs List((e1.id, "billing"), (e2.id, "billing"))
-        one shouldBe List((e2.id, "billing"))
-        none shouldBe empty
+        (first.size, second.size, third.size) shouldBe (2, 1, 0)
+        first ++ second should contain theSameElementsAs List((e1.id, "billing"), (e1.id, "audit"), (e2.id, "billing"))
       }
     }
 

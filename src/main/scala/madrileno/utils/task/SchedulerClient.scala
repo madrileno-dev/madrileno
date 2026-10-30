@@ -1,6 +1,7 @@
 package madrileno.utils.task
 
 import cats.effect.IO
+import cats.syntax.all.*
 import madrileno.utils.db.transactor.{DB, DBInTransaction, Transactor}
 import madrileno.utils.observability.TelemetryContext
 
@@ -13,6 +14,9 @@ class SchedulerClient private[task] (repository: ClientSchedulerRepository, tran
 
   def scheduleTransactionally[A](task: Task[A]): DBInTransaction[Boolean] =
     stamped(task).flatMap(repository.save)
+
+  def scheduleIfAbsent[A](tasks: List[Task[A]]): IO[Int] =
+    if (tasks.isEmpty) IO.pure(0) else transactor.inSession(tasks.traverse(stamped).flatMap(repository.saveIfAbsent))
 
   private def stamped[A](task: Task[A]): IO[Task[A]] =
     summon[TelemetryContext].tracer.currentSpanContext.map(context => task.copy(traceParent = context.filter(_.isValid).map(TraceParent.of)))

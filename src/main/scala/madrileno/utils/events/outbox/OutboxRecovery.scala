@@ -48,16 +48,27 @@ class OutboxRecovery(
     }
 
   private def strandedPendingRows: IO[Long] =
-    transactor
-      .inSession(deliveryRepository.pendingWithoutTask(OutboxDeliveryTasks.TaskNamePrefix, config.recoveryBatchSize))
-      .flatMap {
-        _.foldMapM { case (eventId, consumer) =>
-          if (dispatcher.consumers.contains(consumer))
-            schedulerClient.schedule(dispatcher.instanceFor(consumer, eventId)).as(1L)
-          else
-            logger.warn(s"pending outbox delivery for unregistered consumer $consumer (event $eventId), leaving for drain").as(0L)
+    sweep(None, 0L, Map.empty).flatMap { (reenqueued, unregistered) =>
+      unregistered.toList.sorted
+        .traverse_ { (consumer, count) =>
+          logger.warn(s"$count pending outbox deliveries for unregistered consumer $consumer, leaving them for drain")
         }
+        .as(reenqueued)
+    }
+
+  private def sweep(
+    after: Option[(DomainEventId, String)],
+    reenqueued: Long,
+    unregistered: Map[String, Int]
+  ): IO[(Long, Map[String, Int])] =
+    transactor.inSession(deliveryRepository.pendingAfter(after, config.recoveryBatchSize)).flatMap { page =>
+      val (known, unknown) = page.partition((_, consumer) => dispatcher.consumers.contains(consumer))
+      val skipped          = unknown.foldLeft(unregistered)((counts, delivery) => counts.updatedWith(delivery._2)(n => Some(n.getOrElse(0) + 1)))
+      schedulerClient.scheduleIfAbsent(known.map((eventId, consumer) => dispatcher.instanceFor(consumer, eventId))).flatMap { scheduled =>
+        if (page.isEmpty || page.sizeIs < config.recoveryBatchSize) IO.pure((reenqueued + scheduled, skipped))
+        else sweep(page.lastOption, reenqueued + scheduled, skipped)
       }
+    }
 
   private def report(opened: Long, reenqueued: Long): IO[Unit] =
     if (opened == 0 && reenqueued == 0) IO.unit

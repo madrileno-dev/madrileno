@@ -90,15 +90,18 @@ One-time tasks default to `Schedule.Once` (run as soon as a permit is available)
 
 ## Scheduling tasks
 
-`SchedulerClient` exposes three flavours, mirroring the `DB` / `DBInTransaction` distinction in the database layer:
+`SchedulerClient` schedules a task in three flavours, mirroring the `DB` / `DBInTransaction` distinction in the database layer, and offers `scheduleIfAbsent` for repairs:
 
 ```scala
 class SchedulerClient(...) {
   def schedule[A](task: Task[A]): IO[Boolean]                            // own session
   def scheduleInSession[A](task: Task[A]): DB[Boolean]                   // join an existing session
   def scheduleTransactionally[A](task: Task[A]): DBInTransaction[Boolean] // join an existing tx
+  def scheduleIfAbsent[A](tasks: List[Task[A]]): IO[Int]                  // insert only the missing ones
 }
 ```
+
+Scheduling a task that already exists replaces its payload and next run unless it is running. `scheduleIfAbsent` never touches an existing task: it inserts the tasks that don't exist yet in one statement and returns how many it inserted. Repair loops use it, like the outbox's recovery of deliveries whose task vanished, so a task waiting for its retry keeps its backoff.
 
 Use `scheduleTransactionally` when the enqueue must be atomic with the surrounding work. The image commit flow is the canonical example:
 

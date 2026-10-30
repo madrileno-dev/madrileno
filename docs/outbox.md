@@ -116,9 +116,9 @@ Alert on dead-letter growth. The signal is the `outbox.deliveries` counter with 
 
 ## Recovery, deploys, multiple nodes
 
-The `OutboxRecovery` fiber (run at boot as a module `LifecycleProvider`) runs every `recovery-interval` and repairs exactly two situations: events a subscribed consumer never got a ledger row for (consumer registered after publish, or publish raced a deploy), and `Pending` rows whose scheduler task vanished (e.g. the scheduler deleted an undecodable task row). Pending rows for a consumer that is no longer registered are logged and left alone so a removed module can drain gracefully after a rollback or a deliberate decommission.
+The `OutboxRecovery` fiber (run at boot as a module `LifecycleProvider`) runs every `recovery-interval` and repairs exactly two situations: events a subscribed consumer never got a ledger row for (consumer registered after publish, or publish raced a deploy), and `Pending` rows whose scheduler task vanished (e.g. the scheduler deleted an undecodable task row). For the second, recovery walks every `Pending` row, `recovery-batch-size` rows per page, and hands each page's delivery tasks to `SchedulerClient.scheduleIfAbsent`, which inserts the tasks that are missing and leaves the existing ones, and their next run, untouched. The outbox never reads the scheduler's table. Pending rows for a consumer that is no longer registered are counted in one warning per pass and left alone so a removed module can drain gracefully after a rollback or a deliberate decommission.
 
-All repair actions are safe to race: opening a ledger row is `ON CONFLICT DO NOTHING`, task scheduling is an upsert that leaves running rows alone, and the terminal-status guard makes a duplicate task a no-op. Several nodes running recovery concurrently just do redundant reads.
+All repair actions are safe to race: opening a ledger row is `ON CONFLICT DO NOTHING`, re-enqueuing a stranded row inserts its task only if none exists, and the terminal-status guard makes a duplicate task a no-op. Several nodes running recovery concurrently just do redundant reads.
 
 ## Versioning an event
 
@@ -176,7 +176,7 @@ Two things to keep in view afterwards:
 ```hocon
 outbox {
   recovery-interval    = 5m    # recovery sweep cadence (also the redrive/backfill cadence)
-  recovery-batch-size  = 100   # repaired events per consumer per sweep
+  recovery-batch-size  = 100   # repaired events per consumer per sweep; page size when re-enqueuing stranded rows
   delivery-max-retries = 10    # per-delivery attempts before dead-lettering; remove to retry forever
 }
 ```

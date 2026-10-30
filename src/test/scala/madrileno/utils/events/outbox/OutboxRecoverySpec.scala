@@ -49,6 +49,18 @@ class OutboxRecoverySpec extends AsyncWordSpec with AsyncIOSpec with Matchers wi
       }
       .map(_.sum)
 
+  private def nextExecutions(id: DomainEventId): IO[List[Instant]] =
+    transactor.inSession {
+      summon[Session[IO]]
+        .execute(sql"SELECT next_execution FROM scheduled_task WHERE task_instance = $text".query(timestamptz))(id.unwrap.toString)
+        .map(_.map(_.toInstant))
+    }
+
+  private def pendingEvent: IO[DomainEvent] = {
+    val e = DomainEvent(DomainEventId(TestData.randomUuid()), "dispatch-event.v1", "dispatch", TestData.randomUuid(), Json.obj(), now)
+    transactor.inTransaction(outbox.append(e) *> delivery.openDelivery(e.id, "billing", now)).as(e)
+  }
+
   private def pendingStatus(id: DomainEventId): IO[Option[DeliveryStatus]] =
     transactor.inTransaction(delivery.lockForDelivery(id, "billing"))
 
@@ -82,6 +94,35 @@ class OutboxRecoverySpec extends AsyncWordSpec with AsyncIOSpec with Matchers wi
         _ <- recovery(d).recoverOnce
         n <- scheduledCount(List(e.id))
       } yield n shouldBe 1L
+    }
+
+    "case b: re-enqueues stranded deliveries on every page of a pass, not just the first" in {
+      val d = subscribed
+      for {
+        events <- List.fill(3)(pendingEvent).sequence
+        _      <- new OutboxRecovery(d, delivery, schedulerClient, transactor, OutboxConfig(recoveryBatchSize = 1)).recoverOnce
+        n      <- scheduledCount(events.map(_.id))
+      } yield n shouldBe 3L
+    }
+
+    "case b: leaves the waiting task of a pending delivery as it is" in {
+      val d     = subscribed
+      val later = Instant.parse("2099-01-01T00:00:00Z")
+      for {
+        e    <- pendingEvent
+        _    <- schedulerClient.schedule(d.deliveryTasks.head.instance(OutboxDeliveryTasks.taskInstance(e.id), e.id.unwrap, at = Some(later)))
+        _    <- recovery(d).recoverOnce
+        next <- nextExecutions(e.id)
+      } yield next shouldBe List(later)
+    }
+
+    "case b: leaves the pending deliveries of a consumer that is no longer registered alone" in {
+      val e = DomainEvent(DomainEventId(TestData.randomUuid()), "unsubscribed-event.v1", "dispatch", TestData.randomUuid(), Json.obj(), now)
+      for {
+        _ <- transactor.inTransaction(outbox.append(e) *> delivery.openDelivery(e.id, "removed-consumer", now).void)
+        _ <- recovery(subscribed).recoverOnce
+        n <- scheduledCount(List(e.id))
+      } yield n shouldBe 0L
     }
 
     "wrap a pass in an outbox.recover span carrying the opened and re-enqueued counts" in {
