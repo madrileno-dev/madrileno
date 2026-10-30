@@ -225,7 +225,7 @@ Test / sourceGenerators += Def.task {
     sha256.update(IO.readBytes(file))
   }
   val digest = sha256.digest().map(byte => f"$byte%02x").mkString
-  val file   = (Test / sourceManaged).value / "madrileno" / "sourcechecks" / "SourcesDigest.scala"
+  val file   = (Test / sourceManaged).value / "SourcesDigest.scala"
   val code   = s"package madrileno.sourcechecks\n\nprivate[sourcechecks] object SourcesDigest {\n  val value: String = \"$digest\"\n}\n"
   if (!file.exists() || IO.read(file) != code) IO.write(file, code)
   Seq(file)
