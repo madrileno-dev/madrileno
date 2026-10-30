@@ -3,7 +3,7 @@ package madrileno.sourcechecks
 import scala.meta.*
 import scala.util.matching.Regex
 
-object SqlNameFinder {
+private[sourcechecks] object SqlNameFinder {
   private enum Token {
     case Word(text: String, offset: Int)
     case Symbol(text: String)
@@ -11,7 +11,7 @@ object SqlNameFinder {
 
   private val Hole = "\u0000"
 
-  private val Lexeme: Regex = """(?s)'(?:[^']|'')*'|--[^\n]*|/\*.*?\*/|"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*|::|\S""".r
+  private val Lexeme: Regex = """(?s)'[^']*(?:''[^']*)*'|--[^\n]*|/\*.*?\*/|"[^"]*(?:""[^"]*)*"|[A-Za-z_][A-Za-z0-9_$]*|::|\S""".r
 
   def in(source: ParsedSource, names: Set[String]): List[SourceFinding] =
     source.tree.collect { case sql: Term.Interpolate if sql.prefix.value == "sql" => written(source, sql, names) }.flatten
@@ -21,12 +21,13 @@ object SqlNameFinder {
     sql: Term.Interpolate,
     names: Set[String]
   ): List[SourceFinding] = {
-    val parts  = sql.parts.collect { case part: Lit.String => part }
-    val starts = parts.scanLeft(0)((offset, part) => offset + part.value.length + Hole.length).init
-    val tokens = Lexeme.findAllMatchIn(parts.map(_.value).mkString(Hole)).flatMap(token).toVector
+    val parts   = sql.parts.collect { case part: Lit.String => part }
+    val starts  = parts.scanLeft(0)((offset, part) => offset + part.value.length + Hole.length).init
+    val tokens  = Lexeme.findAllMatchIn(parts.map(_.value).mkString(Hole)).flatMap(token).toVector
+    val aliases = tokens.indices.filter(aliasAt(tokens, _)).map(tokens).collect { case Token.Word(text, _) => text }.toSet
     tokens.indices.toList.flatMap { i =>
       tokens(i) match {
-        case Token.Word(text, offset) if names.contains(text) && !skipped(tokens.lift(i - 1), tokens.lift(i + 1)) =>
+        case Token.Word(text, offset) if names.contains(text) && !aliases.contains(text) && !skipped(tokens, i) =>
           val part = starts.lastIndexWhere(_ <= offset)
           val line = parts(part).pos.startLine + parts(part).value.take(offset - starts(part)).count(_ == '\n') + 1
           List(SourceFinding.at(source, sql, line, text))
@@ -43,11 +44,26 @@ object SqlNameFinder {
     else Some(Token.Symbol(text))
   }
 
-  private def skipped(before: Option[Token], after: Option[Token]): Boolean = {
-    def keyword(word: String) = before.exists {
-      case Token.Word(text, _) => text.equalsIgnoreCase(word)
-      case _                   => false
-    }
-    before.contains(Token.Symbol("::")) || keyword("AS") || (after.contains(Token.Symbol("(")) && !keyword("INTO"))
+  private def aliasAt(tokens: Vector[Token], i: Int): Boolean =
+    symbolAt(tokens, i - 1, Hole) || (wordAt(tokens, i - 1, "AS") && symbolAt(tokens, i - 2, Hole))
+
+  private def skipped(tokens: Vector[Token], i: Int): Boolean = {
+    val insertedInto = wordAt(tokens, i - 1, "INTO") || (symbolAt(tokens, i - 1, ".") && wordAt(tokens, i - 3, "INTO"))
+    symbolAt(tokens, i - 1, "::") || wordAt(tokens, i - 1, "AS") || (symbolAt(tokens, i + 1, "(") && !insertedInto)
   }
+
+  private def wordAt(
+    tokens: Vector[Token],
+    i: Int,
+    word: String
+  ): Boolean = tokens.lift(i).exists {
+    case Token.Word(text, _) => text.equalsIgnoreCase(word)
+    case _                   => false
+  }
+
+  private def symbolAt(
+    tokens: Vector[Token],
+    i: Int,
+    symbol: String
+  ): Boolean = tokens.lift(i).contains(Token.Symbol(symbol))
 }

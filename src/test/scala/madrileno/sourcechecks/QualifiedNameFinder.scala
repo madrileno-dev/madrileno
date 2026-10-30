@@ -2,7 +2,7 @@ package madrileno.sourcechecks
 
 import scala.meta.*
 
-object QualifiedNameFinder {
+private[sourcechecks] object QualifiedNameFinder {
   private val InScope = Set(
     "Any",
     "AnyRef",
@@ -97,18 +97,16 @@ object QualifiedNameFinder {
   }
 
   private def topLevel(tree: Tree): Boolean =
-    !ancestors(tree).exists {
+    !Trees.ancestors(tree).exists {
       case _: Template | _: Term.Block | _: Defn => true
       case _                                     => false
     }
 
   private def outermost(pkg: Pkg): Boolean =
-    !ancestors(pkg).exists {
+    !Trees.ancestors(pkg).exists {
       case _: Pkg => true
       case _      => false
     }
-
-  private def ancestors(tree: Tree): List[Tree] = tree.parent.toList.flatMap(parent => parent :: ancestors(parent))
 
   private def definedNames(tree: Tree): Set[String] =
     tree

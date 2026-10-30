@@ -58,4 +58,4 @@ You are an expert backend software engineer and architect.
 * in hand-written `sql"..."`, name tables and columns through their `Table`
   object (`${XTable.n}`, `${XTable.column.n}`), never as text:
   `HandWrittenSqlSpec` fails otherwise. A query that must name them by hand
-  goes in its `exemptions`, with the reason (see `docs/database.md`)
+  goes in its `exemptions`, with the reason

@@ -216,6 +216,21 @@ Test / verifyErrorCodes := Def.uncached {
   streams.value.log.info(s"All ${emitted.size} router error codes appear in the generated contract")
 }
 
+Test / sourceGenerators += Def.task {
+  val inputs = ((Compile / unmanagedSources).value ++ (Test / unmanagedSources).value ++
+    ((Compile / resourceDirectory).value / "db" / "migration" ** "*.sql").get()).sortBy(_.getPath)
+  val sha256 = java.security.MessageDigest.getInstance("SHA-256")
+  inputs.foreach { file =>
+    sha256.update(file.getPath.getBytes("UTF-8"))
+    sha256.update(IO.readBytes(file))
+  }
+  val digest = sha256.digest().map(byte => f"$byte%02x").mkString
+  val file   = (Test / sourceManaged).value / "madrileno" / "sourcechecks" / "SourcesDigest.scala"
+  val code   = s"package madrileno.sourcechecks\n\nprivate[sourcechecks] object SourcesDigest {\n  val value: String = \"$digest\"\n}\n"
+  if (!file.exists() || IO.read(file) != code) IO.write(file, code)
+  Seq(file)
+}.taskValue
+
 lazy val verifyAll = taskKey[Unit]("Performs all verifications to assure that the build will pass CI checks.")
 Test / verifyAll := Def.uncached {
   Def.sequential(Compile / scalafmtSbtCheck, Compile / scalafmtCheckAll, Compile / compile, Test / testFull, Test / verifyErrorCodes).value

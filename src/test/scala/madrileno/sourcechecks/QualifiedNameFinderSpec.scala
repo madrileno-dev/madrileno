@@ -14,7 +14,7 @@ class QualifiedNameFinderSpec extends AnyWordSpec with Matchers {
       found("""package app
               |object R {
               |  def f(d: scala.concurrent.duration.FiniteDuration) = java.util.UUID.fromString(d.toString)
-              |}""".stripMargin) shouldBe Right(List((3, "f", "scala.concurrent.duration.FiniteDuration"), (3, "f", "java.util.UUID")))
+              |}""".stripMargin) shouldBe Right(List((3, "R.f", "scala.concurrent.duration.FiniteDuration"), (3, "R.f", "java.util.UUID")))
     }
 
     "leave imports and the package clause alone" in {
@@ -42,7 +42,7 @@ class QualifiedNameFinderSpec extends AnyWordSpec with Matchers {
               |import app.task.Task
               |object R {
               |  def t: app.task.Task[Int] = ???
-              |}""".stripMargin) shouldBe Right(List((4, "t", "app.task.Task")))
+              |}""".stripMargin) shouldBe Right(List((4, "R.t", "app.task.Task")))
     }
 
     "leave names qualified by an imported package, and package paths that reach no class, alone" in {

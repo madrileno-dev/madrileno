@@ -193,15 +193,21 @@ sql"""SELECT ${AuctionRowTable.*("a")}, b.${BidRowTable.amount.n}
 
 A renamed column then changes in one place, and every table a query touches has a `Table` object a reader can find.
 
-`HandWrittenSqlSpec`, one of the [source checks](testing-guide.md#layer-5-source-checks), enforces this. It reads the table and column names from the migrated test database and fails with `file:line` for each one written as text in a `sql"…"` string under `src/main/scala`. Quoted strings, comments, function calls, `::` casts and `AS` aliases don't count, and names match as written, so `DATE` in capitals isn't the column `date`. System views such as `pg_stat_statements` aren't created by the migrations, so they're never flagged.
+`HandWrittenSqlSpec`, one of the [source checks](testing-guide.md#layer-5-source-checks), enforces this. It reads the names of the tables, views and materialized views the migrations create, and of their columns, from the migrated test database. It fails with `file:line` for each one written as text in a `sql"…"` string under `src/main/scala`. These don't count:
+
+- `'…'` string literals and comments
+- function calls, `::` casts and `AS` aliases
+- an alias given right after an interpolated table (`${BidRowTable.n} bid`), wherever that query uses it
+
+Names match as written, so `DATE` in capitals isn't the column `date`, while a quoted `"user"` is the table `user`. System views such as `pg_stat_statements` aren't created by the migrations, so they're never flagged. The check reads `sql"…"` strings only: SQL spliced in from a plain string with `#$`, or written with skunk's `const"…"`, isn't checked.
 
 A query that has to name tables by hand goes in the spec's `exemptions`, with the reason:
 
 ```scala
-Exemption("src/main/scala/madrileno/reporting/repositories/ReportRepository.scala", "monthlyTotals", "a reporting query over three modules' tables")
+Exemption("src/main/scala/madrileno/reporting/repositories/ReportRepository.scala", "ReportRepository.monthlyTotals", "a reporting query over three modules' tables")
 ```
 
-An exemption covers every name in that `def` or `val`. The spec also fails when an exemption no longer covers anything, so the list can't go stale.
+The member is the class or object and its `def` or `val`, as the failure prints it, and the exemption covers every name in it, inner `val`s included. The spec also fails when an exemption no longer covers anything, so the list can't go stale.
 
 ## The two-phase reordering trick
 

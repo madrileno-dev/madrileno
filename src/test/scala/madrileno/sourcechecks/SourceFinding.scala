@@ -2,20 +2,20 @@ package madrileno.sourcechecks
 
 import scala.meta.*
 
-final case class SourceFinding(
+private[sourcechecks] final case class SourceFinding(
   path: String,
   line: Int,
   member: String,
   text: String)
 
-final case class Exemption(
+private[sourcechecks] final case class Exemption(
   path: String,
   member: String,
   reason: String) {
   def covers(finding: SourceFinding): Boolean = finding.path == path && finding.member == member
 }
 
-object SourceFinding {
+private[sourcechecks] object SourceFinding {
   def at(
     source: ParsedSource,
     tree: Tree,
@@ -37,22 +37,29 @@ object SourceFinding {
   ): String =
     (findings.map(f => s"  ${f.path}:${f.line} ${f.text} in ${f.member}") ++ advice).mkString(s"$heading:\n", "\n", "")
 
-  private def memberOf(tree: Tree): String =
-    tree.parent match {
-      case Some(parent) => nameOf(parent).getOrElse(memberOf(parent))
-      case None         => ""
-    }
+  private def memberOf(tree: Tree): String = {
+    val (inside, outside) = Trees.ancestors(tree).span(ownerName(_).isEmpty)
+    (outside.headOption.flatMap(ownerName).toList ++ inside.flatMap(memberName).lastOption.toList).mkString(".")
+  }
 
-  private def nameOf(tree: Tree): Option[String] = (tree match {
+  private def ownerName(tree: Tree): Option[String] = (tree match {
+    case defn: Defn.Object => Some(defn.name.value)
+    case defn: Defn.Class  => Some(defn.name.value)
+    case defn: Defn.Trait  => Some(defn.name.value)
+    case defn: Defn.Enum   => Some(defn.name.value)
+    case _                 => None
+  }).filter(_.nonEmpty)
+
+  private def memberName(tree: Tree): Option[String] = (tree match {
     case defn: Defn.Def        => Some(defn.name.value)
     case defn: Defn.Val        => defn.pats.collectFirst { case Pat.Var(name) => name.value }
     case defn: Defn.Type       => Some(defn.name.value)
     case defn: Defn.GivenAlias => Some(defn.name.value)
     case defn: Defn.Given      => Some(defn.name.value)
-    case defn: Defn.Object     => Some(defn.name.value)
-    case defn: Defn.Class      => Some(defn.name.value)
-    case defn: Defn.Trait      => Some(defn.name.value)
-    case defn: Defn.Enum       => Some(defn.name.value)
     case _                     => None
   }).filter(_.nonEmpty)
+}
+
+private[sourcechecks] object Trees {
+  def ancestors(tree: Tree): List[Tree] = tree.parent.toList.flatMap(parent => parent :: ancestors(parent))
 }

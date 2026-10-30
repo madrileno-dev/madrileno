@@ -14,7 +14,7 @@ class SqlNameFinderSpec extends AnyWordSpec with Matchers {
     "find tables and columns written into sql strings, with their line and enclosing member" in {
       found("""object R {
               |  def find = sql"SELECT id FROM booking b WHERE b.state = $text"
-              |}""".stripMargin) shouldBe Right(List((2, "find", "id"), (2, "find", "booking"), (2, "find", "state")))
+              |}""".stripMargin) shouldBe Right(List((2, "R.find", "id"), (2, "R.find", "booking"), (2, "R.find", "state")))
     }
 
     "leave names that come from interpolated values alone" in {
@@ -36,21 +36,37 @@ class SqlNameFinderSpec extends AnyWordSpec with Matchers {
     "find the table an insert names before its column list" in {
       found("""object R {
               |  def add = sql"INSERT INTO booking(id, state) VALUES ($uuid, $text)"
-              |}""".stripMargin) shouldBe Right(List((2, "add", "booking"), (2, "add", "id"), (2, "add", "state")))
+              |}""".stripMargin) shouldBe Right(List((2, "R.add", "booking"), (2, "R.add", "id"), (2, "R.add", "state")))
     }
 
     "match names as written, so keywords in capitals are not names" in {
-      found("object R {\n  def find = sql" + tq + "SELECT DATE '2026-01-01' FROM \"user\"" + tq + "\n}") shouldBe Right(List((2, "find", "user")))
+      found("object R {\n  def find = sql" + tq + "SELECT DATE '2026-01-01' FROM \"user\"" + tq + "\n}") shouldBe Right(List((2, "R.find", "user")))
     }
 
     "name the val a column list is kept in" in {
       found("""object R {
               |  private val columns = sql"id, state"
-              |}""".stripMargin) shouldBe Right(List((2, "columns", "id"), (2, "columns", "state")))
+              |}""".stripMargin) shouldBe Right(List((2, "R.columns", "id"), (2, "R.columns", "state")))
     }
 
     "count lines inside a multi-line sql string" in {
-      found("object R {\n  def find =\n    sql" + tq + "SELECT 1\n      FROM booking" + tq + "\n}") shouldBe Right(List((4, "find", "booking")))
+      found("object R {\n  def find =\n    sql" + tq + "SELECT 1\n      FROM booking" + tq + "\n}") shouldBe Right(List((4, "R.find", "booking")))
+    }
+
+    "skip a quoted string however long it is" in {
+      found("object R {\n  def find = sql\"SELECT '" + ("x" * 50000) + "' FROM booking\"\n}") shouldBe Right(List((2, "R.find", "booking")))
+    }
+
+    "skip an alias given right after an interpolated table, and its later uses" in {
+      found("""object R {
+              |  def find = sql"SELECT booking.${B.id.n} FROM ${B.n} booking JOIN ${U.n} AS user ON user.${U.id.n} = booking.${B.userId.n}"
+              |}""".stripMargin) shouldBe Right(Nil)
+    }
+
+    "find the table an insert names with its schema before its column list" in {
+      found("""object R {
+              |  def add = sql"INSERT INTO public.booking(id) VALUES ($uuid)"
+              |}""".stripMargin) shouldBe Right(List((2, "R.add", "booking"), (2, "R.add", "id")))
     }
 
     "ignore other interpolators" in {

@@ -7,9 +7,11 @@ import scala.jdk.CollectionConverters.*
 import scala.meta.*
 import scala.util.Using
 
-final case class ParsedSource(path: String, tree: Source)
+private[sourcechecks] final case class ParsedSource(path: String, tree: Source)
 
-object ProjectSources {
+private[sourcechecks] object ProjectSources {
+  val digest: String = SourcesDigest.value
+
   lazy val main: Either[String, List[ParsedSource]] = parseAll(Paths.get("src/main/scala"))
   lazy val test: Either[String, List[ParsedSource]] = parseAll(Paths.get("src/test/scala"))
 
@@ -19,7 +21,7 @@ object ProjectSources {
       .parse[Source]
       .toEither
       .left
-      .map(error => s"$path does not parse: ${error.message}")
+      .map(error => s"$path:${error.pos.startLine + 1} does not parse: ${error.message}")
       .map(ParsedSource(path, _))
 
   private def parseAll(root: Path): Either[String, List[ParsedSource]] =

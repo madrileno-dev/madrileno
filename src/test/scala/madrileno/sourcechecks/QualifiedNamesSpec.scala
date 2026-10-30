@@ -19,7 +19,7 @@ class QualifiedNamesSpec extends AnyWordSpec with Matchers with EitherValues {
     "Import the name at the top of the file (import java.util.UUID) and write UUID, or import its package and qualify by that",
     "(import scala.collection.mutable, then mutable.ListBuffer). A name that clashes with one already taken can be renamed on import",
     """(import java.util.Map as JMap). A name that has to stay qualified goes in the exemptions of QualifiedNamesSpec, as""",
-    """Exemption("<path>", "<enclosing def or val>", "<why it stays qualified>")."""
+    """Exemption("<path>", "<member, as printed after in>", "<why it stays qualified>")."""
   )
 
   "Scala sources" should {

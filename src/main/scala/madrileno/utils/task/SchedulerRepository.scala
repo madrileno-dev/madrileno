@@ -9,7 +9,7 @@ import skunk.circe.codec.all.*
 import skunk.codec.all.*
 import skunk.data.Completion
 import skunk.implicits.*
-import skunk.{Codec, Session}
+import skunk.{Codec, Fragment, Session, Void}
 
 import java.time.Instant
 
@@ -60,7 +60,7 @@ object TaskRow {
   }
 }
 
-object TaskRowTable extends Table[TaskRow]("scheduled_task") {
+private[task] object TaskRowTable extends Table[TaskRow]("scheduled_task") {
   val taskName: Column[String]                 = column("task_name", text)
   val taskInstance: Column[String]             = column("task_instance", text)
   val taskData: Column[Json]                   = column("task_data", jsonb)
@@ -91,6 +91,14 @@ object TaskRowTable extends Table[TaskRow]("scheduled_task") {
       priority,
       traceParent
     )
+}
+
+object ScheduledTasks {
+  def exist(taskName: Fragment[String], taskInstance: Fragment[Void]): Fragment[String] =
+    sql"""EXISTS (
+            SELECT 1 FROM ${TaskRowTable.n} st
+            WHERE ${TaskRowTable.taskName.n("st")} = $taskName AND ${TaskRowTable.taskInstance.n("st")} = $taskInstance
+          )"""
 }
 
 private[task] class ClientSchedulerRepository(using clock: Clock[IO]) {

@@ -236,7 +236,9 @@ Delivery timing (`at`/`in` parameters) is a scheduler concern, not SMTP. Test de
 
 ### Layer 5: Source Checks
 
-Specs in `madrileno.sourcechecks` read the project's own Scala files instead of running its code. `ProjectSources` parses `src/main/scala` and `src/test/scala` with scalameta once per test run, and every source check reads the same parsed trees. A file that doesn't parse fails the checks.
+Specs in `madrileno.sourcechecks` read the project's own Scala files instead of running its code. `ProjectSources` parses `src/main/scala` and `src/test/scala` with scalameta once per test run, and every source check reads the same parsed trees. A file that doesn't parse fails the checks, with its line.
+
+`sbt test` only re-runs suites whose own classes or dependencies changed, and an edited repository isn't a dependency of a source check. So the build generates `SourcesDigest`, a hash of every Scala source and migration, and `ProjectSources` depends on it. Any edit to a source changes the digest, and `sbt test` re-runs the source checks with the suites the edit touches.
 
 | Spec | Fails on |
 |---|---|
@@ -248,7 +250,7 @@ Specs in `madrileno.sourcechecks` read the project's own Scala files instead of 
 - a name qualified by an imported package (`mutable.ListBuffer` after `import scala.collection.mutable`), and a package path that reaches no class (`fs2.text.utf8.decode`)
 - a name whose short form is already taken: by Scala (`java.lang.Long`, `java.util.Map`), by the file's own definitions (`JsonProtocol` aliases `io.circe.Encoder` as `Encoder`), or by an import of a different class with the same name
 
-Each check keeps an `exemptions` list at the top of its spec. `Exemption("<path from the project root>", "<enclosing def or val>", "<reason>")` covers every finding in that member, and the spec fails when an exemption no longer covers anything.
+Each check keeps an `exemptions` list at the top of its spec. `Exemption("<path from the project root>", "<member>", "<reason>")` covers every finding in that member, and the spec fails when an exemption no longer covers anything. The member is the class or object and its outermost `def` or `val`, like `SchedulerRepository.reschedule`, exactly as the failure prints it.
 
 ## Shared Test Infrastructure
 

@@ -5,8 +5,8 @@ import org.scalatest.wordspec.AnyWordSpec
 
 class ProjectSourcesSpec extends AnyWordSpec with Matchers {
   "ProjectSources" should {
-    "report a file that does not parse" in {
-      ProjectSources.parse("R.scala", "object R {").left.map(_.startsWith("R.scala does not parse")) shouldBe Left(true)
+    "report a file that does not parse, with the line" in {
+      ProjectSources.parse("R.scala", "object R {\n  def f = (1,\n}").left.map(_.startsWith("R.scala:3 does not parse")) shouldBe Left(true)
     }
 
     "read the main and test sources with paths from the project root" in {

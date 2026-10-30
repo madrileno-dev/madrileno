@@ -3,7 +3,7 @@ package madrileno.utils.events.outbox
 import cats.effect.IO
 import madrileno.utils.db.dsl.*
 import madrileno.utils.db.transactor.{DB, DBInTransaction}
-import madrileno.utils.task.TaskRowTable
+import madrileno.utils.task.ScheduledTasks
 import skunk.*
 import skunk.codec.all.*
 import skunk.implicits.*
@@ -43,7 +43,6 @@ private[outbox] final case class OutboxDeliveryFilter(eventId: SqlPredicate[Doma
 class OutboxDeliveryRepository {
   private val T  = OutboxDeliveryTable
   private val DE = DomainEventTable
-  private val ST = TaskRowTable
 
   def openDelivery(
     eventId: DomainEventId,
@@ -129,11 +128,7 @@ class OutboxDeliveryRepository {
     session
       .execute(sql"""SELECT ${T.eventId.n("od")}, ${T.consumer.n("od")} FROM ${T.n} od
               WHERE ${T.status.n("od")} = ${T.status.c}
-                AND NOT EXISTS (
-                  SELECT 1 FROM ${ST.n} st
-                  WHERE ${ST.taskName.n("st")} = $text || ${T.consumer.n("od")}
-                    AND ${ST.taskInstance.n("st")} = ${T.eventId.n("od")}::text
-                )
+                AND NOT ${ScheduledTasks.exist(sql"$text || ${T.consumer.n("od")}", sql"${T.eventId.n("od")}::text")}
               ORDER BY ${T.updatedAt.n("od")}
               LIMIT $int4""".query(T.eventId.c ~ T.consumer.c))((DeliveryStatus.Pending, taskNamePrefix, limit))
       .map(_.map { case id ~ consumer => (id, consumer) })
