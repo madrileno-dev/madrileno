@@ -25,6 +25,18 @@ class HtmlSuite extends munit.FunSuite {
     assert(out.contains("\\u003c/script>\\u003cb>"))
   }
 
+  test("the events table scrolls inside its own box, so a wide table cannot widen the page") {
+    val project = Fixtures.project(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ShopModule"),
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        "package app.shop\ntrait ShopModule {\n  lazy val bus: EventBus[ShopEvent] = eventBusRuntime.topic[ShopEvent](\"shop_events\", maxQueued = 8)\n}"
+      )
+    )
+    val out = Html.render(ArchDiff.full(Extractor.extract(project), "h"))
+    assert(out.contains("""<section id="events"><h2>Events</h2><div class="scroll"><table>"""), out)
+  }
+
   test("full page has no changed-only filter") {
     assert(!Html.render(ArchDiff.full(Fixtures.diffHead, "working tree")).contains("Changed only"))
   }

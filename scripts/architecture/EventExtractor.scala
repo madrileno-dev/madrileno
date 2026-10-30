@@ -37,7 +37,7 @@ object EventExtractor {
       .distinctBy(_.key)
 
     val resolvedPublishes = publishes.collect { case Right(published) => published }
-    val events            = descriptors.map { event =>
+    val linkedEvents      = descriptors.map { event =>
       event.copy(
         publishers = resolvedPublishes.filter(_._1 == event.typeName).map(_._2),
         subscribers = subscribes.filter(_._1 == event.typeName).map(_._2)
@@ -51,8 +51,30 @@ object EventExtractor {
         )
         .distinctBy(_.key)
 
+    val topicsByName = byDeclaration(linkedTopics)(_.name)(_.loc)
+    val mergedTopics =
+      topicsByName.map(same => same.head.copy(publishers = same.flatMap(_.publishers).distinct, subscribers = same.flatMap(_.subscribers).distinct))
+    val eventsByType = byDeclaration(linkedEvents)(_.eventType)(_.loc)
+    val events       =
+      eventsByType.map(same => same.head.copy(publishers = same.flatMap(_.publishers).distinct, subscribers = same.flatMap(_.subscribers).distinct))
+    val duplicates = topicsByName.collect { case same @ (first :: second :: _) =>
+      Warning(
+        WarningKind.DuplicateTopic,
+        s"duplicate-topic:${first.name}",
+        s"topic ${first.name} is declared by ${same.map(t => s"topic[${t.eventType}] in ${t.owner.label}").mkString(", ")}",
+        second.loc
+      )
+    } ++ eventsByType.collect { case same @ (first :: second :: _) =>
+      Warning(
+        WarningKind.DuplicateEvent,
+        s"duplicate-event:${first.eventType}",
+        s"event ${first.eventType} is declared by ${same.map(e => s"${e.typeName} in ${e.owner.label}").mkString(", ")}",
+        second.loc
+      )
+    }
+
     val warnings =
-      linkedTopics.collect {
+      mergedTopics.collect {
         case topic if topic.subscribers.nonEmpty && topic.publishers.isEmpty =>
           Warning(
             WarningKind.SubscriberWithoutPublisher,
@@ -68,14 +90,17 @@ object EventExtractor {
             s"${event.typeName} (${event.eventType}) has subscribers but no publisher",
             event.loc
           )
-      }
+      } ++ duplicates
 
     Extracted(
-      (linkedTopics.sortBy(_.name), events.sortBy(_.eventType)),
+      (mergedTopics.sortBy(_.name), events.sortBy(_.eventType)),
       warnings,
       declared.collect { case Left(item) => item } ++ busWithoutTopic ++ publishes.collect { case Left(item) => item } ++ unknownTypes
     )
   }
+
+  private def byDeclaration[A](items: List[A])(key: A => String)(loc: A => Loc): List[List[A]] =
+    items.groupBy(key).values.toList.map(_.sortBy(item => (loc(item).path, loc(item).line)))
 
   private def topicsIn(file: ParsedFile, ownership: Ownership): List[Either[Unclassified, BusTopic]] =
     file.tree.collect {

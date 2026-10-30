@@ -168,8 +168,8 @@ object Html {
     )
     if (topics.isEmpty && events.isEmpty) """<p class="muted">No event-bus topics or outbox events.</p>"""
     else
-      "<table><thead><tr><th>Name</th><th>Kind</th><th>Type</th><th>Owner</th><th>Publishers</th><th>Subscribers</th><th>Declared at</th></tr></thead><tbody>" +
-        (topics ++ events).mkString + "</tbody></table>"
+      """<div class="scroll"><table><thead><tr><th>Name</th><th>Kind</th><th>Type</th><th>Owner</th><th>Publishers</th><th>Subscribers</th><th>Declared at</th></tr></thead><tbody>""" +
+        (topics ++ events).mkString + "</tbody></table></div>"
   }
 
   private def tablesMatrix(diff: DiffModel): String = {

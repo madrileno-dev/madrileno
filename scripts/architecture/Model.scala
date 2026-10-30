@@ -117,7 +117,8 @@ final case class TableDecl(
 final case class MigrationTable(name: String, loc: Loc) derives ReadWriter
 
 enum WarningKind derives ReadWriter {
-  case NotMixedIn, UnprovidedMember, ModuleCycle, SubscriberWithoutPublisher, CrossModuleTableUse, DuplicateTable, MigrationTableWithoutTable
+  case NotMixedIn, UnprovidedMember, ModuleCycle, SubscriberWithoutPublisher, CrossModuleTableUse, DuplicateTable, DuplicateTopic, DuplicateEvent,
+    MigrationTableWithoutTable
 }
 
 final case class Warning(

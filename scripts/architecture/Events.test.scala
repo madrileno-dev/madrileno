@@ -49,4 +49,56 @@ class EventsSuite extends munit.FunSuite {
     )
     assertEquals(EventExtractor.extract(files, Ownership.of(files)).unclassified.map(_.key), List("topic-name:shop/ShopModule.scala:OrderEvent"))
   }
+
+  test("a topic name two declarations share is one topic with the uses of both, and a warning") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "a/AModule.scala",
+        "package app.a\ntrait AModule {\n  lazy val bus: EventBus[AEvent] = eventBusRuntime.topic[AEvent](\"shared\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "b/BModule.scala",
+        "package app.b\ntrait BModule {\n  lazy val bus: EventBus[BEvent] = eventBusRuntime.topic[BEvent](\"shared\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src("a/services/APublisher.scala", "package app.a.services\nclass APublisher(bus: EventBus[AEvent]) {\n  def p = bus.publish\n}"),
+      Fixtures.src("b/routers/BRouter.scala", "package app.b.routers\nclass BRouter(bus: EventBus[BEvent]) {\n  def s = bus.subscribe\n}")
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files))
+    assertEquals(
+      result.value._1.map(t => (t.name, t.eventType, t.owner, t.publishers.map(_.enclosing), t.subscribers.map(_.enclosing))),
+      List(("shared", "AEvent", Owner.Module("a"), List("APublisher"), List("BRouter")))
+    )
+    assertEquals(
+      result.warnings.map(w => w.key -> w.message),
+      List("duplicate-topic:shared" -> "topic shared is declared by topic[AEvent] in a, topic[BEvent] in b")
+    )
+  }
+
+  test("an event type two descriptors share is one event with the uses of both, and a warning") {
+    val files = Fixtures.parsed(
+      Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule"),
+      Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule"),
+      Fixtures.src(
+        "a/domain/AEvent.scala",
+        "package app.a.domain\nfinal case class AEvent(id: Id)\nobject AEvent {\n  given DomainEventDescriptor[AEvent] = DomainEventDescriptor(\"shared.v1\", \"a\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "b/domain/BEvent.scala",
+        "package app.b.domain\nfinal case class BEvent(id: Id)\nobject BEvent {\n  given DomainEventDescriptor[BEvent] = DomainEventDescriptor(\"shared.v1\", \"b\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "b/services/BService.scala",
+        "package app.b.services\nclass BService(outbox: Outbox) {\n  def p(id: Id) = outbox.publishTransactionally(BEvent(id))\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files))
+    assertEquals(
+      result.value._2.map(e => (e.eventType, e.typeName, e.owner, e.publishers.map(_.enclosing))),
+      List(("shared.v1", "AEvent", Owner.Module("a"), List("BService")))
+    )
+    assertEquals(
+      result.warnings.map(w => w.key -> w.message),
+      List("duplicate-event:shared.v1" -> "event shared.v1 is declared by AEvent in a, BEvent in b")
+    )
+  }
 }

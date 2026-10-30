@@ -277,6 +277,8 @@ git worktree remove /tmp/arch-at
 - **Subscriber without publisher:** something subscribes to a topic or outbox event that nothing publishes. Publishing an event nobody subscribes to yet is fine.
 - **Cross-module table use:** a module references another module's `Table` object.
 - **Duplicate table:** `Table` objects in different modules declare the same table. The map shows the table once, owned by the module of the first declaration, with the users of every declaration.
+- **Duplicate topic:** two `topic` calls use the same name, so their buses share one channel. The map shows the topic once, as the first declaration, with the publishers and subscribers of every declaration.
+- **Duplicate event:** two `DomainEventDescriptor`s use the same event type, so the outbox can hand one type's payload to the other type's subscribers. The map shows the event once, as the first declaration, with the publishers and subscribers of every declaration.
 - **Migration table without `Table`:** a migration creates a table that no `Table` object declares.
 
 ### Unclassified
