@@ -8,7 +8,8 @@ object TableExtractor {
     migrations: List[SourceFile],
     ownership: Ownership
   ): Extracted[(List[TableDecl], List[MigrationTable])] = {
-    val found     = files.flatMap(declarationsIn(_, ownership))
+    val classes   = files.flatMap(_.tree.collect { case cls: Defn.Class => cls.name.value -> cls }).toMap
+    val found     = files.flatMap(declarationsIn(_, classes, ownership))
     val declared  = found.collect { case Right(table) => table }
     val withUsers = declared.map(table => table.copy(users = usersOf(table, declared, files, ownership)))
     val migrated  = migrations.flatMap(MigrationExtractor.created)
@@ -60,28 +61,50 @@ object TableExtractor {
     Extracted((merged.sortBy(_.name), migrated), crossModule ++ duplicates ++ undeclared, found.collect { case Left(item) => item })
   }
 
-  private def declarationsIn(file: ParsedFile, ownership: Ownership): List[Either[Unclassified, TableDecl]] =
+  private def declarationsIn(
+    file: ParsedFile,
+    classes: Map[String, Defn.Class],
+    ownership: Ownership
+  ): List[Either[Unclassified, TableDecl]] =
     file.tree.collect { case obj: Defn.Object => obj }.flatMap { obj =>
-      obj.templ.inits
-        .collectFirst {
-          case init if Trees.typeName(init.tpe) == "Table" => init.argClauses.headOption.flatMap(args => Trees.argument(args.values, "tableName", 0))
-        }
-        .flatten
-        .map { arg =>
-          Trees
-            .stringLiteral(arg)
-            .map(name =>
-              TableDecl(MigrationExtractor.tableName(name), obj.name.value, ownership.ownerOf(file.pkg), Nil, Trees.loc(file, obj), columnsOf(obj))
+      obj.templ.inits.view.flatMap(tableNameOf(_, classes, Set.empty)).headOption.map { arg =>
+        arg
+          .flatMap(Trees.stringLiteral)
+          .map(name =>
+            TableDecl(MigrationExtractor.tableName(name), obj.name.value, ownership.ownerOf(file.pkg), Nil, Trees.loc(file, obj), columnsOf(obj))
+          )
+          .toRight(
+            Unclassified(
+              s"table-name:${file.source.packagePath}:${obj.name.value}",
+              s"${obj.name.value} extends Table with the name ${arg.fold("the map can't see")(_.syntax)}, not a string literal",
+              Trees.loc(file, obj)
             )
-            .toRight(
-              Unclassified(
-                s"table-name:${file.source.packagePath}:${obj.name.value}",
-                s"${obj.name.value} extends Table with the name ${arg.syntax}, not a string literal",
-                Trees.loc(file, obj)
-              )
-            )
-        }
+          )
+      }
     }
+
+  private def tableNameOf(
+    init: Init,
+    classes: Map[String, Defn.Class],
+    seen: Set[String]
+  ): Option[Option[Term]] = {
+    val args = init.argClauses.headOption.toList.flatMap(_.values)
+    Trees.typeName(init.tpe) match {
+      case "Table"             => Some(Trees.argument(args, "tableName", 0))
+      case name if !seen(name) =>
+        classes.get(name).flatMap { cls =>
+          val params = cls.ctor.paramClauses.headOption.toList.flatMap(_.values).map(_.name.value)
+          cls.templ.inits.view
+            .flatMap(tableNameOf(_, classes, seen + name))
+            .headOption
+            .map(_.flatMap {
+              case Term.Name(param) if params.contains(param) => Trees.argument(args, param, params.indexOf(param))
+              case other                                      => Some(other)
+            })
+        }
+      case _ => None
+    }
+  }
 
   private def columnsOf(obj: Defn.Object): List[TableColumn] =
     obj.templ.collect { case Term.Apply.After_4_6_0(Term.Name("column"), args) =>

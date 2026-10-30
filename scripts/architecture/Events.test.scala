@@ -171,4 +171,21 @@ class EventsSuite extends munit.FunSuite {
     assertEquals(result.value._2.map(_.publishers.map(_.enclosing)), List(List("UserService")))
     assertEquals(result.unclassified, Nil)
   }
+  test("a bus whose payload type two topics share is unclassified, not given to both topics") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "a/AModule.scala",
+        "package app.a\ntrait AModule {\n  lazy val first: EventBus[Notice] = eventBusRuntime.topic[Notice](\"notices_a\", maxQueued = 8)\n" +
+          "  lazy val second: EventBus[Notice] = eventBusRuntime.topic[Notice](\"notices_b\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src("a/routers/ARouter.scala", "package app.a.routers\nclass ARouter(bus: EventBus[Notice]) {\n  def s = bus.subscribe\n}")
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files))
+    assertEquals(result.value._1.map(t => (t.name, t.publishers, t.subscribers)), List(("notices_a", Nil, Nil), ("notices_b", Nil, Nil)))
+    assertEquals(
+      result.unclassified.map(u => u.key -> u.description),
+      List("bus-ambiguous:a/routers/ARouter.scala:Notice" -> "EventBus[Notice] in ARouter could be topic notices_a or notices_b")
+    )
+    assertEquals(result.warnings, Nil)
+  }
 }

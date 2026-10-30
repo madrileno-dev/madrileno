@@ -253,10 +253,9 @@ object Html {
   private def badge(status: WarningStatus, isDiff: Boolean): String =
     if (isDiff) s"""<span class="badge ${status.toString.toLowerCase}">${status.toString}</span>""" else ""
 
-  private def warningStatusRow(status: WarningStatus): Status = status match {
-    case WarningStatus.New      => Status.Added
-    case WarningStatus.Resolved => Status.Removed
-    case WarningStatus.Existing => Status.Unchanged
+  private def warningRow(status: WarningStatus, cells: List[String]): String = {
+    val state = if (status == WarningStatus.Existing) "unchanged" else status.toString.toLowerCase
+    s"""<tr data-status="$state" class="$state">${cells.map(cell => s"<td>$cell</td>").mkString}</tr>"""
   }
 
   private def warningsList(diff: DiffModel): String =
@@ -264,10 +263,7 @@ object Html {
     else
       "<table><thead><tr><th>Kind</th><th>Message</th><th>Where</th><th></th></tr></thead><tbody>" +
         diff.warnings.map { w =>
-          row(
-            warningStatusRow(w.status),
-            List(escape(w.warning.kind.toString), escape(w.warning.message), locCell(w.warning.loc), badge(w.status, diff.isDiff))
-          )
+          warningRow(w.status, List(escape(w.warning.kind.toString), escape(w.warning.message), locCell(w.warning.loc), badge(w.status, diff.isDiff)))
         }.mkString + "</tbody></table>"
 
   private def unclassifiedList(diff: DiffModel): String =
@@ -275,7 +271,7 @@ object Html {
     else
       "<table><thead><tr><th>Key</th><th>What</th><th>Where</th><th></th></tr></thead><tbody>" +
         diff.unclassified.map { u =>
-          row(warningStatusRow(u.status), List(escape(u.item.key), escape(u.item.description), locCell(u.item.loc), badge(u.status, diff.isDiff)))
+          warningRow(u.status, List(escape(u.item.key), escape(u.item.description), locCell(u.item.loc), badge(u.status, diff.isDiff)))
         }.mkString + "</tbody></table>"
 
   private val styles: String =
@@ -322,6 +318,8 @@ th { color: var(--muted); font-weight: 600; }
 tr.added td:first-child { color: var(--added); }
 tr.removed td:first-child { color: var(--removed); text-decoration: line-through; }
 tr.changed td:first-child { color: var(--changed); } tr.touched td:first-child { color: var(--changed); text-decoration: underline dotted; }
+tr.new td:first-child { color: var(--removed); }
+tr.resolved td:first-child { color: var(--added); text-decoration: line-through; }
 code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .badge { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--border); }
 .badge.new { color: var(--removed); border-color: var(--removed); }

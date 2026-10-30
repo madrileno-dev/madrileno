@@ -235,5 +235,5 @@ object Mermaid {
     case Status.Unchanged => ""
   }
 
-  private def escape(text: String): String = text.replace("\"", "#quot;").replace("<", "#lt;").replace(">", "#gt;")
+  private def escape(text: String): String = text.replace("\"", "#quot;").replace("<", "#lt;").replace(">", "#gt;").replace("*", "#42;")
 }

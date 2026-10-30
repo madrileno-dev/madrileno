@@ -38,7 +38,9 @@ object Extractor {
       migrationTables = migrationTables,
       warnings =
         (modules.warnings ++ wiring.warnings ++ cycles ++ events.warnings ++ tables.warnings ++ tasks.warnings).sortBy(w => (w.kind.ordinal, w.key)),
-      unclassified = (parsed.unclassified ++ modules.unclassified ++ wiring.unclassified ++ events.unclassified ++ tables.unclassified).sortBy(_.key),
+      unclassified =
+        (parsed.unclassified ++ modules.unclassified ++ wiring.unclassified ++ events.unclassified ++ tables.unclassified ++ tasks.unclassified)
+          .sortBy(_.key),
       migrations = MigrationExtractor.extract(input.migrations),
       outsideModules = digestsOf(files, ownership, input.rootPackage) {
         case Owner.Module(_) => false

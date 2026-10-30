@@ -211,4 +211,15 @@ class MermaidSuite extends munit.FunSuite {
     assert(text.contains("component_order_OrderService"), text)
     assert(text.contains("**Architecture metrics:** propagation cost 50%"), text)
   }
+  test("a wildcard in a label is not Markdown emphasis") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+        Fixtures.src("shop/ShopModule.scala", "package app.shop\nimport app.user.repositories.*\nimport app.user.services.*\ntrait ShopModule")
+      )
+    )
+    val text = Mermaid.diagram(GraphView.full(ArchDiff.full(model, "h"), Level.Modules))
+    assert(text.contains("\"uses repositories.#42;, services.#42;\""), text)
+  }
 }

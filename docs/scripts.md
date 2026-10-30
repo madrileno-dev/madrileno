@@ -201,7 +201,7 @@ Draws a map of the project's architecture from its source:
 - the services, repositories, routers and gateways each module wires
 - references between modules
 - event-bus topics and outbox events, with their publishers and subscribers
-- tables, with the module that owns each one, the modules that use it and its columns
+- tables, with the module that owns each one, the modules that use it and, in the JSON and a diff, its columns. A `Table` object can also extend a class that extends `Table`.
 - migrations, with the tables each one creates, alters or drops
 - scheduled tasks: one-time, recurring with their cron or interval, and custom, with the code that schedules them
 - warnings where the code drifts from the template's conventions
@@ -285,21 +285,25 @@ git worktree remove /tmp/arch-at
 - **Duplicate table:** `Table` objects in different modules declare the same table. The map shows the table once, owned by the module of the first declaration, with the users of every declaration.
 - **Duplicate topic:** two `topic` calls use the same name, so their buses share one channel. The map shows the topic once, as the first declaration, with the publishers and subscribers of every declaration.
 - **Duplicate event:** two `DomainEventDescriptor`s use the same event type, so the outbox can hand one type's payload to the other type's subscribers. The map shows the event once, as the first declaration, with the publishers and subscribers of every declaration.
-- **Duplicate task:** two tasks use the same name, which the scheduler needs to be unique. The map lists both, each in its own module.
+- **Duplicate task:** two tasks use the same name, which the scheduler needs to be unique. The map lists each of them under its own module.
 - **Migration table without `Table`:** a migration creates a table that no `Table` object declares.
 
 ### Unclassified
 
 The map reads source, not compiled code, so some things can't be resolved:
 - a `publishTransactionally(event)` whose argument doesn't show its type
+- an outbox event published or subscribed to without a `DomainEventDescriptor`
+- an `EventBus[T]` used where no topic has the type `T`, or where several topics do, so the bus could be any of them
 - a `wire[X]` whose class isn't in the module
-- a topic or `Table` whose name isn't a string literal
+- a topic or `Table` whose name isn't a string literal, including a name a `Table` subclass passes on in a way the map can't follow
+- a task built from a descriptor that isn't a `TaskDescriptor(…)` call, such as one held in a `val`
 - a second `*Module` trait in a package that already has one, when they aren't both mixed into `ApplicationLoader`; only the mixed-in trait is mapped. When both are mixed in, they're mapped as one module.
+- a file whose package is outside the project's root package
 - a file that doesn't parse
 
 Instead of guessing, the map lists these under **Unclassified**, each with its location.
 
-`--strict` exits 1 when there are warnings or unclassified items. With `--diff`, only new ones count. The template's CI runs it on the template and on a freshly initialised project.
+`--strict` exits 1 when there are warnings or unclassified items. With `--diff`, only new ones count. A directory without `src/main/scala` or without a `*Module` trait is an error, so `--strict` can't pass on the wrong directory. The template's CI runs it on the template and on a freshly initialised project.
 
 ### What it doesn't do
 

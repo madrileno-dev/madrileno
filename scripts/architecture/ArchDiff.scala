@@ -132,7 +132,9 @@ object ArchDiff {
       events = nodes(base.outboxEvents, head.outboxEvents)(_.eventType)(e =>
         (e.typeName, e.owner, sites(e.publishers), e.subscribers.map(s => (s.consumer, s.site.owner, s.site.enclosing)).toSet)
       ).map(withCodeChange(_, changedPaths)(_.definedIn)),
-      tasks = nodes(base.tasks, head.tasks)(t => s"${t.owner.label}:${t.name}")(t => (t.kind, t.schedule, t.owner, sites(t.scheduledFrom))),
+      tasks =
+        nodes(numbered(base.tasks)(taskKey), numbered(head.tasks)(taskKey))(_._1)((_, t) => (t.kind, t.schedule, t.owner, sites(t.scheduledFrom)))
+          .map(t => NodeDiff(t.key, t.status, t.base.map(_._2), t.head.map(_._2))),
       edges = edgeDiffs(edges(base), edges(head)),
       references = nodes(base.references, head.references)(r => s"${r.from}->${r.to}:${r.layer}.${r.symbol}")(_ => ()),
       wirings = nodes(base.wirings, head.wirings)(w => s"${w.consumer}:${w.member}:${w.provider}")(_ => ()),
@@ -213,7 +215,7 @@ object ArchDiff {
     tables: Set[String],
     topics: Set[String],
     events: Set[String],
-    tasks: Set[(String, TaskKind, Option[String])],
+    tasks: List[(String, Int, Option[String])],
     references: Set[(String, String, String)])
 
   private def presence(before: Option[?]): WarningStatus = if (before.isDefined) WarningStatus.Existing else WarningStatus.New
@@ -226,6 +228,14 @@ object ArchDiff {
   private def moduleIds(sites: List[Site]): List[String] = sites.flatMap(site => moduleId(site.owner)).distinct
 
   private def sites(list: List[Site]): Set[(Owner, String)] = list.map(site => (site.owner, site.enclosing)).toSet
+
+  private def taskKey(task: TaskDecl): String = s"${task.owner.label}:${task.name}"
+
+  private def numbered[A](items: List[A])(key: A => String): List[(String, A)] =
+    items.zipWithIndex.map { (item, index) =>
+      val earlier = items.take(index).count(key(_) == key(item))
+      (if (earlier == 0) key(item) else s"${key(item)}#${earlier + 1}") -> item
+    }
 
   private def keyed[A](base: List[A], head: List[A])(key: A => String): List[(String, Option[A], Option[A])] =
     (base.map(key) ++ head.map(key)).distinct.sorted.map(k => (k, base.find(key(_) == k), head.find(key(_) == k)))
@@ -284,7 +294,7 @@ object ArchDiff {
       model.tables.filter(_.owner == owner).map(_.name).toSet,
       model.topics.filter(_.owner == owner).map(_.name).toSet,
       model.outboxEvents.filter(_.owner == owner).map(_.eventType).toSet,
-      model.tasks.filter(_.owner == owner).map(t => (t.name, t.kind, t.schedule)).toSet,
+      model.tasks.filter(_.owner == owner).map(t => (t.name, t.kind.ordinal, t.schedule)).sorted,
       model.references.filter(_.from == module.id).map(r => (r.to, r.layer, r.symbol)).toSet
     )
   }

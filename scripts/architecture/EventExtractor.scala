@@ -21,10 +21,22 @@ object EventExtractor {
     val publishes   = files.flatMap(publishesIn(_, ownership))
     val subscribes  = files.flatMap(subscribesIn(_, ownership))
 
+    val namesByType  = topics.groupMap(_.eventType)(_.name).view.mapValues(_.distinct.sorted).toMap
     val linkedTopics = topics.map { topic =>
-      val uses = busUses.filter(_.eventType == topic.eventType)
+      val uses = if (namesByType(topic.eventType).size > 1) Nil else busUses.filter(_.eventType == topic.eventType)
       topic.copy(publishers = uses.filter(_.role == Role.Publishes).map(_.site), subscribers = uses.filter(_.role == Role.Subscribes).map(_.site))
     }
+    val ambiguousBus = busUses
+      .flatMap(use =>
+        namesByType.get(use.eventType).filter(_.size > 1).map { names =>
+          Unclassified(
+            s"bus-ambiguous:${use.packagePath}:${use.eventType}",
+            s"EventBus[${use.eventType}] in ${use.site.enclosing} could be topic ${names.mkString(" or ")}",
+            use.site.loc
+          )
+        }
+      )
+      .distinctBy(_.key)
     val busWithoutTopic = busUses
       .filterNot(use => topics.exists(_.eventType == use.eventType))
       .map(use =>
@@ -102,7 +114,7 @@ object EventExtractor {
           .sortBy(_.eventType)
       ),
       warnings,
-      declared.collect { case Left(item) => item } ++ busWithoutTopic ++ publishes.collect { case Left(item) => item } ++ unknownTypes
+      declared.collect { case Left(item) => item } ++ busWithoutTopic ++ ambiguousBus ++ publishes.collect { case Left(item) => item } ++ unknownTypes
     )
   }
 

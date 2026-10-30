@@ -46,6 +46,8 @@ object Cli {
       input <- ProjectInput.load(options.project)
       _     <- Either.cond(input.scalaFiles.nonEmpty, (), s"no src/main/scala under ${options.project}; is this a Madrileño project?")
       head = Extractor.extract(input)
+      _ <-
+        Either.cond(head.modules.nonEmpty, (), s"no *Module traits under ${options.project / "src" / "main" / "scala"}; is this a Madrileño project?")
       diff    <- diffOf(options, head)
       outcome <- emit(options.output, diff)
     } yield outcome.copy(strictFailures = if (options.strict) strictFailures(diff) else Nil)

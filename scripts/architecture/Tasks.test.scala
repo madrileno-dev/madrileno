@@ -20,7 +20,8 @@ class TasksSuite extends munit.FunSuite {
     ),
     Fixtures.src(
       "auction/services/Notifier.scala",
-      "package app.auction.services\nclass Notifier(mailer: Mailer) {\n  def notify(m: Mail) = scheduler.schedule(mailer.sendMail.instance(\"n\", m))\n}"
+      "package app.auction.services\nclass Notifier(mailer: Mailer) {\n  def notify(m: Mail) = scheduler.schedule(mailer.sendMail.instance(\"n\", m))\n" +
+        "  def remind(m: Mail) = scheduler.schedule(mailer.sendMail.instance(\"r\", m))\n}"
     )
   )
   private val tasks = TaskExtractor.extract(files, Ownership.of(files)).value
@@ -134,5 +135,39 @@ class TasksSuite extends munit.FunSuite {
       )
     )
     assertEquals(model.warnings.map(_.kind), List(WarningKind.DuplicateTask))
+  }
+  test("a task with a type argument is a task, and one given a descriptor from elsewhere is unclassified") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends JobsModule"),
+        Fixtures.src("jobs/JobsModule.scala", "package app.jobs\ntrait JobsModule"),
+        Fixtures.src(
+          "jobs/services/Jobs.scala",
+          "package app.jobs.services\nclass Jobs {\n" +
+            "  val one = Task.oneTime[Int](TaskDescriptor[Int](\"typed-one\"))(_ => IO.unit)\n" +
+            "  val every = Task.recurring[Unit](\"typed-recurring\", Schedule.RecurringWithFixedRate(1.minute))(_ => IO.unit)\n" +
+            "  private val descriptor = TaskDescriptor[Int](\"held\")\n" +
+            "  val held = Task.oneTime(descriptor)(_ => IO.unit)\n}"
+        )
+      )
+    )
+    assertEquals(model.tasks.map(t => (t.name, t.kind)), List(("typed-one", TaskKind.OneTime), ("typed-recurring", TaskKind.Recurring)))
+    assertEquals(
+      model.unclassified.map(u => u.key -> u.description),
+      List(
+        "task-descriptor:jobs/services/Jobs.scala:Jobs:descriptor" -> "a task in Jobs takes the descriptor descriptor, not a TaskDescriptor(...) call"
+      )
+    )
+  }
+
+  test("two same-named tasks in one module stay apart in a diff, and the warning names the module once") {
+    val one    = "  val a = Task.oneTime(TaskDescriptor[Int](\"dup\"))(_ => IO.unit)"
+    val two    = s"$one\n  val b = Task.custom(TaskDescriptor[Int](\"dup\"))(_ => IO.unit)"
+    val before = Extractor.extract(shop(one))
+    val after  = Extractor.extract(shop(two))
+    val diff   = ArchDiff.compare(before, after, "b", "h")
+    assertEquals(diff.tasks.map(t => t.key -> t.status), List("shop:dup" -> Status.Unchanged, "shop:dup#2" -> Status.Added))
+    assertEquals(diff.modules.map(m => m.id -> m.status), List("shop" -> Status.Changed))
+    assertEquals(after.warnings.map(_.message), List("task dup is declared in shop (2 times)"))
   }
 }

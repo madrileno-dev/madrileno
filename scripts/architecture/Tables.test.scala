@@ -174,4 +174,38 @@ class TablesSuite extends munit.FunSuite {
     assertEquals(result.value._1.map(_.name), List("users"))
     assertEquals(result.warnings, Nil)
   }
+  test("an object extending a subclass of Table is a table, with the name the subclass passes on") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src(
+        "utils/db/AuditedTable.scala",
+        "package app.utils.db\nabstract class AuditedTable[R](schema: String, name: String) extends Table[R](name)\nabstract class UsersTable extends AuditedTable[UserRow](\"app\", \"users\")"
+      ),
+      Fixtures.src(
+        "user/repositories/Tables.scala",
+        "package app.user.repositories\nobject AccountTable extends AuditedTable[AccountRow](\"app\", \"account\")\nobject UserTable extends UsersTable\n" +
+          "class UserRepository {\n  def a = AccountTable\n}"
+      )
+    )
+    val migrations = List(Fixtures.migration("V1__init.sql", "create table account (id uuid);\ncreate table users (id uuid);"))
+    val result     = TableExtractor.extract(files, migrations, Ownership.of(files))
+    assertEquals(
+      result.value._1.map(t => (t.name, t.objectName, t.users.map(_.enclosing))),
+      List(("account", "AccountTable", List("UserRepository")), ("users", "UserTable", Nil))
+    )
+    assertEquals(result.warnings, Nil)
+    assertEquals(result.unclassified, Nil)
+  }
+
+  test("a Table subclass whose name the map can't follow is unclassified") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src("utils/db/Named.scala", "package app.utils.db\nabstract class Named[R] extends Table[R](Names.next())"),
+      Fixtures.src("user/repositories/UserTable.scala", "package app.user.repositories\nobject UserTable extends Named[UserRow]")
+    )
+    assertEquals(
+      TableExtractor.extract(files, Nil, Ownership.of(files)).unclassified.map(u => u.key -> u.description),
+      List("table-name:user/repositories/UserTable.scala:UserTable" -> "UserTable extends Table with the name Names.next(), not a string literal")
+    )
+  }
 }

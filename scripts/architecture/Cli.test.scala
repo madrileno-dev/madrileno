@@ -39,6 +39,14 @@ class CliSuite extends munit.FunSuite {
     assertEquals(Cli.run(Options(empty, None, Output.Json, strict = true)), Left(s"no src/main/scala under $empty; is this a Madrileño project?"))
   }
 
+  test("a project without a *Module trait is a Left, so --strict cannot pass vacuously") {
+    val plain = project("src/main/scala/app/main/ApplicationLoader.scala" -> "package app.main\nclass ApplicationLoader")
+    assertEquals(
+      Cli.run(Options(plain, None, Output.Json, strict = true)),
+      Left(s"no *Module traits under $plain/src/main/scala; is this a Madrileño project?")
+    )
+  }
+
   test("the base label names the ref and its short sha, once when the ref is the sha") {
     assertEquals(Cli.baseLabel("main", "abc1234def"), "main@abc1234")
     assertEquals(Cli.baseLabel("abc1234", "abc1234def"), "abc1234")

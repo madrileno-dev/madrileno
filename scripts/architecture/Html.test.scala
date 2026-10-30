@@ -137,4 +137,18 @@ class HtmlSuite extends munit.FunSuite {
         .contains("changed")
     )
   }
+  test("a new warning's row has the colour of its New badge, and a resolved one of its Resolved badge") {
+    def model(mixedIn: String) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", s"package app.main\nclass ApplicationLoader extends $mixedIn"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+        Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule")
+      )
+    )
+    val out = Html.render(ArchDiff.compare(model("UserModule"), model("ShopModule"), "b", "h"))
+    assert(out.contains("""<tr data-status="new" class="new"><td>NotMixedIn</td><td>UserModule is not mixed into ApplicationLoader"""), out)
+    assert(out.contains("""<tr data-status="resolved" class="resolved"><td>NotMixedIn</td><td>ShopModule is not mixed into ApplicationLoader"""), out)
+    assert(out.contains("tr.new td:first-child { color: var(--removed); }"), out)
+    assert(out.contains("tr.resolved td:first-child { color: var(--added); text-decoration: line-through; }"), out)
+  }
 }
