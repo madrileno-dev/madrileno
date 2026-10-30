@@ -19,6 +19,31 @@ class GraphViewSuite extends munit.FunSuite {
   )
   private val diff = ArchDiff.full(model, "h")
 
+  private def withOutbox(outboxModule: String) = Fixtures.project(
+    Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with OutboxModule"),
+    Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule {\n  lazy val outbox: Outbox\n}"),
+    Fixtures.src("utils/events/outbox/OutboxModule.scala", outboxModule),
+    Fixtures.src(
+      "utils/events/outbox/OutboxRepository.scala",
+      "package app.utils.events.outbox\nobject DomainEventTable extends Table[DomainEvent](\"domain_event\")\nclass OutboxRepository { def f = DomainEventTable }"
+    )
+  )
+  private val outboxModule = "package app.utils.events.outbox\ntrait OutboxModule {\n  lazy val outbox: Outbox = wire[Outbox]\n}"
+
+  test("utils modules stay off the diagram, with their edges and the tables only they use") {
+    val graph = GraphView.full(ArchDiff.full(Extractor.extract(withOutbox(outboxModule)), "h"), Level.Everything)
+    assertEquals(graph.nodes.map(_.key), List("module:user"))
+    assertEquals(graph.edges, Nil)
+  }
+
+  test("a utils module a diff changes is shown") {
+    val changed = outboxModule.replace("}", "  lazy val outboxRecovery: OutboxRecovery = wire[OutboxRecovery]\n}")
+    val diff    = ArchDiff.compare(Extractor.extract(withOutbox(outboxModule)), Extractor.extract(withOutbox(changed)), "b", "h")
+    assert(GraphView.changes(diff).nodes.exists(_.key == "module:utils/events/outbox"))
+    assertEquals(GraphView.full(diff, Level.Modules).nodes.map(_.key), List("module:user", "module:utils/events/outbox"))
+    assertEquals(GraphView.shown(diff).map(_.id), List("user", "utils/events/outbox"))
+  }
+
   test("the modules level shows modules and the dependencies between them") {
     val graph = GraphView.full(diff, Level.Modules)
     assertEquals(graph.nodes.map(_.key), List("module:shop", "module:user"))

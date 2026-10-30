@@ -34,6 +34,9 @@ object GraphView {
 
   val MaxDiagramEdges: Int = 300
 
+  def shown(diff: DiffModel): List[ModuleDiff] =
+    diff.modules.filter(m => !m.id.startsWith("utils/") || (diff.isDiff && m.status != Status.Unchanged))
+
   def changes(diff: DiffModel): Graph = {
     val top        = topLevel(diff)
     val changed    = top.filter(_.status != Status.Unchanged).map(_.key).toSet
@@ -43,12 +46,14 @@ object GraphView {
     }.toSet
     val included   = changed ++ touched ++ neighbours
     val nodes      = top.filter(node => included(node.key))
-    val components = diff.modules
+    val visible    = top.map(_.key).toSet
+    val components = shown(diff)
       .filter(m => included(s"module:${m.id}"))
       .flatMap(m => m.components.filter(_.status != Status.Unchanged).map(componentNode(m.id, _)))
     val edges = mergedEdges(
       diff.edges.filter(e =>
-        included(e.edge.from) && included(e.edge.to) && (e.status != Status.Unchanged || changed(e.edge.from) || changed(e.edge.to))
+        visible(e.edge.from) && visible(e.edge.to) && included(e.edge.from) && included(e.edge.to) &&
+          (e.status != Status.Unchanged || changed(e.edge.from) || changed(e.edge.to))
       ),
       diff.references
     )
@@ -59,7 +64,7 @@ object GraphView {
   def full(diff: DiffModel, level: Level): Graph = {
     val top        = topLevel(diff).filter(node => node.kind == NodeKind.Module || level == Level.Everything)
     val keys       = top.map(_.key).toSet
-    val components = if (level == Level.Modules) Nil else diff.modules.flatMap(m => m.components.map(componentNode(m.id, _)))
+    val components = if (level == Level.Modules) Nil else shown(diff).flatMap(m => m.components.map(componentNode(m.id, _)))
     val edges      = mergedEdges(diff.edges.filter(e => keys(e.edge.from) && keys(e.edge.to)), diff.references)
     Graph(top ++ components, edges, collapsed = false)
   }
@@ -79,11 +84,21 @@ object GraphView {
     Graph(graph.nodes.filter(node => keys(node.key) || node.parent.contains(center)), edges, collapsed = false)
   }
 
-  private def topLevel(diff: DiffModel): List[GNode] =
-    diff.modules.map(m => GNode(s"module:${m.id}", m.id, NodeKind.Module, None, m.status)) ++
+  private def topLevel(diff: DiffModel): List[GNode] = {
+    val hidden     = diff.modules.map(m => s"module:${m.id}").toSet -- shown(diff).map(m => s"module:${m.id}")
+    val onlyHidden = (key: String) => {
+      val others = diff.edges.collect {
+        case e if e.edge.from == key => e.edge.to
+        case e if e.edge.to == key   => e.edge.from
+      }
+      others.nonEmpty && others.forall(hidden)
+    }
+    val shared =
       diff.tables.map(t => GNode(s"table:${t.key}", t.key, NodeKind.Table, None, t.status)) ++
-      diff.topics.map(t => GNode(s"topic:${t.key}", t.key, NodeKind.Topic, None, t.status)) ++
-      diff.events.map(e => GNode(s"event:${e.key}", e.head.orElse(e.base).map(_.typeName).getOrElse(e.key), NodeKind.Event, None, e.status))
+        diff.topics.map(t => GNode(s"topic:${t.key}", t.key, NodeKind.Topic, None, t.status)) ++
+        diff.events.map(e => GNode(s"event:${e.key}", e.head.orElse(e.base).map(_.typeName).getOrElse(e.key), NodeKind.Event, None, e.status))
+    shown(diff).map(m => GNode(s"module:${m.id}", m.id, NodeKind.Module, None, m.status)) ++ shared.filterNot(node => onlyHidden(node.key))
+  }
 
   private def componentNode(moduleId: String, component: ComponentDiff): GNode = {
     val kind = component.head.orElse(component.base).map(_.kind.toString.toLowerCase).getOrElse("other")

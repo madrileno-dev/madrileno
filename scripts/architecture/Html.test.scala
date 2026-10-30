@@ -37,6 +37,17 @@ class HtmlSuite extends munit.FunSuite {
     assert(out.contains("""<section id="events"><h2>Events</h2><div class="scroll"><table>"""), out)
   }
 
+  test("an unchanged utils module gets no pill") {
+    val project = Fixtures.project(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with OutboxModule"),
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src("utils/events/outbox/OutboxModule.scala", "package app.utils.events.outbox\ntrait OutboxModule")
+    )
+    val out = Html.render(ArchDiff.full(Extractor.extract(project), "h"))
+    assert(out.contains("""data-module="user""""))
+    assert(!out.contains("""data-module="utils/events/outbox""""), "utils modules are hidden from the module list")
+  }
+
   test("full page has no changed-only filter") {
     assert(!Html.render(ArchDiff.full(Fixtures.diffHead, "working tree")).contains("Changed only"))
   }

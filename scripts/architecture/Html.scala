@@ -86,7 +86,7 @@ object Html {
   private def summary(diff: DiffModel): String = {
     val warnings = if (diff.isDiff) diff.warnings.count(_.status == WarningStatus.New) else diff.warnings.size
     val label    = if (diff.isDiff) "new warnings" else "warnings"
-    s"${diff.modules.size} modules · ${diff.tables.size} tables · ${diff.topics.size + diff.events.size} events · $warnings $label"
+    s"${GraphView.shown(diff).size} modules · ${diff.tables.size} tables · ${diff.topics.size + diff.events.size} events · $warnings $label"
   }
 
   private def statusClass(status: Status): String = status.toString.toLowerCase
@@ -99,7 +99,7 @@ object Html {
   }
 
   private def moduleList(diff: DiffModel): String = {
-    val chips = diff.modules.map { m =>
+    val chips = GraphView.shown(diff).map { m =>
       s"""<button class="module-chip ${statusClass(m.status)}" data-module="${escape(m.id)}" data-status="${statusClass(m.status)}">${escape(
           marker(m.status) + m.id
         )}</button>"""
@@ -111,14 +111,14 @@ object Html {
 
   private def diagrams(diff: DiffModel): String = {
     val levels = Levels.map((name, level) => name -> ujson.Str(Mermaid.diagram(GraphView.full(diff, level))))
-    val focus  = "focus" -> ujson.Obj.from(diff.modules.map { m =>
+    val focus  = "focus" -> ujson.Obj.from(GraphView.shown(diff).map { m =>
       m.id -> ujson.Obj.from(Levels.map((name, level) => name -> ujson.Str(Mermaid.diagram(GraphView.focus(diff, m.id, level)))))
     })
     val changed = Option.when(diff.isDiff) {
       val graph = GraphView.changes(diff)
       "changed" -> ujson.Str(if (graph.nodes.isEmpty) "" else Mermaid.diagram(graph))
     }
-    val ids = diff.modules.flatMap { m =>
+    val ids = GraphView.shown(diff).flatMap { m =>
       (Mermaid.nodeId(s"module:${m.id}") -> m.id) :: m.components.map(c => Mermaid.nodeId(s"component:${m.id}:${c.name}") -> m.id)
     }
     ujson
