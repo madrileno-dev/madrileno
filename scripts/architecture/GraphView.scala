@@ -38,8 +38,12 @@ object GraphView {
 
   val MaxDiagramText: Int = 50000
 
-  def shown(diff: DiffModel): List[ModuleDiff] =
-    diff.modules.filter(m => !m.id.startsWith("utils/") || (diff.isDiff && (m.status != Status.Unchanged || m.changedFiles.nonEmpty)))
+  def shown(diff: DiffModel): List[ModuleDiff] = {
+    val touched = diff.edges.filter(_.status != Status.Unchanged).flatMap(e => List(e.edge.from, e.edge.to)).toSet
+    diff.modules.filter(m =>
+      !m.id.startsWith("utils/") || (diff.isDiff && (m.status != Status.Unchanged || m.changedFiles.nonEmpty || touched(s"module:${m.id}")))
+    )
+  }
 
   def changes(
     diff: DiffModel,

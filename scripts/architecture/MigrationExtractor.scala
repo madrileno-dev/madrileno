@@ -10,16 +10,22 @@ object MigrationExtractor {
   private val Drop     = s"""(?i)\\bdrop\\s+table\\s+(?:if\\s+exists\\s+)?+($Name(?:\\s*,\\s*$Name)*)""".r
   private val Rename   = s"""(?i)\\balter\\s+table\\s+(?:if\\s+exists\\s+)?+(?:only\\s+)?+($Name)\\s+rename\\s+to\\s+($Name)""".r
   private val Version  = """V(\d+(?:[._]\d+)*)__.*""".r
-  private val Comments = """(?s)--[^\n]*|/\*.*?\*/""".r
+  private val Comments = """(?s)'(?:[^']|'')*'|--[^\n]*|/\*.*?\*/""".r
 
   def extract(files: List[SourceFile]): List[Migration] =
     files.map { file =>
-      val sql = withoutComments(file.content)
-      Migration(file.packagePath, Trees.hash(normalized(sql)), names(Create, sql), names(Alter, sql), names(Drop, sql))
+      val sql = withoutLiterals(file.content)
+      Migration(
+        file.packagePath,
+        Trees.hash(normalized(withoutComments(file.content))),
+        names(Create, sql),
+        (names(Alter, sql) ++ Rename.findAllMatchIn(sql).map(m => tableName(m.group(2)))).distinct,
+        names(Drop, sql)
+      )
     }
 
   def created(file: SourceFile): List[MigrationTable] = {
-    val sql = withoutComments(file.content)
+    val sql = withoutLiterals(file.content)
     Create.findAllMatchIn(sql).map(m => MigrationTable(tableName(m.group(1)), lineOf(file, sql, m.start))).toList
   }
 
@@ -37,7 +43,7 @@ object MigrationExtractor {
     }
 
   private def statementsIn(file: SourceFile): List[Statement] = {
-    val sql = withoutComments(file.content)
+    val sql = withoutLiterals(file.content)
     (Create.findAllMatchIn(sql).map(m => m.start -> Statement.Created(MigrationTable(tableName(m.group(1)), lineOf(file, sql, m.start)))) ++
       Drop.findAllMatchIn(sql).map(m => m.start -> Statement.Dropped(m.group(1).split(',').map(tableName).toList)) ++
       Rename
@@ -69,7 +75,15 @@ object MigrationExtractor {
   def tableName(name: String): String = name.trim.split('.').last.stripPrefix("\"").stripSuffix("\"").toLowerCase
 
   private def withoutComments(sql: String): String =
-    Comments.replaceAllIn(sql, comment => Regex.quoteReplacement(" " + comment.matched.filter(_ == '\n')))
+    Comments.replaceAllIn(sql, found => Regex.quoteReplacement(if (found.matched.startsWith("'")) found.matched else blank(found.matched)))
+
+  private def withoutLiterals(sql: String): String =
+    Comments.replaceAllIn(
+      sql,
+      found => Regex.quoteReplacement(if (found.matched.startsWith("'")) s"''${blank(found.matched)}" else blank(found.matched))
+    )
+
+  private def blank(text: String): String = " " + text.filter(_ == '\n')
 
   private def normalized(sql: String): String = sql.replaceAll("\\s+", " ").replaceAll(" ?([(),;]) ?", "$1").trim
 

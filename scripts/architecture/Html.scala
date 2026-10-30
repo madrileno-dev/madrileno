@@ -90,7 +90,9 @@ object Html {
   private def summary(diff: DiffModel): String = {
     val warnings = if (diff.isDiff) diff.warnings.count(_.status == WarningStatus.New) else diff.warnings.size
     val label    = if (diff.isDiff) "new warnings" else "warnings"
-    s"${GraphView.shown(diff).size} modules · ${diff.tables.size} tables · ${diff.topics.size + diff.events.size} events · $warnings $label"
+    val shown    = GraphView.shown(diff).size
+    val hidden   = if (diff.modules.size > shown) s" + ${diff.modules.size - shown} hidden under utils/" else ""
+    s"$shown modules$hidden · ${diff.tables.size} tables · ${diff.topics.size + diff.events.size} events · $warnings $label"
   }
 
   private def statusClass(status: Status): String = status.toString.toLowerCase

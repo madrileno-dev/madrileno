@@ -208,7 +208,7 @@ object EventExtractor {
     Trees
       .members(template)
       .flatMap {
-        case d: Defn.Val => Trees.patNames(d.pats).flatMap(busOf(_, d.decltpe))
+        case d: Defn.Val => Trees.patNames(d.pats).flatMap(name => busOf(name, d.decltpe).orElse(topicTypeOf(d.rhs).map(name -> _)))
         case d: Decl.Val => Trees.patNames(d.pats).flatMap(busOf(_, Some(d.decltpe)))
         case d: Defn.Def => busOf(d.name.value, d.decltpe)
         case d: Decl.Def => busOf(d.name.value, Some(d.decltpe))
@@ -218,6 +218,12 @@ object EventExtractor {
 
   private def busOf(name: String, tpe: Option[Type]): Option[(String, String)] = tpe.collect {
     case Type.Apply.After_4_6_0(Type.Name("EventBus"), targs) if targs.values.size == 1 => name -> targs.values.head.syntax
+  }
+
+  private def topicTypeOf(rhs: Term): Option[String] = rhs match {
+    case Term.Apply.After_4_6_0(Term.ApplyType.After_4_6_0(Term.Select(_, Term.Name("topic")), targs), _) if targs.values.size == 1 =>
+      Some(targs.values.head.syntax)
+    case _ => None
   }
 
   private def busRole(method: String): Option[Role] = method match {

@@ -109,7 +109,7 @@ object TableExtractor {
   }
 
   private def columnsOf(obj: Defn.Object): List[TableColumn] =
-    obj.templ.collect { case Term.Apply.After_4_6_0(Term.Name("column"), args) =>
+    obj.templ.collect { case Term.Apply.After_4_6_0(Term.Name("column") | Term.ApplyType.After_4_6_0(Term.Name("column"), _), args) =>
       for {
         name  <- Trees.argument(args.values, "name", 0)
         codec <- Trees.argument(args.values, "codec", 1)

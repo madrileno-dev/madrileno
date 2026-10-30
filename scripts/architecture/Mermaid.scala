@@ -35,15 +35,17 @@ object Mermaid {
     val footer = footerOf(diff)
     if (graph.nodes.forall(_.status == Status.Unchanged) && graph.edges.forall(_.status == Status.Unchanged))
       s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n${if (metricsMoved(diff)) metricsSection(diff) else ""}$footer$Credit"
-    else if (tooLarge(graph).isDefined) {
-      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n${tooLarge(graph).getOrElse("")}\n\n${summary(diff)}${metricsSection(diff)}$footer$Credit"
-    } else {
-      val note =
-        if (graph.collapsed)
-          s"\n_Services, repositories, routers and gateways are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
-        else ""
-      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\n${diagram(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
-    }
+    else
+      tooLarge(graph) match {
+        case Some(intro) =>
+          s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n$intro\n\n${summary(diff)}${metricsSection(diff)}$footer$Credit"
+        case None =>
+          val note =
+            if (graph.collapsed)
+              s"\n_Services, repositories, routers and gateways are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
+            else ""
+          s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\n${diagram(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
+      }
   }
 
   def diagram(graph: Graph): String = s"$Theme---\nflowchart LR\n${body(graph)}"

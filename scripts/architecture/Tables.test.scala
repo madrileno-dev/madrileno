@@ -238,4 +238,30 @@ class TablesSuite extends munit.FunSuite {
     assertEquals(result.value._1.map(t => (t.name, t.users)), List(("orders", Nil)))
     assertEquals(result.warnings, Nil)
   }
+  test("a column with a type argument is a column") {
+    val files = Fixtures.parsed(
+      Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),
+      Fixtures.src(
+        "shop/repositories/OrderTable.scala",
+        "package app.shop.repositories\nobject OrderTable extends Table[OrderRow](\"orders\") {\n  val total = column[Money](\"total\", numeric)\n}"
+      )
+    )
+    assertEquals(TableExtractor.extract(files, Nil, Ownership.of(files)).value._1.flatMap(_.columns), List(TableColumn("total", "numeric")))
+  }
+
+  test("text in a SQL string literal is not DDL, but changing it changes the migration") {
+    def sql(note: String) = Fixtures.migration(
+      "V1__init.sql",
+      s"COMMENT ON TABLE orders IS '$note';\nINSERT INTO settings VALUES ('a--b', 'it''s'); create table audit_log (id int);\ncreate table orders (id int);"
+    )
+    val result = TableExtractor.extract(Nil, List(sql("create table of record")), Ownership(Set.empty))
+    assertEquals(result.value._2.map(t => t.name -> t.loc.line), List("audit_log" -> 2, "orders" -> 3))
+    assertEquals(MigrationExtractor.extract(List(sql("create table of record"))).map(_.creates), List(List("audit_log", "orders")))
+    assertNotEquals(MigrationExtractor.extract(List(sql("one"))).map(_.digest), MigrationExtractor.extract(List(sql("two"))).map(_.digest))
+  }
+
+  test("a rename migration alters both the old and the new table") {
+    val rename = Fixtures.migration("V2__rename.sql", "alter table orders rename to shop_orders;")
+    assertEquals(MigrationExtractor.extract(List(rename)).map(_.alters), List(List("orders", "shop_orders")))
+  }
 }

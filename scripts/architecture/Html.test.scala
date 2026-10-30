@@ -155,4 +155,13 @@ class HtmlSuite extends munit.FunSuite {
     assert(page.contains("maxTextSize: 1000000"), page.take(200))
     assert(page.contains("maxEdges: 5000"))
   }
+  test("the header counts the hidden modules under utils/, since the module list leaves them out") {
+    val project = Fixtures.project(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with OutboxModule"),
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src("utils/events/outbox/OutboxModule.scala", "package app.utils.events.outbox\ntrait OutboxModule")
+    )
+    val out = Html.render(ArchDiff.full(Extractor.extract(project), "h"))
+    assert(out.contains("1 modules + 1 hidden under utils/ · 0 tables"), out.take(3000))
+  }
 }

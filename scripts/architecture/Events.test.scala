@@ -214,4 +214,14 @@ class EventsSuite extends munit.FunSuite {
       )
     )
   }
+  test("a bus declared without a type annotation is known by its topic's type") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        "package app.shop\ntrait ShopModule {\n  lazy val shopBus = eventBusRuntime.topic[ShopEvent](\"shop_events\", maxQueued = 8)\n" +
+          "  lazy val starter = Lifecycle(shopBus.publish(ShopEvent.Started))\n}"
+      )
+    )
+    assertEquals(EventExtractor.extract(files, Ownership.of(files)).value._1.map(_.publishers.map(_.enclosing)), List(List("ShopModule")))
+  }
 }

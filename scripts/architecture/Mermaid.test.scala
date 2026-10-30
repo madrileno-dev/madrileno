@@ -243,4 +243,23 @@ class MermaidSuite extends munit.FunSuite {
     val node = GNode("topic:t", "_a_ ~~b~~ `c`", NodeKind.Topic, None, Status.Unchanged)
     assert(Mermaid.nodeLine(node).contains("#95;a#95; #126;#126;b#126;#126; #96;c#96;"), Mermaid.nodeLine(node))
   }
+  private def withFlags(shop: String) = Extractor.extract(
+    Fixtures.project(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ShopModule with FeatureFlagModule"),
+      Fixtures.src("shop/ShopModule.scala", s"package app.shop\ntrait ShopModule {\n$shop\n}"),
+      Fixtures.src(
+        "utils/featureflag/FeatureFlagModule.scala",
+        "package app.utils.featureflag\ntrait FeatureFlagModule {\n  lazy val featureFlags: FeatureFlags = wire[FeatureFlags]\n}"
+      ),
+      Fixtures.src("utils/featureflag/FeatureFlags.scala", "package app.utils.featureflag\nclass FeatureFlags")
+    )
+  )
+
+  test("a new or dropped dependency on an unchanged utils module is drawn") {
+    val added   = Mermaid.render(ArchDiff.compare(withFlags(""), withFlags("  lazy val featureFlags: FeatureFlags"), "b", "h"))
+    val dropped = Mermaid.render(ArchDiff.compare(withFlags("  lazy val featureFlags: FeatureFlags"), withFlags(""), "b", "h"))
+    assert(added.contains("[\"utils/featureflag\"]") && added.contains("-->|\"wires featureFlags\"|"), added)
+    assert(dropped.contains("[\"utils/featureflag\"]") && dropped.contains("-.->|\"wires featureFlags\"|"), dropped)
+    assert(!Mermaid.render(ArchDiff.compare(withFlags(""), withFlags(""), "b", "h")).contains("featureflag"))
+  }
 }
