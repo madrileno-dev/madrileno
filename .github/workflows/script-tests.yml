@@ -16,6 +16,7 @@ on:
 jobs:
   compile-scripts:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: VirtusLab/scala-cli-setup@d320e01a605bf27128a5657575382668f83ef34e # v1
@@ -40,6 +41,7 @@ jobs:
 
   run-doctor:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: VirtusLab/scala-cli-setup@d320e01a605bf27128a5657575382668f83ef34e # v1
@@ -59,6 +61,7 @@ jobs:
 
   test-init-project:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 21
@@ -95,6 +98,7 @@ jobs:
 
   test-scaffold-module:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 21
