@@ -97,8 +97,10 @@ object GraphView {
     }
     val shared =
       diff.tables.map(t => GNode(s"table:${t.key}", t.key, NodeKind.Table, None, t.status)) ++
-        diff.topics.map(t => GNode(s"topic:${t.key}", t.key, NodeKind.Topic, None, t.status)) ++
-        diff.events.map(e => GNode(s"event:${e.key}", e.head.orElse(e.base).map(_.typeName).getOrElse(e.key), NodeKind.Event, None, e.status))
+        diff.topics.map(t => GNode(s"topic:${t.key}", t.key, NodeKind.Topic, None, t.status, t.codeChanged)) ++
+        diff.events.map(e =>
+          GNode(s"event:${e.key}", e.head.orElse(e.base).map(_.typeName).getOrElse(e.key), NodeKind.Event, None, e.status, e.codeChanged)
+        )
     shown(diff).map(m =>
       GNode(s"module:${m.id}", m.id, NodeKind.Module, None, m.status, codeChanged = m.status == Status.Unchanged && m.changedFiles.nonEmpty)
     ) ++ shared.filterNot(node => onlyHidden(node.key))

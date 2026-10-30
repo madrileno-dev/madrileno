@@ -179,7 +179,15 @@ object Mermaid {
       val files = m.changedFiles.map(path => s"`${path.stripPrefix(s"${m.id}/")}`")
       s"- ${m.id}: ${(files.take(MaxListedFiles) ++ Option.when(files.size > MaxListedFiles)(s"+${files.size - MaxListedFiles} more")).mkString(", ")}"
     }
-    section("Code changed, architecture unchanged", code) + section("Tasks", tasks) + section("New warnings", warnings) +
+    val changedPaths = diff.modules.flatMap(_.changedFiles)
+    val payloads     =
+      diff.topics
+        .filter(_.codeChanged)
+        .flatMap(t => t.head.flatMap(_.definedIn).flatMap(ArchDiff.changedPathOf(_, changedPaths)).map(path => s"- topic `${t.key}`: `$path`")) ++
+        diff.events
+          .filter(_.codeChanged)
+          .flatMap(e => e.head.flatMap(_.definedIn).flatMap(ArchDiff.changedPathOf(_, changedPaths)).map(path => s"- event `${e.key}`: `$path`"))
+    section("Code changed, architecture unchanged", code ++ payloads) + section("Tasks", tasks) + section("New warnings", warnings) +
       section("New unclassified", unclassified)
   }
 

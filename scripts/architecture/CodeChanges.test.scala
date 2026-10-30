@@ -78,4 +78,38 @@ class CodeChangesSuite extends munit.FunSuite {
     )
     assert(Mermaid.diagram(graph).contains("class component_auth_TokenPolicy touched"), Mermaid.diagram(graph))
   }
+
+  private def withEvents(userDeleted: String, shopEvent: String) = Fixtures.project(
+    Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+    Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+    Fixtures.src(
+      "user/domain/UserDeleted.scala",
+      s"package app.user.domain\nfinal case class UserDeleted($userDeleted)\nobject UserDeleted {\n  given DomainEventDescriptor[UserDeleted] = DomainEventDescriptor(\"user-deleted.v1\", \"user\", _.id)\n}"
+    ),
+    Fixtures.src(
+      "user/services/UserService.scala",
+      "package app.user.services\nclass UserService(outbox: Outbox) {\n  def d(id: Id) = outbox.publishTransactionally(UserDeleted(id))\n}"
+    ),
+    Fixtures.src(
+      "shop/ShopModule.scala",
+      "package app.shop\ntrait ShopModule {\n  lazy val bus: EventBus[ShopEvent] = eventBusRuntime.topic[ShopEvent](\"shop_events\", maxQueued = 8)\n}"
+    ),
+    Fixtures.src("shop/domain/ShopEvent.scala", s"package app.shop.domain\nfinal case class ShopEvent($shopEvent)")
+  )
+
+  test("an event or topic whose payload type changed gets the dotted outline and is listed") {
+    val diff = ArchDiff.compare(
+      Extractor.extract(withEvents("id: Id", "orderId: Id")),
+      Extractor.extract(withEvents("id: Id, reason: String", "orderId: Id, total: Money")),
+      "main",
+      "working tree"
+    )
+    assertEquals(diff.events.map(e => (e.key, e.status, e.codeChanged)), List(("user-deleted.v1", Status.Unchanged, true)))
+    assertEquals(diff.topics.map(t => (t.key, t.status, t.codeChanged)), List(("shop_events", Status.Unchanged, true)))
+    assert(GraphView.changes(diff).nodes.exists(n => n.key == "event:user-deleted.v1" && n.codeChanged))
+    val text = Mermaid.render(diff)
+    assert(text.contains("- event `user-deleted.v1`: `user/domain/UserDeleted.scala`"), text)
+    assert(text.contains("- topic `shop_events`: `shop/domain/ShopEvent.scala`"), text)
+    assert(Html.render(diff).contains("""<tr data-status="touched" class="touched"><td>user-deleted.v1</td>"""))
+  }
 }

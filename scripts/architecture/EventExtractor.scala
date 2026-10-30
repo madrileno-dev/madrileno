@@ -92,8 +92,20 @@ object EventExtractor {
           )
       } ++ duplicates
 
+    val typeFiles = files.flatMap { file =>
+      file.tree.collect {
+        case d: Defn.Class => d.name.value -> file.source.projectPath
+        case d: Defn.Trait => d.name.value -> file.source.projectPath
+        case d: Defn.Enum  => d.name.value -> file.source.projectPath
+      }
+    }.toMap
+    val fileOf = (typeName: String) => typeFiles.get(typeName.takeWhile(_ != '[').split('.').last)
+
     Extracted(
-      (mergedTopics.sortBy(_.name), events.sortBy(_.eventType)),
+      (
+        mergedTopics.map(topic => topic.copy(definedIn = fileOf(topic.eventType))).sortBy(_.name),
+        events.map(event => event.copy(definedIn = fileOf(event.typeName).orElse(Some(event.loc.path)))).sortBy(_.eventType)
+      ),
       warnings,
       declared.collect { case Left(item) => item } ++ busWithoutTopic ++ publishes.collect { case Left(item) => item } ++ unknownTypes
     )

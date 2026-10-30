@@ -129,8 +129,14 @@ object Html {
 
   private def siteLabel(site: Site): String = s"${site.owner.label} / ${site.enclosing}"
 
-  private def row(status: Status, cells: List[String]): String =
-    s"""<tr data-status="${statusClass(status)}" class="${statusClass(status)}">${cells.map(cell => s"<td>$cell</td>").mkString}</tr>"""
+  private def row(
+    status: Status,
+    cells: List[String],
+    codeChanged: Boolean = false
+  ): String = {
+    val state = if (codeChanged) "touched" else statusClass(status)
+    s"""<tr data-status="$state" class="$state">${cells.map(cell => s"<td>$cell</td>").mkString}</tr>"""
+  }
 
   private def locCell(loc: Loc): String = s"""<code>${escape(s"${loc.path}:${loc.line}")}</code>"""
 
@@ -147,7 +153,8 @@ object Html {
             escape(topic.publishers.map(siteLabel).mkString(", ")),
             escape(topic.subscribers.map(siteLabel).mkString(", ")),
             locCell(topic.loc)
-          )
+          ),
+          node.codeChanged
         )
       }
     )
@@ -163,7 +170,8 @@ object Html {
             escape(event.publishers.map(siteLabel).mkString(", ")),
             escape(event.subscribers.map(s => s"${s.consumer} (${siteLabel(s.site)})").mkString(", ")),
             locCell(event.loc)
-          )
+          ),
+          node.codeChanged
         )
       }
     )
@@ -284,7 +292,7 @@ th { color: var(--muted); font-weight: 600; }
 .matrix td:first-child, .matrix td:nth-child(2), .matrix th:first-child, .matrix th:nth-child(2) { text-align: left; }
 tr.added td:first-child { color: var(--added); }
 tr.removed td:first-child { color: var(--removed); text-decoration: line-through; }
-tr.changed td:first-child { color: var(--changed); }
+tr.changed td:first-child { color: var(--changed); } tr.touched td:first-child { color: var(--changed); text-decoration: underline dotted; }
 code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .badge { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--border); }
 .badge.new { color: var(--removed); border-color: var(--removed); }

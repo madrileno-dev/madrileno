@@ -55,7 +55,8 @@ final case class NodeDiff[A](
   key: String,
   status: Status,
   base: Option[A],
-  head: Option[A])
+  head: Option[A],
+  codeChanged: Boolean = false)
     derives ReadWriter
 
 final case class EdgeDiff(edge: Edge, status: Status) derives ReadWriter
@@ -89,32 +90,35 @@ object ArchDiff {
     head: ArchModel,
     baseLabel: String,
     headLabel: String
-  ): DiffModel =
+  ): DiffModel = {
+    val modules = keyed(base.modules, head.modules)(_.id).map {
+      (
+        id,
+        before,
+        after
+      ) =>
+        ModuleDiff(
+          id,
+          status(before.map(moduleFacts(_, base)), after.map(moduleFacts(_, head)))(identity),
+          before,
+          after,
+          components(before, after, changedFiles(before, after)),
+          members(before, after),
+          changedFiles(before, after)
+        )
+    }
+    val changedPaths = modules.flatMap(_.changedFiles).toSet
     DiffModel(
       isDiff = true,
       baseLabel = baseLabel,
       headLabel = headLabel,
-      modules = keyed(base.modules, head.modules)(_.id).map {
-        (
-          id,
-          before,
-          after
-        ) =>
-          ModuleDiff(
-            id,
-            status(before.map(moduleFacts(_, base)), after.map(moduleFacts(_, head)))(identity),
-            before,
-            after,
-            components(before, after, changedFiles(before, after)),
-            members(before, after),
-            changedFiles(before, after)
-          )
-      },
+      modules = modules,
       tables = nodes(base.tables, head.tables)(_.name)(t => (t.owner, sites(t.users))),
-      topics = nodes(base.topics, head.topics)(_.name)(t => (t.eventType, t.owner, sites(t.publishers), sites(t.subscribers))),
+      topics = nodes(base.topics, head.topics)(_.name)(t => (t.eventType, t.owner, sites(t.publishers), sites(t.subscribers)))
+        .map(withCodeChange(_, changedPaths)(_.definedIn)),
       events = nodes(base.outboxEvents, head.outboxEvents)(_.eventType)(e =>
         (e.typeName, e.owner, sites(e.publishers), e.subscribers.map(s => (s.consumer, s.site.owner, s.site.enclosing)).toSet)
-      ),
+      ).map(withCodeChange(_, changedPaths)(_.definedIn)),
       tasks = nodes(base.tasks, head.tasks)(_.name)(t => (t.kind, t.schedule, t.owner, sites(t.scheduledFrom))),
       edges = edgeDiffs(edges(base), edges(head)),
       references = nodes(base.references, head.references)(r => s"${r.from}->${r.to}:${r.layer}.${r.symbol}")(_ => ()),
@@ -137,6 +141,12 @@ object ArchDiff {
       },
       metrics = ArchMetrics.diff(base, head)
     )
+  }
+
+  def changedPathOf(file: String, changedPaths: Iterable[String]): Option[String] = changedPaths.find(path => file.endsWith(s"/$path"))
+
+  private def withCodeChange[A](node: NodeDiff[A], changedPaths: Set[String])(definedIn: A => Option[String]): NodeDiff[A] =
+    node.copy(codeChanged = node.status == Status.Unchanged && node.head.flatMap(definedIn).exists(changedPathOf(_, changedPaths).isDefined))
 
   def edges(model: ArchModel): Set[Edge] = {
     val wirings = model.wirings.collect { case Wiring(member, consumer, Provider.FromModule(provider)) =>

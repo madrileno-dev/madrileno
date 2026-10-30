@@ -95,7 +95,8 @@ final case class BusTopic(
   owner: Owner,
   publishers: List[Site],
   subscribers: List[Site],
-  loc: Loc)
+  loc: Loc,
+  definedIn: Option[String] = None)
     derives ReadWriter
 
 final case class OutboxSubscriber(consumer: String, site: Site) derives ReadWriter
@@ -106,7 +107,8 @@ final case class OutboxEvent(
   owner: Owner,
   publishers: List[Site],
   subscribers: List[OutboxSubscriber],
-  loc: Loc)
+  loc: Loc,
+  definedIn: Option[String] = None)
     derives ReadWriter
 
 enum TaskKind derives ReadWriter {
