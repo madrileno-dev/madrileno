@@ -4,6 +4,7 @@
 //> using jvm 21
 //> using toolkit default
 //> using dep com.lihaoyi::mainargs:0.7.8
+//> using mainClass ScaffoldModule
 
 // Scaffold a new module (aggregate vertical slice) under the project's package.
 // Run from the project root, either directly:
@@ -24,11 +25,11 @@ import scala.util.matching.Regex
 
 object ScaffoldModule {
 
-  @main
+  @main(doc = "Generate a new module: domain, repository, service, router, migration and specs, wired into ApplicationLoader.")
   def run(
     @arg(positional = true, doc = "Aggregate name in PascalCase, e.g. Wine") aggregate: String,
     @arg(positional = true, doc = "Plural lowercase, e.g. wines") plural: String
-  ): Unit = {
+  ): Unit = guarded {
     require(aggregate.matches("[A-Z][A-Za-z0-9]*"),
       s"aggregate '$aggregate' must be PascalCase (start with uppercase, alphanumeric only)")
     require(plural.matches("[a-z][a-z0-9_]*"),
@@ -205,5 +206,17 @@ object ScaffoldModule {
     println("  sbt 'compile; scalafmtAll; scalafixAll'   # verify, format, sort the auto-wired import")
   }
 
-  def main(args: Array[String]): Unit = ParserForMethods(this).runOrExit(args)
+  private def guarded(body: => Unit): Unit =
+    try body
+    catch {
+      case e: IllegalArgumentException =>
+        System.err.println(s"error: ${e.getMessage.stripPrefix("requirement failed: ")}")
+        sys.exit(2)
+    }
+
+  def main(args: Array[String]): Unit =
+    ParserForMethods(this).runEither(args.toIndexedSeq).left.foreach { usage =>
+      System.err.println(usage)
+      sys.exit(2)
+    }
 }

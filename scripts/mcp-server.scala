@@ -3,10 +3,13 @@
 //> using scala 3.9.0
 //> using jvm 21
 //> using toolkit default
+//> using dep com.lihaoyi::mainargs:0.7.8
 //> using dep com.softwaremill.chimp::core:0.1.8
 //> using dep com.softwaremill.sttp.tapir::tapir-netty-server-sync:1.13.22
+//> using mainClass MCPServer
 
 import chimp.*
+import mainargs.{ParserForMethods, main}
 import sttp.tapir.*
 import sttp.tapir.server.netty.sync.NettySyncServer
 
@@ -221,7 +224,7 @@ object MCPServer {
       modules <- gitListTree(ref.sha, "src/main/scala/madrileno").map(_.flatMap(extractModule).distinct.sorted)
       docs    <- gitListTree(ref.sha, "docs").map(_.filter(_.endsWith(".md")).map(_.stripPrefix("docs/").stripSuffix(".md")).sorted)
       scripts <- gitListTree(ref.sha, "scripts").map(
-                   _.filter(p => p.endsWith(".scala") && !p.contains("/templates/"))
+                   _.filter(p => p.endsWith(".scala") && p.count(_ == '/') == 1)
                      .map(_.stripPrefix("scripts/").stripSuffix(".scala"))
                      .sorted
                  )
@@ -259,7 +262,7 @@ object MCPServer {
          |
          |${scripts.map(s => s"- $s").mkString("\n")}
          |
-         |`scaffold-module` is the one you reach for when adding new aggregates (see top of this overview).
+         |`scaffold-module` is the one you reach for when adding new aggregates (see top of this overview). `architecture` maps the modules, their dependencies, events, tasks and tables: after adding or moving any of those, run `./scripts/architecture.scala --diff main --mermaid`, fix the new warnings it lists and paste its output into the PR description. Every script prints its options with `--help`.
          |
          |## Available tools
          |
@@ -408,22 +411,23 @@ object MCPServer {
     .input[DiffInput]
     .handle(i => diff(i.since, i.target, i.paths, i.format))
 
-  @main def serve(): Unit = {
+  @main(doc = "Serve the upstream Madrileño reference, at the commit in .madrileno-ref, to an AI assistant over MCP on localhost:8910.")
+  def serve(): Unit = {
     // Sanity-check the cwd is a project root — `os.pwd` is what `projectRoot`, `shadowDir`,
     // and `readRef` all resolve against. Running this from `scripts/` (e.g. via
     // `scala-cli run scripts/mcp-server.scala`) would otherwise produce a misleading
     // "missing .madrileno-ref" error.
     if (!os.exists(projectRoot / "build.sbt")) {
       Console.err.println(s"[mcp] $projectRoot doesn't look like a project root (no build.sbt). Run this from the project root.")
-      sys.exit(1)
+      sys.exit(2)
     }
     val ref = readRef match {
       case Right(r) => r
-      case Left(e)  => Console.err.println(s"[mcp] $e"); sys.exit(1)
+      case Left(e)  => Console.err.println(s"[mcp] $e"); sys.exit(2)
     }
     ensureShadow(ref) match {
       case Right(_) => ()
-      case Left(e)  => Console.err.println(s"[mcp] $e"); sys.exit(1)
+      case Left(e)  => Console.err.println(s"[mcp] $e"); sys.exit(2)
     }
     Console.err.println(s"[mcp] anchored at ${ref.sha.take(10)} (${ref.repo})")
     Console.err.println(s"[mcp] listening on http://localhost:8910/mcp")
@@ -437,4 +441,10 @@ object MCPServer {
     // MCP endpoints on the LAN. Loopback only; users wanting LAN access can edit this.
     NettySyncServer().host("127.0.0.1").port(8910).addEndpoint(mcpServerEndpoint).startAndWait()
   }
+
+  def main(args: Array[String]): Unit =
+    ParserForMethods(this).runEither(args.toIndexedSeq).left.foreach { usage =>
+      System.err.println(usage)
+      sys.exit(2)
+    }
 }

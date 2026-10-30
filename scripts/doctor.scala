@@ -3,6 +3,8 @@
 //> using scala 3.9.0
 //> using jvm 21
 //> using toolkit default
+//> using dep com.lihaoyi::mainargs:0.7.8
+//> using mainClass Doctor
 
 // Smoke-test the dev setup. Diagnose only — does not start anything for you.
 // Each step prints pass / fail / skipped, with a one-line hint pointing at
@@ -12,6 +14,8 @@
 //
 // Reads `.env` for ports (so changes to PG_PORT etc. are picked up); falls
 // back to `.env.sample` defaults when `.env` is missing.
+
+import mainargs.{ParserForMethods, main}
 
 import java.io.File
 import java.net.{InetSocketAddress, Socket, URI}
@@ -44,7 +48,8 @@ object Doctor {
   private val failGlyph        = "✗"
   private val skipGlyph        = "-"
 
-  def main(args: Array[String]): Unit = {
+  @main(doc = "Check the dev setup: tools, .env, the compose stack, the database and the app. Exit 1 when a check fails.")
+  def run(): Unit = {
     val env             = readEnv()
     val pgPort          = env.get("PG_PORT").flatMap(_.toIntOption).getOrElse(55432)
     val appPort         = env.get("PORT").flatMap(_.toIntOption).getOrElse(9000)
@@ -203,4 +208,10 @@ object Doctor {
       case _                     => ()
     }
   }
+
+  def main(args: Array[String]): Unit =
+    ParserForMethods(this).runEither(args.toIndexedSeq).left.foreach { usage =>
+      System.err.println(usage)
+      sys.exit(2)
+    }
 }
