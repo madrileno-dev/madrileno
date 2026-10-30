@@ -21,4 +21,10 @@ extension (owner: Owner) {
     case Owner.Platform(id)    => s"platform ($id)"
     case Owner.CompositionRoot => "main"
   }
+
+  def inUtils: Boolean = owner match {
+    case Owner.Module(id)      => id.startsWith("utils/")
+    case Owner.Platform(id)    => id.startsWith("utils/")
+    case Owner.CompositionRoot => false
+  }
 }

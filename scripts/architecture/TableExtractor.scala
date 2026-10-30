@@ -20,8 +20,8 @@ object TableExtractor {
       table.users
         .flatMap(site =>
           site.owner match {
-            case Owner.Module(user) if table.owner != Owner.Module(user) => Some(user -> site)
-            case _                                                       => None
+            case Owner.Module(user) if table.owner != Owner.Module(user) && !(site.owner.inUtils && table.owner.inUtils) => Some(user -> site)
+            case _                                                                                                       => None
           }
         )
         .distinctBy(_._1)

@@ -37,6 +37,20 @@ class TablesSuite extends munit.FunSuite {
     assertEquals(result.warnings.map(_.key).sorted, List("cross-module-table:user:shop", "migration-table-without-table:ghost"))
   }
 
+  test("utils packages may use each other's tables, but a feature module using one still warns") {
+    val files = Fixtures.parsed(
+      Fixtures.src("utils/events/outbox/OutboxModule.scala", "package app.utils.events.outbox\ntrait OutboxModule"),
+      Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),
+      Fixtures.src("utils/task/SchedulerRepository.scala", "package app.utils.task\nobject TaskRowTable extends Table[TaskRow](\"scheduled_task\")"),
+      Fixtures.src(
+        "utils/events/outbox/OutboxDeliveryRepository.scala",
+        "package app.utils.events.outbox\nclass OutboxDeliveryRepository { def f = TaskRowTable }"
+      ),
+      Fixtures.src("shop/repositories/ShopRepository.scala", "package app.shop.repositories\nclass ShopRepository { def f = TaskRowTable }")
+    )
+    assertEquals(TableExtractor.extract(files, Nil, Ownership.of(files)).warnings.map(_.key), List("cross-module-table:scheduled_task:shop"))
+  }
+
   test("a table two modules declare is one table with the users of both, and a warning") {
     val files = Fixtures.parsed(
       Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule"),
