@@ -35,7 +35,8 @@ object Extractor {
       tasks = tasks.value,
       tables = tableDecls,
       migrationTables = migrationTables,
-      warnings = (modules.warnings ++ wiring.warnings ++ cycles ++ events.warnings ++ tables.warnings).sortBy(w => (w.kind.ordinal, w.key)),
+      warnings =
+        (modules.warnings ++ wiring.warnings ++ cycles ++ events.warnings ++ tables.warnings ++ tasks.warnings).sortBy(w => (w.kind.ordinal, w.key)),
       unclassified = (parsed.unclassified ++ modules.unclassified ++ wiring.unclassified ++ events.unclassified ++ tables.unclassified).sortBy(_.key)
     )
   }

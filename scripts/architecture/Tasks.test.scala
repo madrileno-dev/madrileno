@@ -121,4 +121,18 @@ class TasksSuite extends munit.FunSuite {
     )
     assertEquals(result.warnings.map(w => w.key -> w.message), List("duplicate-task:dup" -> "task dup is declared in a, b"))
   }
+
+  test("a duplicate task reaches the map's warnings") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AModule with BModule"),
+        Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule"),
+        Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule"),
+        Fixtures
+          .src("a/services/A.scala", "package app.a.services\nclass A {\n  val t = Task.oneTime(TaskDescriptor[Int](\"dup\"))(_ => IO.unit)\n}"),
+        Fixtures.src("b/services/B.scala", "package app.b.services\nclass B {\n  val t = Task.oneTime(TaskDescriptor[Int](\"dup\"))(_ => IO.unit)\n}")
+      )
+    )
+    assertEquals(model.warnings.map(_.kind), List(WarningKind.DuplicateTask))
+  }
 }
