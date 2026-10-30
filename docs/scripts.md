@@ -202,6 +202,7 @@ Draws a map of the project's architecture from its source:
 - references between modules
 - event-bus topics and outbox events, with their publishers and subscribers
 - tables, with the module that owns each one and the modules that use it
+- scheduled tasks: one-time, recurring with their cron or interval, and custom, with the code that schedules them
 - warnings where the code drifts from the template's conventions
 
 It reads source only: no compile, no running app, no database. It works on a branch that doesn't compile and on any checkout you point it at.
@@ -222,14 +223,14 @@ The HTML is one file. It has:
 - the metrics
 - a module diagram at three levels of detail: modules only, with their services, repositories, routers and gateways, or with tables and events too. Zoom buttons scale it, and it starts fitted to the page. Modules under `utils/`, the platform the template ships, stay off the diagram and the module list unless a diff changes them, together with the tables and events only they touch; the events, tables and warnings sections still list them.
 - a list of the modules. Clicking a module there or in the diagram shows its details and focuses the diagram on it. The focused diagram has the module and the modules it depends on or that depend on it. With tables and events shown, it also has the modules on the other side of its tables and events. Clicking the focused module again, or **Show all modules**, goes back to the whole map.
-- the events and tables views
+- the events, tasks and tables views. A task's name is the string it's given; a name the code computes, like the outbox's per-consumer delivery tasks, is shown as the expression that computes it. "Scheduled from" lists the classes that call the task's `instance(…)`; recurring tasks have none, since the scheduler registers them at startup.
 - the warnings
 
 The diagram is drawn by Mermaid, which the page loads from jsDelivr: a pinned version, checked against an integrity hash. Without network access the page says so in place of the diagram, and the rest of it still works.
 
 In a diff, added, removed and changed items are marked. **Changed only** hides the rest and draws the same diagram as the Mermaid output.
 
-Without `--diff`, the Mermaid output is the whole map with the current metrics and warnings. It draws services, repositories, routers and gateways inside their modules while that stays within 30 boxes. With `--diff`, it shows only the changed modules, tables and events, plus their direct neighbours. Added, removed and changed services, repositories, routers and gateways are drawn inside their modules; past 30 boxes they're left out. Past 80 boxes or 300 arrows, which is more than GitHub renders, the output is a list of what was added, removed and changed instead of a diagram. New warnings are listed under the diagram.
+Without `--diff`, the Mermaid output is the whole map with the current metrics and warnings. It draws services, repositories, routers and gateways inside their modules while that stays within 30 boxes. With `--diff`, it shows only the changed modules, tables and events, plus their direct neighbours. Added, removed and changed services, repositories, routers and gateways are drawn inside their modules; past 30 boxes they're left out. Past 80 boxes or 300 arrows, which is more than GitHub renders, the output is a list of what was added, removed and changed instead of a diagram. Added, removed and changed tasks, such as a new cron job, and new warnings are listed under the diagram.
 
 Arrows between modules are labelled with the kind of dependency:
 - **`wires`** lists the cake members one module takes from the other, such as `wires userRepository`.

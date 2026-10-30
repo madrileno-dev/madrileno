@@ -46,6 +46,7 @@ object Html {
       """<aside id="details"><p class="muted">Click a module to focus the diagram on it and see what it consumes, provides and contributes.</p></aside>""",
       "</div></section>",
       s"""<section id="events"><h2>Events</h2>${eventsTable(diff)}</section>""",
+      s"""<section id="tasks"><h2>Tasks</h2>${tasksTable(diff)}</section>""",
       s"""<section id="tables"><h2>Tables</h2>${tablesMatrix(diff)}</section>""",
       s"""<section id="warnings"><h2>Warnings</h2>${warningsList(diff)}</section>""",
       """<section id="unclassified"><h2>Unclassified</h2>""",
@@ -170,6 +171,28 @@ object Html {
     else
       """<div class="scroll"><table><thead><tr><th>Name</th><th>Kind</th><th>Type</th><th>Owner</th><th>Publishers</th><th>Subscribers</th><th>Declared at</th></tr></thead><tbody>""" +
         (topics ++ events).mkString + "</tbody></table></div>"
+  }
+
+  private def tasksTable(diff: DiffModel): String = {
+    val rows = diff.tasks.flatMap(node =>
+      node.head.orElse(node.base).map { task =>
+        row(
+          node.status,
+          List(
+            escape(marker(node.status) + task.name),
+            task.kind.label,
+            escape(task.schedule.getOrElse("")),
+            escape(task.owner.label),
+            escape(task.scheduledFrom.map(siteLabel).distinct.mkString(", ")),
+            locCell(task.loc)
+          )
+        )
+      }
+    )
+    if (rows.isEmpty) """<p class="muted">No scheduled tasks.</p>"""
+    else
+      """<div class="scroll"><table><thead><tr><th>Name</th><th>Kind</th><th>Schedule</th><th>Owner</th><th>Scheduled from</th><th>Declared at</th></tr></thead><tbody>""" +
+        rows.mkString + "</tbody></table></div>"
   }
 
   private def tablesMatrix(diff: DiffModel): String = {

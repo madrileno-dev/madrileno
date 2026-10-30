@@ -34,7 +34,7 @@ class MetricsSuite extends munit.FunSuite {
   }
 
   test("a project without modules has zero metrics") {
-    assertEquals(ArchMetrics.of(ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil)), ArchMetrics(0.0, 0.0, 0, 0, 0, 0))
+    assertEquals(ArchMetrics.of(ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil)), ArchMetrics(0.0, 0.0, 0, 0, 0, 0))
   }
 
   test("percentages show one decimal when needed, and a trend needs a visible move") {

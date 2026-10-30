@@ -19,6 +19,7 @@ object Extractor {
     )
     val cycles                        = Cycles.warnings(modules.value, wiring.value, references)
     val tables                        = TableExtractor.extract(files, input.migrations, ownership)
+    val tasks                         = TaskExtractor.extract(files, ownership)
     val (topics, outboxEvents)        = events.value
     val (tableDecls, migrationTables) = tables.value
 
@@ -29,6 +30,7 @@ object Extractor {
       references = references,
       topics = topics,
       outboxEvents = outboxEvents,
+      tasks = tasks.value,
       tables = tableDecls,
       migrationTables = migrationTables,
       warnings = (modules.warnings ++ wiring.warnings ++ cycles ++ events.warnings ++ tables.warnings).sortBy(w => (w.kind.ordinal, w.key)),

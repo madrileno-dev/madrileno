@@ -161,7 +161,22 @@ object Mermaid {
       diff.warnings.filter(_.status == WarningStatus.New).map(w => s"- `${w.warning.loc.path}:${w.warning.loc.line}` — ${w.warning.message}")
     val unclassified =
       diff.unclassified.filter(_.status == WarningStatus.New).map(u => s"- `${u.item.loc.path}:${u.item.loc.line}` — ${u.item.description}")
-    section("New warnings", warnings) + section("New unclassified", unclassified)
+    val tasks = diff.tasks.filter(_.status != Status.Unchanged).flatMap { node =>
+      node.head.orElse(node.base).map { task =>
+        val change = node.status match {
+          case Status.Added   => "added"
+          case Status.Removed => "removed"
+          case _              => "changed"
+        }
+        s"- $change `${task.name}`: ${task.kind.label}${task.schedule.fold("")(schedule => s", ${scheduleText(schedule)}")}, in ${task.owner.label}"
+      }
+    }
+    section("Tasks", tasks) + section("New warnings", warnings) + section("New unclassified", unclassified)
+  }
+
+  private def scheduleText(schedule: String): String = schedule.split(" ", 2) match {
+    case Array(kind @ ("cron" | "every" | "after"), value) => s"$kind `$value`"
+    case _                                                 => s"`$schedule`"
   }
 
   private def section(title: String, lines: List[String]): String =

@@ -39,7 +39,7 @@ class MermaidSuite extends munit.FunSuite {
   test("more than 30 boxes collapse components") {
     val many = (1 to 31).map(i => Fixtures.src(s"m$i/M${i}Module.scala", s"package app.m$i\ntrait M${i}Module {\n  private val s = wire[S$i]\n}")) ++
       (1 to 31).map(i => Fixtures.src(s"m$i/services/S$i.scala", s"package app.m$i.services\nclass S$i"))
-    val empty = ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil)
+    val empty = ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil)
     val graph = GraphView.changes(ArchDiff.compare(empty, Extractor.extract(Fixtures.project(many*)), "b", "h"))
     assert(graph.collapsed)
     assert(graph.nodes.forall(_.kind != NodeKind.Component))
@@ -47,7 +47,7 @@ class MermaidSuite extends munit.FunSuite {
 
   test("a diagram too large for GitHub becomes a textual summary") {
     val many  = (1 to 90).map(i => Fixtures.src(s"m$i/M${i}Module.scala", s"package app.m$i\ntrait M${i}Module"))
-    val empty = ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil)
+    val empty = ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil)
     val text  = Mermaid.render(ArchDiff.compare(empty, Extractor.extract(Fixtures.project(many*)), "b", "h"))
     assert(!text.contains("```mermaid"), text.take(300))
     assert(text.contains("**Added modules (90):** m1, m10, m11"), text.take(600))
@@ -163,7 +163,7 @@ class MermaidSuite extends munit.FunSuite {
         )
       )
     )
-    val text = Mermaid.render(ArchDiff.compare(ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil), model, "b", "h"))
+    val text = Mermaid.render(ArchDiff.compare(ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil), model, "b", "h"))
     assert(text.contains("""-->|"as shop (cleanup) [v2]"| module_shop"""), text)
   }
 

@@ -70,6 +70,7 @@ final case class DiffModel(
   tables: List[NodeDiff[TableDecl]],
   topics: List[NodeDiff[BusTopic]],
   events: List[NodeDiff[OutboxEvent]],
+  tasks: List[NodeDiff[TaskDecl]],
   edges: List[EdgeDiff],
   references: List[NodeDiff[Reference]],
   wirings: List[NodeDiff[Wiring]],
@@ -111,6 +112,7 @@ object ArchDiff {
       events = nodes(base.outboxEvents, head.outboxEvents)(_.eventType)(e =>
         (e.typeName, e.owner, sites(e.publishers), e.subscribers.map(s => (s.consumer, s.site.owner, s.site.enclosing)).toSet)
       ),
+      tasks = nodes(base.tasks, head.tasks)(_.name)(t => (t.kind, t.schedule, t.owner, sites(t.scheduledFrom))),
       edges = edgeDiffs(edges(base), edges(head)),
       references = nodes(base.references, head.references)(r => s"${r.from}->${r.to}:${r.layer}.${r.symbol}")(_ => ()),
       wirings = nodes(base.wirings, head.wirings)(w => s"${w.consumer}:${w.member}:${w.provider}")(_ => ()),
@@ -158,6 +160,7 @@ object ArchDiff {
     tables: Set[String],
     topics: Set[String],
     events: Set[String],
+    tasks: Set[(String, TaskKind, Option[String])],
     references: Set[(String, String, String)])
 
   private def presence(before: Option[?]): WarningStatus = if (before.isDefined) WarningStatus.Existing else WarningStatus.New
@@ -210,6 +213,7 @@ object ArchDiff {
       model.tables.filter(_.owner == owner).map(_.name).toSet,
       model.topics.filter(_.owner == owner).map(_.name).toSet,
       model.outboxEvents.filter(_.owner == owner).map(_.eventType).toSet,
+      model.tasks.filter(_.owner == owner).map(t => (t.name, t.kind, t.schedule)).toSet,
       model.references.filter(_.from == module.id).map(r => (r.to, r.layer, r.symbol)).toSet
     )
   }

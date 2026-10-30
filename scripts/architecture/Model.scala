@@ -106,6 +106,25 @@ final case class OutboxEvent(
   loc: Loc)
     derives ReadWriter
 
+enum TaskKind derives ReadWriter {
+  case OneTime, Recurring, Custom
+
+  def label: String = this match {
+    case OneTime   => "one-time"
+    case Recurring => "recurring"
+    case Custom    => "custom"
+  }
+}
+
+final case class TaskDecl(
+  name: String,
+  kind: TaskKind,
+  schedule: Option[String],
+  owner: Owner,
+  scheduledFrom: List[Site],
+  loc: Loc)
+    derives ReadWriter
+
 final case class TableDecl(
   name: String,
   objectName: String,
@@ -146,6 +165,7 @@ final case class ArchModel(
   references: List[Reference],
   topics: List[BusTopic],
   outboxEvents: List[OutboxEvent],
+  tasks: List[TaskDecl],
   tables: List[TableDecl],
   migrationTables: List[MigrationTable],
   warnings: List[Warning],
