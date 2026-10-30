@@ -188,4 +188,30 @@ class EventsSuite extends munit.FunSuite {
     )
     assertEquals(result.warnings, Nil)
   }
+  test("an outbox subscription or event type that isn't a literal is unclassified, and its publishers aren't called unknown") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src(
+        "user/domain/UserDeleted.scala",
+        "package app.user.domain\nfinal case class UserDeleted(id: Id)\nobject UserDeleted {\n  given DomainEventDescriptor[UserDeleted] = DomainEventDescriptor(EventTypes.Deleted, \"user\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "user/services/UserService.scala",
+        "package app.user.services\nclass UserService(outbox: Outbox) {\n  def d(id: Id) = outbox.publishTransactionally(UserDeleted(id))\n}"
+      ),
+      Fixtures.src(
+        "user/UserSubscriptions.scala",
+        "package app.user\nobject Subs {\n  val s = OutboxSubscription[UserDeleted](Consumers.Billing)(h)\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files))
+    assertEquals(result.value._2, Nil)
+    assertEquals(
+      result.unclassified.map(u => u.key -> u.description),
+      List(
+        "outbox-event-name:user/domain/UserDeleted.scala:UserDeleted" -> "DomainEventDescriptor[UserDeleted] in UserDeleted has the event type EventTypes.Deleted, not a string literal",
+        "outbox-subscription:user/UserSubscriptions.scala:UserDeleted" -> "OutboxSubscription[UserDeleted] in Subs names its consumer by Consumers.Billing, not a string literal"
+      )
+    )
+  }
 }

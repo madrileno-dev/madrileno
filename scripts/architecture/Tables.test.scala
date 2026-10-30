@@ -208,4 +208,34 @@ class TablesSuite extends munit.FunSuite {
       List("table-name:user/repositories/UserTable.scala:UserTable" -> "UserTable extends Table with the name Names.next(), not a string literal")
     )
   }
+  test("a table a later migration drops or renames needs no Table object, and migrations replay in version order") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src("user/repositories/RenamedTable.scala", "package app.user.repositories\nobject RenamedTable extends Table[Row](\"renamed\")")
+    )
+    val migrations = List(
+      Fixtures.migration("V1__init.sql", "create table legacy_things (id int);\ncreate table old_name (id int);\ncreate table ghost (id int);"),
+      Fixtures.migration("V10__drop_temp.sql", "drop table temp;"),
+      Fixtures.migration(
+        "V2__changes.sql",
+        "drop table if exists legacy_things;\nalter table old_name rename to renamed;\nalter table renamed rename column id to key;\ncreate table temp (id int);"
+      )
+    )
+    assertEquals(TableExtractor.extract(files, migrations, Ownership.of(files)).warnings.map(_.key), List("migration-table-without-table:ghost"))
+  }
+
+  test("an object of the using module with a table object's name is not a use of that table") {
+    val files = Fixtures.parsed(
+      Fixtures.src("orders/OrdersModule.scala", "package app.orders\ntrait OrdersModule"),
+      Fixtures.src("billing/BillingModule.scala", "package app.billing\ntrait BillingModule"),
+      Fixtures.src("orders/repositories/Orders.scala", "package app.orders.repositories\nobject Orders extends Table[OrderRow](\"orders\")"),
+      Fixtures.src(
+        "billing/services/Billing.scala",
+        "package app.billing.services\nobject Orders {\n  def count = 1\n}\nclass Billing {\n  def n = Orders.count\n}"
+      )
+    )
+    val result = TableExtractor.extract(files, Nil, Ownership.of(files))
+    assertEquals(result.value._1.map(t => (t.name, t.users)), List(("orders", Nil)))
+    assertEquals(result.warnings, Nil)
+  }
 }

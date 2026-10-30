@@ -35,10 +35,8 @@ object Mermaid {
     val footer = footerOf(diff)
     if (graph.nodes.forall(_.status == Status.Unchanged) && graph.edges.forall(_.status == Status.Unchanged))
       s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n${if (metricsMoved(diff)) metricsSection(diff) else ""}$footer$Credit"
-    else if (graph.nodes.size > GraphView.MaxDiagramNodes || graph.edges.size > GraphView.MaxDiagramEdges) {
-      val intro =
-        s"_The diagram would be too large for GitHub to render (${graph.nodes.size} boxes, ${graph.edges.size} arrows). Open the HTML for the full picture._"
-      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n$intro\n\n${summary(diff)}${metricsSection(diff)}$footer$Credit"
+    else if (tooLarge(graph).isDefined) {
+      s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n${tooLarge(graph).getOrElse("")}\n\n${summary(diff)}${metricsSection(diff)}$footer$Credit"
     } else {
       val note =
         if (graph.collapsed)
@@ -50,13 +48,22 @@ object Mermaid {
 
   def diagram(graph: Graph): String = s"$Theme---\nflowchart LR\n${body(graph)}"
 
+  private def tooLarge(graph: Graph): Option[String] = {
+    val characters = diagram(graph).length
+    Option.when(
+      graph.nodes.size > GraphView.MaxDiagramNodes || graph.edges.size > GraphView.MaxDiagramEdges || characters > GraphView.MaxDiagramText
+    )(
+      s"_The diagram would be too large for GitHub to render (${graph.nodes.size} boxes, ${graph.edges.size} arrows, $characters characters). Open the HTML for the full picture._"
+    )
+  }
+
   def renderFull(diff: DiffModel): String = {
     val detailed = GraphView.full(diff, Level.Components)
     val graph    = if (detailed.nodes.size > GraphView.MaxNodes) GraphView.full(diff, Level.Modules) else detailed
     val shown    =
-      if (graph.nodes.size > GraphView.MaxDiagramNodes || graph.edges.size > GraphView.MaxDiagramEdges)
-        s"_The diagram would be too large for GitHub to render (${graph.nodes.size} boxes, ${graph.edges.size} arrows). Open the HTML for the full picture._\n\n- **Modules (${diff.modules.size}):** ${diff.modules.map(_.id).mkString(", ")}\n"
-      else s"```mermaid\n${diagram(graph)}```\n"
+      tooLarge(graph).fold(s"```mermaid\n${diagram(graph)}```\n")(intro =>
+        s"$intro\n\n- **Modules (${diff.modules.size}):** ${diff.modules.map(_.id).mkString(", ")}\n"
+      )
     val note =
       if (graph ne detailed)
         s"\n_Services, repositories, routers and gateways are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
@@ -226,7 +233,10 @@ object Mermaid {
   private def section(title: String, lines: List[String]): String =
     if (lines.isEmpty) "" else s"\n**$title**\n\n${lines.mkString("\n")}\n"
 
-  private def idOf(key: String): String = key.replaceAll("[^A-Za-z0-9]", "_")
+  private def idOf(key: String): String = {
+    val readable = key.replaceAll("[^A-Za-z0-9]", "_")
+    if (key.matches("[A-Za-z0-9:]*")) readable else s"${readable}_${Trees.hash(key).take(8)}"
+  }
 
   private def prefix(status: Status): String = status match {
     case Status.Added     => "#43;#160;"
@@ -235,5 +245,13 @@ object Mermaid {
     case Status.Unchanged => ""
   }
 
-  private def escape(text: String): String = text.replace("\"", "#quot;").replace("<", "#lt;").replace(">", "#gt;").replace("*", "#42;")
+  private def escape(text: String): String =
+    text
+      .replace("\"", "#quot;")
+      .replace("<", "#lt;")
+      .replace(">", "#gt;")
+      .replace("*", "#42;")
+      .replace("_", "#95;")
+      .replace("~", "#126;")
+      .replace("`", "#96;")
 }

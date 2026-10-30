@@ -21,7 +21,8 @@ class MermaidSuite extends munit.FunSuite {
 
   test("labels are escaped") {
     val node = GNode("table:\"x<y>\"", "\"x<y>\"", NodeKind.Table, None, Status.Added)
-    assertEquals(Mermaid.nodeLine(node), "table__x_y__[(\"#43;#160;#quot;x#lt;y#gt;#quot;\")]")
+    assertEquals(Mermaid.nodeLine(node), s"${Mermaid.nodeId(node.key)}[(\"#43;#160;#quot;x#lt;y#gt;#quot;\")]")
+    assert(Mermaid.nodeId(node.key).matches("table__x_y___[0-9a-f]{8}"), Mermaid.nodeId(node.key))
   }
 
   test("no label starts with a Markdown list marker, which Mermaid 11 renders as an error") {
@@ -221,5 +222,25 @@ class MermaidSuite extends munit.FunSuite {
     )
     val text = Mermaid.diagram(GraphView.full(ArchDiff.full(model, "h"), Level.Modules))
     assert(text.contains("\"uses repositories.#42;, services.#42;\""), text)
+  }
+  test("a diagram with more text than Mermaid accepts becomes a textual summary") {
+    val long  = "x" * 700
+    val many  = (1 to 40).map(i => Fixtures.src(s"m$i$long/M${i}Module.scala", s"package app.m$i$long\ntrait M${i}Module"))
+    val empty = ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil)
+    val text  = Mermaid.render(ArchDiff.compare(empty, Extractor.extract(Fixtures.project(many*)), "b", "h"))
+    assert(!text.contains("```mermaid"), text.take(300))
+    assert(text.contains("**Added modules (40):**"), text.take(600))
+  }
+
+  test("node ids stay apart when keys differ only in punctuation") {
+    val ids = List("topic:orders-events", "topic:orders_events", "module:user_profile", "module:user/profile").map(Mermaid.nodeId)
+    assertEquals(ids.distinct.size, 4)
+    assert(ids.forall(_.matches("[A-Za-z0-9_]+")), ids)
+    assertEquals(Mermaid.nodeId("component:order:OrderService"), "component_order_OrderService")
+  }
+
+  test("underscores, tildes and backticks in a label are not Markdown") {
+    val node = GNode("topic:t", "_a_ ~~b~~ `c`", NodeKind.Topic, None, Status.Unchanged)
+    assert(Mermaid.nodeLine(node).contains("#95;a#95; #126;#126;b#126;#126; #96;c#96;"), Mermaid.nodeLine(node))
   }
 }

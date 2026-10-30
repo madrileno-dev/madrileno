@@ -11,7 +11,8 @@ object TableExtractor {
     val classes   = files.flatMap(_.tree.collect { case cls: Defn.Class => cls.name.value -> cls }).toMap
     val found     = files.flatMap(declarationsIn(_, classes, ownership))
     val declared  = found.collect { case Right(table) => table }
-    val withUsers = declared.map(table => table.copy(users = usersOf(table, declared, files, ownership)))
+    val local     = localNames(files, declared, ownership)
+    val withUsers = declared.map(table => table.copy(users = usersOf(table, declared, local, files, ownership)))
     val migrated  = migrations.flatMap(MigrationExtractor.created)
 
     val crossModule = withUsers
@@ -46,7 +47,8 @@ object TableExtractor {
         )
       }
     }
-    val undeclared = migrated
+    val undeclared = MigrationExtractor
+      .existing(migrations)
       .filterNot(m => declared.exists(_.name == m.name))
       .distinctBy(_.name)
       .map(m =>
@@ -114,9 +116,29 @@ object TableExtractor {
       } yield TableColumn(Trees.stringLiteral(name).getOrElse(Trees.compact(name)), Trees.compact(codec))
     }.flatten
 
+  private def localNames(
+    files: List[ParsedFile],
+    declared: List[TableDecl],
+    ownership: Ownership
+  ): Map[Owner, Set[String]] =
+    files
+      .flatMap { file =>
+        val owner = ownership.ownerOf(file.pkg)
+        file.tree.collect {
+          case d: Defn.Object if !declared.exists(t => t.objectName == d.name.value && t.owner == owner) => owner -> d.name.value
+          case d: Defn.Class                                                                             => owner -> d.name.value
+          case d: Defn.Enum                                                                              => owner -> d.name.value
+        }
+      }
+      .groupMap(_._1)(_._2)
+      .view
+      .mapValues(_.toSet)
+      .toMap
+
   private def usersOf(
     table: TableDecl,
     declared: List[TableDecl],
+    local: Map[Owner, Set[String]],
     files: List[ParsedFile],
     ownership: Ownership
   ): List[Site] =
@@ -124,11 +146,19 @@ object TableExtractor {
       val owner = ownership.ownerOf(file.pkg)
       file.tree
         .collect {
-          case name: Term.Name if name.value == table.objectName && !isDefinitionName(name) && resolvesTo(table, declared, owner) =>
+          case name: Term.Name
+              if name.value == table.objectName && !isDefinitionName(name) && !shadowed(table, owner, local) && resolvesTo(table, declared, owner) =>
             Site(owner, Trees.enclosingName(name), Trees.loc(file, name))
         }
         .distinctBy(_.enclosing)
     }
+
+  private def shadowed(
+    table: TableDecl,
+    owner: Owner,
+    local: Map[Owner, Set[String]]
+  ): Boolean =
+    owner != table.owner && local.get(owner).exists(_(table.objectName))
 
   private def resolvesTo(
     table: TableDecl,

@@ -441,7 +441,7 @@ body.changed-only [data-status="unchanged"] { display: none; }
     if (toggles && focused === id) unfocus();
     else { show(id); focused = id; draw(); }
   };
-  if (window.mermaid) window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', flowchart: { useMaxWidth: false } });
+  if (window.mermaid) window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', maxTextSize: 1000000, maxEdges: 5000, flowchart: { useMaxWidth: false } });
   document.querySelectorAll('.module-chip').forEach(chip => chip.addEventListener('click', () => focusOn(chip.dataset.module, true)));
   showAll.addEventListener('click', unfocus);
   document.querySelectorAll('input[name=level]').forEach(radio => radio.addEventListener('change', draw));

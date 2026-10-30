@@ -170,4 +170,18 @@ class TasksSuite extends munit.FunSuite {
     assertEquals(diff.modules.map(m => m.id -> m.status), List("shop" -> Status.Changed))
     assertEquals(after.warnings.map(_.message), List("task dup is declared in shop (2 times)"))
   }
+  test("a helper that builds recurring tasks from its own parameter is not a task") {
+    val files = Fixtures.parsed(
+      Fixtures.src("billing/BillingModule.scala", "package app.billing\ntrait BillingModule"),
+      Fixtures.src(
+        "billing/services/Jobs.scala",
+        "package app.billing.services\nobject Jobs {\n" +
+          "  def nightly(name: String)(run: IO[Unit]) = Task.recurring(name, Schedule.Cron(CronExpression.unsafeParse(\"0 0 3 * * ?\")))(_ => run)\n" +
+          "  def hourly(name: String)(run: IO[Unit]) = Task.recurring(name, Schedule.Cron(CronExpression.unsafeParse(\"0 0 * * * ?\")))(_ => run)\n}"
+      )
+    )
+    val result = TaskExtractor.extract(files, Ownership.of(files))
+    assertEquals(result.value, Nil)
+    assertEquals(result.warnings, Nil)
+  }
 }

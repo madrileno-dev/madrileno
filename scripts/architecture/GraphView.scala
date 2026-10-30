@@ -36,6 +36,8 @@ object GraphView {
 
   val MaxDiagramEdges: Int = 300
 
+  val MaxDiagramText: Int = 50000
+
   def shown(diff: DiffModel): List[ModuleDiff] =
     diff.modules.filter(m => !m.id.startsWith("utils/") || (diff.isDiff && (m.status != Status.Unchanged || m.changedFiles.nonEmpty)))
 

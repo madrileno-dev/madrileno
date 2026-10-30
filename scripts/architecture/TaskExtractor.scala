@@ -39,7 +39,7 @@ object TaskExtractor {
   private def definitionsIn(file: ParsedFile, ownership: Ownership): List[Either[Unclassified, Definition]] =
     file.tree.collect {
       case call @ Term.Apply.After_4_6_0(fun, args) if taskMethod(fun).contains("recurring") =>
-        Trees.argument(args.values, "name", 0).map { name =>
+        Trees.argument(args.values, "name", 0).filterNot(isParameter(_, call)).map { name =>
           Right(definition(file, ownership, call, nameOf(name), TaskKind.Recurring, Trees.argument(args.values, "schedule", 1).map(scheduleOf)))
         }
       case call @ Term.Apply.After_4_6_0(fun, args) if taskMethod(fun).exists(Set("oneTime", "custom")) =>

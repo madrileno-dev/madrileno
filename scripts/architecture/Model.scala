@@ -36,7 +36,8 @@ final case class Component(
   name: String,
   kind: ComponentKind,
   dependencies: List[String],
-  loc: Loc)
+  loc: Loc,
+  file: String)
     derives ReadWriter
 
 final case class Metrics(

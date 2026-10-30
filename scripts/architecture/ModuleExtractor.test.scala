@@ -141,4 +141,18 @@ class ModuleExtractorSuite extends munit.FunSuite {
     assertEquals(result.value.map(m => m.id -> m.mixedIn), List("a" -> true, "b" -> true))
     assertEquals(result.warnings, Nil)
   }
+  test("a component built with its class name and no new is a component, and an anonymous given provides nothing") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "billing/BillingModule.scala",
+        "package app.billing\ntrait BillingModule {\n  lazy val billingService: BillingService = BillingService(transactor)\n  lazy val config = BillingConfig(1)\n" +
+          "  given Ordering[Int] = Ordering.Int\n}"
+      ),
+      Fixtures.src("billing/services/BillingService.scala", "package app.billing.services\nclass BillingService(transactor: Transactor)"),
+      Fixtures.src("billing/domain/BillingConfig.scala", "package app.billing.domain\nfinal case class BillingConfig(days: Int)")
+    )
+    val billing = ModuleExtractor.extract(files, Ownership.of(files)).value.head
+    assertEquals(billing.components.map(c => (c.name, c.kind)), List(("BillingService", ComponentKind.Service)))
+    assertEquals(billing.provides.map(_.name), List("billingService", "config"))
+  }
 }

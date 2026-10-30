@@ -171,7 +171,7 @@ object ArchDiff {
     ).filter(_._2.nonEmpty)
   }
 
-  def changedPathOf(file: String, changedPaths: Iterable[String]): Option[String] = changedPaths.find(path => file.endsWith(s"/$path"))
+  def changedPathOf(file: String, changedPaths: Iterable[String]): Option[String] = changedPaths.find(_ == file)
 
   private def withCodeChange[A](node: NodeDiff[A], changedPaths: Set[String])(definedIn: A => Option[String]): NodeDiff[A] =
     node.copy(codeChanged = node.status == Status.Unchanged && node.head.flatMap(definedIn).exists(changedPathOf(_, changedPaths).isDefined))
@@ -279,7 +279,7 @@ object ArchDiff {
         a
       ) =>
         val componentStatus = status(b, a)(c => (c.kind, c.dependencies))
-        val fileChanged     = a.exists(component => changedFiles.exists(path => component.loc.path.endsWith(s"/$path")))
+        val fileChanged     = a.exists(component => changedFiles.contains(component.file))
         ComponentDiff(name, componentStatus, b, a, codeChanged = componentStatus == Status.Unchanged && fileChanged)
     }
 

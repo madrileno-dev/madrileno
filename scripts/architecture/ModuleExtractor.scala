@@ -84,8 +84,8 @@ object ModuleExtractor {
   private def provided(file: ParsedFile, stat: Stat): List[Member] = stat match {
     case d: Defn.Val if visible(d.mods) =>
       Trees.patNames(d.pats).map(Member(_, d.decltpe.map(_.syntax).orElse(instantiated(d.rhs)).getOrElse(""), Trees.loc(file, d)))
-    case d: Defn.GivenAlias if visible(d.mods)                     => List(Member(d.name.value, d.decltpe.syntax, Trees.loc(file, d)))
-    case d: Defn.Given if visible(d.mods) && d.name.value.nonEmpty =>
+    case d: Defn.GivenAlias if visible(d.mods) && d.name.value.nonEmpty => List(Member(d.name.value, d.decltpe.syntax, Trees.loc(file, d)))
+    case d: Defn.Given if visible(d.mods) && d.name.value.nonEmpty      =>
       List(Member(d.name.value, d.templ.inits.headOption.map(_.tpe.syntax).getOrElse(""), Trees.loc(file, d)))
     case d: Defn.Def if visible(d.mods) =>
       List(Member(d.name.value, d.decltpe.map(_.syntax).orElse(instantiated(d.body)).getOrElse(""), Trees.loc(file, d)))
@@ -157,8 +157,10 @@ object ModuleExtractor {
               )
             )
           }
-        case Term.New(init) => component(Trees.typeName(init.tpe), ownFiles).map(Right(_))
-        case _              => None
+        case Term.New(init)                             => component(Trees.typeName(init.tpe), ownFiles).map(Right(_))
+        case Term.Apply.After_4_6_0(Term.Name(name), _) =>
+          component(name, ownFiles).filter(_.kind != ComponentKind.Other).map(Right(_))
+        case _ => None
       }
     case _ => None
   }
@@ -166,7 +168,7 @@ object ModuleExtractor {
   private def component(name: String, ownFiles: List[ParsedFile]): Option[Component] =
     ownFiles.view.flatMap { file =>
       file.tree.collect { case cls: Defn.Class if cls.name.value == name => cls }.map { cls =>
-        Component(name, Layers.kindOf(file.pkg), dependencies(cls), Trees.loc(file, cls))
+        Component(name, Layers.kindOf(file.pkg), dependencies(cls), Trees.loc(file, cls), file.source.packagePath)
       }
     }.headOption
 

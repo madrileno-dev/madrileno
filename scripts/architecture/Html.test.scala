@@ -151,4 +151,8 @@ class HtmlSuite extends munit.FunSuite {
     assert(out.contains("tr.new td:first-child { color: var(--removed); }"), out)
     assert(out.contains("tr.resolved td:first-child { color: var(--added); text-decoration: line-through; }"), out)
   }
+  test("the page lets Mermaid draw diagrams past its default text and arrow limits") {
+    assert(page.contains("maxTextSize: 1000000"), page.take(200))
+    assert(page.contains("maxEdges: 5000"))
+  }
 }

@@ -262,4 +262,20 @@ class CodeChangesSuite extends munit.FunSuite {
     assertEquals(diff.tables.map(t => (t.status, t.codeChanged)), List((Status.Changed, false)))
     assert(Mermaid.render(diff).contains("- table `account`: added column `email`"), Mermaid.render(diff))
   }
+  private def nestedInvoice(billing: String) = Fixtures.project(
+    Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends OrdersModule with BillingModule"),
+    Fixtures.src(
+      "orders/OrdersModule.scala",
+      "package app.orders\ntrait OrdersModule {\n  lazy val bus: EventBus[Invoice] = eventBusRuntime.topic[Invoice](\"orders-invoices\", maxQueued = 8)\n}"
+    ),
+    Fixtures.src("orders/billing/domain/Invoice.scala", "package app.orders.billing.domain\nfinal case class Invoice(id: Id)"),
+    Fixtures.src("billing/BillingModule.scala", "package app.billing\ntrait BillingModule"),
+    Fixtures.src("billing/domain/Invoice.scala", s"package app.billing.domain\nfinal case class Invoice($billing)")
+  )
+
+  test("a payload is matched to its own file, not to another file whose path ends the same") {
+    val diff = ArchDiff.compare(Extractor.extract(nestedInvoice("id: Id")), Extractor.extract(nestedInvoice("id: Id, total: Money")), "b", "h")
+    assertEquals(diff.topics.map(t => (t.key, t.codeChanged)), List(("orders-invoices", false)))
+    assert(!Mermaid.render(diff).contains("topic `orders-invoices`"), Mermaid.render(diff))
+  }
 }
