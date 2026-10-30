@@ -4,6 +4,7 @@
 //> using jvm 21
 //> using toolkit default
 //> using dep com.lihaoyi::mainargs:0.7.8
+//> using mainClass InitProject
 
 // Rename this project from `madrileno` to `<name>`, swap the package, and delete
 // the auction demo. Run from the project root, either directly:
@@ -33,7 +34,7 @@ object InitProject {
 
   private val MadrilenoUpstream = "https://github.com/madrileno-dev/madrileno.git"
 
-  @main
+  @main(doc = "Rename the template to your project: package, names, docs and CI. Run once, right after cloning.")
   def run(
     @arg(positional = true, doc = "Project name (e.g. 'wine-cellar')")
     name: String,
@@ -41,7 +42,7 @@ object InitProject {
     packageOpt: Option[String] = None,
     @arg(name = "keep-docs", doc = "Keep the `docs/` tree (default: deleted — MCP server serves them from the pinned ref)")
     keepDocs: Flag = Flag()
-  ): Unit = {
+  ): Unit = guarded {
 
     require(name.matches("[A-Za-z][A-Za-z0-9_-]*"),
       s"project name '$name' must start with a letter and contain only letters, digits, '-' and '_' (sbt + HOCON + docker-compose all share that bar)")
@@ -242,5 +243,17 @@ object InitProject {
     println(s"  ./scripts/mcp-server.scala &           # optional — start the docs/source MCP for Claude (see $mcpDocLink)")
   }
 
-  def main(args: Array[String]): Unit = ParserForMethods(this).runOrExit(args)
+  private def guarded(body: => Unit): Unit =
+    try body
+    catch {
+      case e: IllegalArgumentException =>
+        System.err.println(s"error: ${e.getMessage.stripPrefix("requirement failed: ")}")
+        sys.exit(2)
+    }
+
+  def main(args: Array[String]): Unit =
+    ParserForMethods(this).runEither(args.toIndexedSeq).left.foreach { usage =>
+      System.err.println(usage)
+      sys.exit(2)
+    }
 }

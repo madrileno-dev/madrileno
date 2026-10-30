@@ -3,6 +3,8 @@
 //> using scala 3.9.0
 //> using jvm 21
 //> using toolkit default
+//> using dep com.lihaoyi::mainargs:0.7.8
+//> using mainClass CheckLinks
 
 // Walks every `.md` file in the project tree, extracts `[text](target)` links,
 // and verifies each internal target exists. External `http(s)://` links are skipped
@@ -13,6 +15,8 @@
 //   ./scripts/check-links.scala
 //
 // Exit 0 = all green. Exit 1 = at least one broken link. Findings printed to stderr.
+
+import mainargs.{ParserForMethods, main}
 
 import java.io.File
 import java.nio.file.{Files, Path, Paths}
@@ -29,7 +33,8 @@ object CheckLinks {
   private val SkipDirs: Set[String] =
     Set(".git", ".madrileno-mcp", "target", ".bsp", ".bloop", ".scala-build", ".metals", ".idea", ".vscode", "logs", "node_modules")
 
-  def main(args: Array[String]): Unit = {
+  @main(doc = "Check that every internal link in the project's markdown resolves. Exit 1 when one doesn't.")
+  def run(): Unit = {
     val root = Paths.get(".").toAbsolutePath.normalize
     val mdFiles = walkMd(root.toFile)
     val findings = mdFiles.flatMap(file => checkFile(file, root))
@@ -126,4 +131,10 @@ object CheckLinks {
     val stripped = lower.replaceAll("[^\\w\\- ]", "")
     stripped.trim.replaceAll("\\s+", "-")
   }
+
+  def main(args: Array[String]): Unit =
+    ParserForMethods(this).runEither(args.toIndexedSeq).left.foreach { usage =>
+      System.err.println(usage)
+      sys.exit(2)
+    }
 }

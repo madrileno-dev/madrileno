@@ -2,6 +2,12 @@
 
 scala-cli scripts under `scripts/` for project lifecycle tasks. Each is self-contained — its `//> using` directives declare deps, scala-cli does the rest. Run them either as executables (`./scripts/X.scala …`) or via scala-cli (`scala-cli run scripts/X.scala -- …`).
 
+Every script follows the same conventions:
+
+- Run it from the project root. `--help` prints what it does and its options.
+- It exits `0` on success, and `1` when it ran and found problems or the command it ran failed: broken links, failed `doctor` checks, warnings under `architecture.scala --strict`.
+- It exits `2` on bad arguments, or when it can't run here: not the project root, or a missing prerequisite such as the dev console's cached classpath. The error is one line on stderr.
+
 ## `init-project.scala`
 
 Use this once, right after cloning the template, to turn it into your project. Renames `madrileno` everywhere, swaps the Scala package, drops the auction showcase domain, removes the template's Apache-2.0 `LICENSE` (generated projects may relicense freely — see the README's License section), pins the upstream sha for the MCP server, and (by default) deletes the local `docs/` tree since the MCP serves them from the pinned ref.
@@ -136,7 +142,7 @@ The wrapper depends on a cached classpath at `target/console-classpath`, written
 - Deps change in `build.sbt`: same — next `sbt compile` resolves new deps and rewrites the cache.
 - Daily dev: nothing extra needed; the file stays valid as long as compile is current.
 
-If the cache is missing, the wrapper prints `run \`sbt compile\` first` and exits non-zero.
+If the cache is missing, the wrapper prints `run \`sbt compile\` first` and exits 2.
 
 Boot time: `./scripts/dev-console.scala` returns a REPL prompt in ~5s (scala-cli compile + JVM warmup). The actual `ConsoleApplication.boot()` (DB pool, HTTP client, scheduler, S3 backend, event bus) only runs on first `app` reference and adds ~3-5s to that first call.
 
@@ -193,6 +199,10 @@ The checks:
 - Doesn't auto-fix. "Doctor" is a smoke test, not a setup script. Copy-paste the hint; running the actual command is your call.
 - Doesn't check OS-level prereqs (sbt installed, JDK version, etc.). Those would have failed earlier (you couldn't have run this script). If you want a full bootstrap check, that's a different scope.
 - Doesn't follow `S3_ENDPOINT` / `OTEL_EXPORTER_OTLP_*_ENDPOINT` from `.env`. The Silo / OpenObserve port checks use the host ports from `docker-compose.yml` (59000 / 55080). Doctor's scope is "is the local dev stack up", not "is whatever the app is configured to talk to up". If you've pointed the app at remote Silo / OpenObserve, the local doctor checks are still meaningful for the dev stack itself; if you've also customised the compose port mappings, doctor needs a matching tweak.
+
+## `mcp-server.scala`
+
+Serves the upstream Madrileño reference, at the commit pinned in `.madrileno-ref`, to an AI coding assistant over the Model Context Protocol on `localhost:8910`. See [mcp.md](mcp.md) for the tools it offers and how to wire it into Claude.
 
 ## `architecture.scala`
 
@@ -307,7 +317,7 @@ The repo ships four GitHub Actions. `.github/workflows/scala.yml` is the project
 
 - **`.github/workflows/link-check.yml`** — runs `scripts/check-links.scala` on PRs touching markdown. The script walks every `.md`, extracts `[text](target)` links, verifies internal targets exist (relative paths + `#anchor` heading slugs). Externals + `mailto:` / `tel:` are skipped. Code spans + fenced blocks are stripped first so Scala signatures inside code samples don't trip the regex.
 - **`.github/workflows/script-tests.yml`** — five jobs:
-  - `compile-scripts` — `scala-cli compile` every `scripts/*.scala`, catches dep/import drift in the scripts themselves
+  - `compile-scripts` — compiles every `scripts/*.scala` and runs it with `--help`, which catches dependency drift and a broken entry point
   - `test-architecture` — runs the architecture map's unit tests, then `./scripts/architecture.scala --strict` on the template, which fails on any warning or unclassified item
   - `run-doctor` — smoke-runs `scripts/doctor.scala`, accepts exit `0` or `1` (CI has no dev stack so doctor's "checks failed" exit is expected; anything else is a real crash)
   - `test-init-project` — `git clone`s the repo into a temp dir, runs `./scripts/init-project.scala wine-cellar`, asserts the rename / auction-drop / workflow-cleanup happened, runs `./scripts/architecture.scala --strict` on the result, then `sbt compile`s
@@ -322,5 +332,6 @@ All workflows verify template content (our docs, our scripts). A forked project 
 - `scaffold-module.scala` + `templates/module/` — generator + templates
 - `dev-console.scala` — wrapper. The REPL predef is embedded as a string inside the wrapper (top of the file), written to a temp file at launch and passed to scala-cli's REPL. One file, at the cost of no syntax highlighting on the predef section in most editors.
 - `doctor.scala` — standalone, no companion files
+- `mcp-server.scala` — standalone, no companion files
 - `architecture.scala` + `architecture/` — entry point (CLI) + the extractor, diff and renderers it includes; `architecture/*.test.scala` are its unit tests (`scala-cli test scripts/architecture.scala`)
 - `check-links.scala` — standalone; template-only, deleted on init
