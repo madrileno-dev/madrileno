@@ -76,8 +76,13 @@ object Trees {
       case head :: tail => normalize(tail, head, head :: done)
     }
     val code = normalize(codeTokens(tree).map(_.text).toList, "", Nil).mkString(" ")
-    MessageDigest.getInstance("SHA-256").digest(code.getBytes(StandardCharsets.UTF_8)).take(12).map(byte => f"$byte%02x").mkString
+    hash(code)
   }
+
+  def hash(text: String): String =
+    MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)).take(12).map(byte => f"$byte%02x").mkString
+
+  def compact(tree: Tree): String = codeTokens(tree).map(_.text).mkString
 
   private def codeTokens(tree: Tree): Seq[Token] =
     tree.tokens.filter {

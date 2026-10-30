@@ -142,4 +142,106 @@ class CodeChangesSuite extends munit.FunSuite {
     val diff = ArchDiff.compare(Extractor.extract(loader("AModule with BModule")), Extractor.extract(loader("AModule")), "b", "h")
     assertEquals(diff.modules.map(m => m.id -> m.status), List("a" -> Status.Unchanged, "b" -> Status.Changed))
   }
+
+  private def withAccounts(columns: String, migrations: List[SourceFile] = Nil) = Fixtures.projectWithMigrations(
+    List(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src(
+        "user/repositories/AccountTable.scala",
+        s"package app.user.repositories\nobject AccountTable extends Table[Account](\"account\") {\n$columns\n}"
+      )
+    ),
+    migrations
+  )
+  private val idOnly = "  val id = column(\"id\", uuid)"
+
+  test("a table whose columns changed gets the dotted outline and is listed") {
+    val diff = ArchDiff.compare(
+      Extractor.extract(withAccounts(idOnly)),
+      Extractor.extract(
+        withAccounts("  val id = column(\"id\", uuid.as[AccountId])\n  val email = column(\"email\", text)\n  val name = column(\"name\", text)")
+      ),
+      "main",
+      "working tree"
+    )
+    assertEquals(diff.tables.map(t => (t.key, t.status, t.codeChanged)), List(("account", Status.Unchanged, true)))
+    assert(GraphView.changes(diff).nodes.exists(n => n.key == "table:account" && n.codeChanged))
+    val text = Mermaid.render(diff)
+    assert(text.contains("- table `account`: added columns `email`, `name`; changed column `id`"), text)
+    assert(Html.render(diff).contains("""<tr data-status="touched" class="touched"><td>account</td>"""))
+  }
+
+  test("added and changed migrations are listed, and the tables they touch get the dotted outline") {
+    val v1     = Fixtures.migration("V1__init.sql", "create table account (id uuid primary key);")
+    val edited = Fixtures.migration("V1__init.sql", "create table account (id uuid primary key, created_at timestamptz);")
+    val v2     = Fixtures.migration("V2__email.sql", "alter table account add column email text;")
+    val diff   = ArchDiff.compare(
+      Extractor.extract(withAccounts(idOnly, List(v1))),
+      Extractor.extract(withAccounts(idOnly, List(edited, v2))),
+      "main",
+      "working tree"
+    )
+    assertEquals(diff.migrations.map(m => m.key -> m.status), List("V1__init.sql" -> Status.Changed, "V2__email.sql" -> Status.Added))
+    assertEquals(diff.tables.map(t => t.key -> t.codeChanged), List("account" -> true))
+    val text = Mermaid.render(diff)
+    assert(text.startsWith("No architecture changes"), text)
+    assert(text.contains("- table `account`: migrations `V1__init.sql`, `V2__email.sql`"), text)
+    assert(text.contains("**Migrations**\n\n- changed `V1__init.sql`: creates `account`\n- added `V2__email.sql`: alters `account`"), text)
+    val page = Html.render(diff)
+    assert(page.contains("""<section id="migrations"><h2>Migrations</h2>"""), page)
+    assert(page.contains("""<tr data-status="added" class="added"><td><code>+ V2__email.sql</code></td><td>alters account</td></tr>"""), page)
+  }
+
+  test("a migration whose comments changed is not a change") {
+    val v1   = Fixtures.migration("V1__init.sql", "create table account (id uuid primary key);")
+    val diff = ArchDiff.compare(
+      Extractor.extract(withAccounts(idOnly, List(v1))),
+      Extractor.extract(
+        withAccounts(idOnly, List(Fixtures.migration("V1__init.sql", "-- accounts\ncreate table account (\n  id uuid primary key\n);")))
+      ),
+      "b",
+      "h"
+    )
+    assertEquals(diff.migrations.map(_.status), List(Status.Unchanged))
+    assertEquals(diff.tables.map(_.codeChanged), List(false))
+  }
+
+  test("code changed outside the modules is listed as platform or main") {
+    def app(retries: String, loader: String) = Fixtures.project(
+      Fixtures.src("main/ApplicationLoader.scala", s"package app.main\nclass ApplicationLoader extends AuthModule {\n$loader\n}"),
+      Fixtures.src("auth/AuthModule.scala", "package app.auth\ntrait AuthModule"),
+      Fixtures.src("utils/task/Scheduler.scala", s"package app.utils.task\nclass Scheduler {\n  def retries = $retries\n}"),
+      Fixtures.src("utils/db/Db.scala", "package app.utils.db\nclass Db")
+    )
+    val diff = ArchDiff.compare(Extractor.extract(app("3", "")), Extractor.extract(app("5", "  def port = 9000")), "main", "working tree")
+    assertEquals(diff.changedOutside, List("main/ApplicationLoader.scala", "utils/task/Scheduler.scala"))
+    val text = Mermaid.render(diff)
+    assert(text.startsWith("No architecture changes"), text)
+    assert(
+      text.contains("**Code changed, architecture unchanged**\n\n- platform: `utils/task/Scheduler.scala`\n- main: `ApplicationLoader.scala`"),
+      text
+    )
+    val page = Html.render(diff)
+    assert(page.contains("""<section id="outside"><h2>Code outside modules</h2>"""), page)
+    assert(
+      page.contains("""<tr data-status="touched" class="touched"><td>platform</td><td><code>utils/task/Scheduler.scala</code></td></tr>"""),
+      page
+    )
+    assert(!Html.render(ArchDiff.full(Extractor.extract(app("3", "")), "h")).contains("""<section id="outside">"""))
+  }
+
+  test("an event whose payload type lives outside the modules is marked when that file changes") {
+    def app(payload: String) = Fixtures.project(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src(
+        "user/services/UserService.scala",
+        "package app.user.services\nobject Deleted {\n  given DomainEventDescriptor[UserDeleted] = DomainEventDescriptor(\"user-deleted.v1\", \"user\", _.id)\n}"
+      ),
+      Fixtures.src("utils/events/UserDeleted.scala", s"package app.utils.events\nfinal case class UserDeleted($payload)")
+    )
+    val diff = ArchDiff.compare(Extractor.extract(app("id: Id")), Extractor.extract(app("id: Id, at: Instant")), "b", "h")
+    assertEquals(diff.events.map(_.codeChanged), List(true))
+  }
 }

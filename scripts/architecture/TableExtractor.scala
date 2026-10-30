@@ -73,7 +73,7 @@ object TableExtractor {
         .map { arg =>
           Trees
             .stringLiteral(arg)
-            .map(name => TableDecl(normalize(name), obj.name.value, ownership.ownerOf(file.pkg), Nil, Trees.loc(file, obj)))
+            .map(name => TableDecl(normalize(name), obj.name.value, ownership.ownerOf(file.pkg), Nil, Trees.loc(file, obj), columnsOf(obj)))
             .toRight(
               Unclassified(
                 s"table-name:${file.source.packagePath}:${obj.name.value}",
@@ -83,6 +83,14 @@ object TableExtractor {
             )
         }
     }
+
+  private def columnsOf(obj: Defn.Object): List[TableColumn] =
+    obj.templ.collect { case Term.Apply.After_4_6_0(Term.Name("column"), args) =>
+      for {
+        name  <- Trees.argument(args.values, "name", 0)
+        codec <- Trees.argument(args.values, "codec", 1)
+      } yield TableColumn(Trees.stringLiteral(name).getOrElse(Trees.compact(name)), Trees.compact(codec))
+    }.flatten
 
   private def usersOf(
     table: TableDecl,

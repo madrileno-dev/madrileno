@@ -49,6 +49,8 @@ object Html {
       s"""<section id="events"><h2>Events</h2>${eventsTable(diff)}</section>""",
       s"""<section id="tasks"><h2>Tasks</h2>${tasksTable(diff)}</section>""",
       s"""<section id="tables"><h2>Tables</h2>${tablesMatrix(diff)}</section>""",
+      s"""<section id="migrations"><h2>Migrations</h2>${migrationsTable(diff)}</section>""",
+      if (diff.isDiff) s"""<section id="outside"><h2>Code outside modules</h2>${outsideTable(diff)}</section>""" else "",
       s"""<section id="warnings"><h2>Warnings</h2>${warningsList(diff)}</section>""",
       """<section id="unclassified"><h2>Unclassified</h2>""",
       """<p class="muted">The map reads source, not compiled code. Anything it saw but could not place is listed here instead of being guessed.</p>""",
@@ -206,22 +208,47 @@ object Html {
   }
 
   private def tablesMatrix(diff: DiffModel): String = {
-    val tables  = diff.tables.flatMap(node => node.head.orElse(node.base).map(node.status -> _))
+    val tables  = diff.tables.flatMap(node => node.head.orElse(node.base).map(table => (node.status, node.codeChanged, table)))
     val modules = diff.modules.map(_.id)
     if (tables.isEmpty) """<p class="muted">No Table declarations.</p>"""
     else {
       val header = modules.map(id => s"<th>${escape(id)}</th>").mkString
-      val rows   = tables.map { (status, table) =>
-        val cells = modules.map { id =>
-          if (table.owner == Owner.Module(id)) """<span title="owner">●</span>"""
-          else if (table.users.exists(_.owner == Owner.Module(id))) """<span title="user">○</span>"""
-          else ""
-        }
-        row(status, escape(marker(status) + table.name) :: escape(table.owner.label) :: cells)
+      val rows   = tables.map {
+        (
+          status,
+          codeChanged,
+          table
+        ) =>
+          val cells = modules.map { id =>
+            if (table.owner == Owner.Module(id)) """<span title="owner">●</span>"""
+            else if (table.users.exists(_.owner == Owner.Module(id))) """<span title="user">○</span>"""
+            else ""
+          }
+          row(status, escape(marker(status) + table.name) :: escape(table.owner.label) :: cells, codeChanged)
       }
       s"""<p class="muted">● owner · ○ uses it</p><div class="scroll"><table class="matrix"><thead><tr><th>Table</th><th>Owner</th>$header</tr></thead><tbody>${rows.mkString}</tbody></table></div>"""
     }
   }
+
+  private def migrationsTable(diff: DiffModel): String = {
+    val rows = diff.migrations.flatMap(node =>
+      node.head.orElse(node.base).map { migration =>
+        row(node.status, List(s"<code>${escape(marker(node.status) + migration.path)}</code>", escape(migration.summary(identity))))
+      }
+    )
+    if (rows.isEmpty) """<p class="muted">No migrations.</p>"""
+    else s"""<div class="scroll"><table><thead><tr><th>Migration</th><th>Tables</th></tr></thead><tbody>${rows.mkString}</tbody></table></div>"""
+  }
+
+  private def outsideTable(diff: DiffModel): String =
+    if (diff.changedOutside.isEmpty) """<p class="muted">No code changed outside the modules.</p>"""
+    else {
+      val rows = diff.changedOutside.map(path =>
+        row(Status.Unchanged, List(if (path.startsWith("main/")) "main" else "platform", s"<code>${escape(path)}</code>"), codeChanged = true)
+      )
+      """<p class="muted">Files in <code>main/</code> and in platform packages without a module, whose code changed.</p>""" +
+        s"""<table><thead><tr><th>Where</th><th>File</th></tr></thead><tbody>${rows.mkString}</tbody></table>"""
+    }
 
   private def badge(status: WarningStatus, isDiff: Boolean): String =
     if (isDiff) s"""<span class="badge ${status.toString.toLowerCase}">${status.toString}</span>""" else ""

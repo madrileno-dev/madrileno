@@ -79,7 +79,9 @@ final case class DiffModel(
   wirings: List[NodeDiff[Wiring]],
   warnings: List[WarningDiff],
   unclassified: List[UnclassifiedDiff],
-  metrics: MetricsDiff)
+  metrics: MetricsDiff,
+  migrations: List[NodeDiff[Migration]] = Nil,
+  changedOutside: List[String] = Nil)
     derives ReadWriter
 
 object ArchDiff {
@@ -107,13 +109,18 @@ object ArchDiff {
           changedFiles(before, after)
         )
     }
-    val changedPaths = modules.flatMap(_.changedFiles).toSet
+    val changedOutside = changedDigests(base.outsideModules, head.outsideModules)
+    val changedPaths   = (modules.flatMap(_.changedFiles) ++ changedOutside).toSet
+    val migrations     = nodes(base.migrations, head.migrations)(_.path)(_.digest)
+    val migrated       = migrations.filter(_.status != Status.Unchanged).flatMap(m => (m.base.toList ++ m.head.toList).flatMap(_.tables)).toSet
     DiffModel(
       isDiff = true,
       baseLabel = baseLabel,
       headLabel = headLabel,
       modules = modules,
-      tables = nodes(base.tables, head.tables)(_.name)(t => (t.owner, sites(t.users))),
+      tables = nodes(base.tables, head.tables)(_.name)(t => (t.owner, sites(t.users))).map(t =>
+        t.copy(codeChanged = t.status == Status.Unchanged && (columnChanges(t).nonEmpty || migrated(t.key.split('.').last)))
+      ),
       topics = nodes(base.topics, head.topics)(_.name)(t => (t.eventType, t.owner, sites(t.publishers), sites(t.subscribers)))
         .map(withCodeChange(_, changedPaths)(_.definedIn)),
       events = nodes(base.outboxEvents, head.outboxEvents)(_.eventType)(e =>
@@ -139,8 +146,21 @@ object ArchDiff {
         ) =>
           after.map(UnclassifiedDiff(_, presence(before))).orElse(before.map(UnclassifiedDiff(_, WarningStatus.Resolved)))
       },
-      metrics = ArchMetrics.diff(base, head)
+      metrics = ArchMetrics.diff(base, head),
+      migrations = migrations,
+      changedOutside = changedOutside
     )
+  }
+
+  def columnChanges(table: NodeDiff[TableDecl]): List[(Status, List[String])] = {
+    val was   = table.base.toList.flatMap(_.columns).map(c => c.name -> c.codec).toMap
+    val is    = table.head.toList.flatMap(_.columns).map(c => c.name -> c.codec).toMap
+    val names = (was.keySet ++ is.keySet).toList.sorted
+    List(
+      Status.Added   -> names.filter(name => !was.contains(name)),
+      Status.Changed -> names.filter(name => was.contains(name) && is.contains(name) && was(name) != is(name)),
+      Status.Removed -> names.filter(name => !is.contains(name))
+    ).filter(_._2.nonEmpty)
   }
 
   def changedPathOf(file: String, changedPaths: Iterable[String]): Option[String] = changedPaths.find(path => file.endsWith(s"/$path"))
@@ -221,11 +241,14 @@ object ArchDiff {
     )
 
   private def changedFiles(before: Option[Module], after: Option[Module]): List[String] = (before, after) match {
-    case (Some(b), Some(a)) =>
-      val was = b.files.map(f => f.path -> f.digest).toMap
-      val is  = a.files.map(f => f.path -> f.digest).toMap
-      (was.keySet ++ is.keySet).filter(path => was.get(path) != is.get(path)).toList.sorted
-    case _ => Nil
+    case (Some(b), Some(a)) => changedDigests(b.files, a.files)
+    case _                  => Nil
+  }
+
+  private def changedDigests(base: List[FileDigest], head: List[FileDigest]): List[String] = {
+    val was = base.map(f => f.path -> f.digest).toMap
+    val is  = head.map(f => f.path -> f.digest).toMap
+    (was.keySet ++ is.keySet).filter(path => was.get(path) != is.get(path)).toList.sorted
   }
 
   private def components(

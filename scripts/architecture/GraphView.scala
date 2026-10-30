@@ -106,7 +106,7 @@ object GraphView {
         case _                => false
       } || diff.edges.exists(e => (e.edge.from == key && shownKeys(e.edge.to)) || (e.edge.to == key && shownKeys(e.edge.from)))
     val shared =
-      diff.tables.map(t => GNode(s"table:${t.key}", t.key, NodeKind.Table, None, t.status) -> t.head.orElse(t.base).map(_.owner)) ++
+      diff.tables.map(t => GNode(s"table:${t.key}", t.key, NodeKind.Table, None, t.status, t.codeChanged) -> t.head.orElse(t.base).map(_.owner)) ++
         diff.topics.map(t => GNode(s"topic:${t.key}", t.key, NodeKind.Topic, None, t.status, t.codeChanged) -> t.head.orElse(t.base).map(_.owner)) ++
         diff.events.map(e =>
           GNode(s"event:${e.key}", e.head.orElse(e.base).map(_.typeName).getOrElse(e.key), NodeKind.Event, None, e.status, e.codeChanged) ->

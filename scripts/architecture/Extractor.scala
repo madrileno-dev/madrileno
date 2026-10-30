@@ -26,7 +26,8 @@ object Extractor {
     ArchModel(
       rootPackage = input.rootPackage,
       modules = modules.value.map(module =>
-        withOwnedCounts(module, topics, outboxEvents, tableDecls).copy(files = digestsOf(module, files, ownership, input.rootPackage))
+        withOwnedCounts(module, topics, outboxEvents, tableDecls)
+          .copy(files = digestsOf(files, ownership, input.rootPackage)(_ == Owner.Module(module.id)))
       ),
       wirings = wiring.value,
       references = references,
@@ -37,18 +38,24 @@ object Extractor {
       migrationTables = migrationTables,
       warnings =
         (modules.warnings ++ wiring.warnings ++ cycles ++ events.warnings ++ tables.warnings ++ tasks.warnings).sortBy(w => (w.kind.ordinal, w.key)),
-      unclassified = (parsed.unclassified ++ modules.unclassified ++ wiring.unclassified ++ events.unclassified ++ tables.unclassified).sortBy(_.key)
+      unclassified = (parsed.unclassified ++ modules.unclassified ++ wiring.unclassified ++ events.unclassified ++ tables.unclassified).sortBy(_.key),
+      migrations = MigrationExtractor.extract(input.migrations),
+      outsideModules = digestsOf(files, ownership, input.rootPackage) {
+        case Owner.Module(_) => false
+        case _               => true
+      }
     )
   }
 
   private def digestsOf(
-    module: Module,
     files: List[ParsedFile],
     ownership: Ownership,
     rootPackage: String
+  )(
+    owned: Owner => Boolean
   ): List[FileDigest] =
     files
-      .filter(file => ownership.ownerOf(file.pkg) == Owner.Module(module.id))
+      .filter(file => owned(ownership.ownerOf(file.pkg)))
       .map(file => FileDigest(file.source.packagePath, Trees.codeDigest(file.tree, rootPackage)))
       .sortBy(_.path)
 

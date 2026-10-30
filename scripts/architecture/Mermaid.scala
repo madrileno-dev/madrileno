@@ -176,10 +176,13 @@ object Mermaid {
       }
     }
     val code = diff.modules.filter(m => m.status == Status.Unchanged && m.changedFiles.nonEmpty).map { m =>
-      val files = m.changedFiles.map(path => s"`${path.stripPrefix(s"${m.id}/")}`")
-      s"- ${m.id}: ${(files.take(MaxListedFiles) ++ Option.when(files.size > MaxListedFiles)(s"+${files.size - MaxListedFiles} more")).mkString(", ")}"
+      s"- ${m.id}: ${listed(m.changedFiles.map(_.stripPrefix(s"${m.id}/")))}"
     }
-    val changedPaths = diff.modules.flatMap(_.changedFiles)
+    val (main, platform) = diff.changedOutside.partition(_.startsWith("main/"))
+    val outside          =
+      Option.when(platform.nonEmpty)(s"- platform: ${listed(platform)}").toList ++
+        Option.when(main.nonEmpty)(s"- main: ${listed(main.map(_.stripPrefix("main/")))}")
+    val changedPaths = diff.modules.flatMap(_.changedFiles) ++ diff.changedOutside
     val payloads     =
       diff.topics
         .filter(_.codeChanged)
@@ -187,8 +190,28 @@ object Mermaid {
         diff.events
           .filter(_.codeChanged)
           .flatMap(e => e.head.flatMap(_.definedIn).flatMap(ArchDiff.changedPathOf(_, changedPaths)).map(path => s"- event `${e.key}`: `$path`"))
-    section("Code changed, architecture unchanged", code ++ payloads) + section("Tasks", tasks) + section("New warnings", warnings) +
-      section("New unclassified", unclassified)
+    val changedMigrations = diff.migrations.filter(_.status != Status.Unchanged)
+    val tables            = diff.tables.filter(_.codeChanged).map { t =>
+      val columns = ArchDiff.columnChanges(t).map { (status, names) =>
+        s"${status.toString.toLowerCase} ${if (names.size == 1) "column" else "columns"} ${names.map(name => s"`$name`").mkString(", ")}"
+      }
+      val touched = changedMigrations.filter(m => (m.base.toList ++ m.head.toList).exists(_.tables.contains(t.key.split('.').last))).map(_.key)
+      val in = Option.when(touched.nonEmpty)(s"${if (touched.size == 1) "migration" else "migrations"} ${touched.map(m => s"`$m`").mkString(", ")}")
+      s"- table `${t.key}`: ${(columns ++ in).mkString("; ")}"
+    }
+    val migrations = changedMigrations.flatMap { node =>
+      node.head.orElse(node.base).map { migration =>
+        val does = migration.summary(table => s"`$table`")
+        s"- ${node.status.toString.toLowerCase} `${migration.path}`${if (does.isEmpty) "" else s": $does"}"
+      }
+    }
+    section("Code changed, architecture unchanged", code ++ outside ++ payloads ++ tables) + section("Migrations", migrations) +
+      section("Tasks", tasks) + section("New warnings", warnings) + section("New unclassified", unclassified)
+  }
+
+  private def listed(paths: List[String]): String = {
+    val files = paths.map(path => s"`$path`")
+    (files.take(MaxListedFiles) ++ Option.when(files.size > MaxListedFiles)(s"+${files.size - MaxListedFiles} more")).mkString(", ")
   }
 
   private val MaxListedFiles = 5

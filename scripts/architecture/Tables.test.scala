@@ -113,4 +113,42 @@ class TablesSuite extends munit.FunSuite {
     assertEquals(result.value._1.map(t => t.name -> t.users.map(_.enclosing)), List("shared" -> List("CRepository")))
     assertEquals(result.warnings.count(_.kind == WarningKind.CrossModuleTableUse), 1, result.warnings)
   }
+
+  test("a Table object's columns, with their codecs") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src(
+        "user/repositories/UserTable.scala",
+        "package app.user.repositories\nobject UserTable extends Table[UserRow](\"user_account\") {\n" +
+          "  val id: Column[UserId] = column(\"id\", uuid.as[UserId])\n" +
+          "  val email = column(\n    name = \"email\",\n    codec = text.as[Email] // validated upstream\n      .opt\n  )\n}"
+      )
+    )
+    assertEquals(
+      TableExtractor.extract(files, Nil, Ownership.of(files)).value._1.map(_.columns),
+      List(List(TableColumn("id", "uuid.as[UserId]"), TableColumn("email", "text.as[Email].opt")))
+    )
+  }
+
+  test("a migration's digest ignores comments and formatting, and it knows the tables it creates, alters and drops") {
+    val sql = List(
+      Fixtures.migration(
+        "V1__init.sql",
+        "-- users\ncreate table if not exists \"User_Account\" (\n  id uuid primary key\n);\nALTER TABLE ONLY public.auth ADD COLUMN x text; /* later */\ndrop table if exists old_a, old_b;"
+      ),
+      Fixtures.migration(
+        "V2__same.sql",
+        "create table if not exists \"User_Account\" (id uuid primary key);\nALTER TABLE ONLY public.auth ADD COLUMN x text;\ndrop table if exists old_a, old_b;"
+      )
+    )
+    val migrations = MigrationExtractor.extract(sql)
+    assertEquals(
+      migrations.map(m => (m.path, m.creates, m.alters, m.drops)),
+      List(
+        ("V1__init.sql", List("user_account"), List("auth"), List("old_a", "old_b")),
+        ("V2__same.sql", List("user_account"), List("auth"), List("old_a", "old_b"))
+      )
+    )
+    assertEquals(migrations.map(_.digest).distinct.size, 1)
+  }
 }

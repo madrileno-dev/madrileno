@@ -130,13 +130,31 @@ final case class TaskDecl(
   loc: Loc)
     derives ReadWriter
 
+final case class TableColumn(name: String, codec: String) derives ReadWriter
+
 final case class TableDecl(
   name: String,
   objectName: String,
   owner: Owner,
   users: List[Site],
-  loc: Loc)
+  loc: Loc,
+  columns: List[TableColumn] = Nil)
     derives ReadWriter
+
+final case class Migration(
+  path: String,
+  digest: String,
+  creates: List[String] = Nil,
+  alters: List[String] = Nil,
+  drops: List[String] = Nil)
+    derives ReadWriter {
+  def tables: List[String] = (creates ++ alters ++ drops).distinct
+
+  def summary(name: String => String): String =
+    List("creates" -> creates, "alters" -> alters, "drops" -> drops)
+      .collect { case (verb, tables) if tables.nonEmpty => s"$verb ${tables.map(name).mkString(", ")}" }
+      .mkString(", ")
+}
 
 final case class MigrationTable(name: String, loc: Loc) derives ReadWriter
 
@@ -174,5 +192,7 @@ final case class ArchModel(
   tables: List[TableDecl],
   migrationTables: List[MigrationTable],
   warnings: List[Warning],
-  unclassified: List[Unclassified])
+  unclassified: List[Unclassified],
+  migrations: List[Migration] = Nil,
+  outsideModules: List[FileDigest] = Nil)
     derives ReadWriter
