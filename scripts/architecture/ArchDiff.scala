@@ -25,7 +25,8 @@ final case class ComponentDiff(
   name: String,
   status: Status,
   base: Option[Component],
-  head: Option[Component])
+  head: Option[Component],
+  codeChanged: Boolean = false)
     derives ReadWriter
 
 enum MemberSection derives ReadWriter {
@@ -104,7 +105,7 @@ object ArchDiff {
             status(before.map(moduleFacts(_, base)), after.map(moduleFacts(_, head)))(identity),
             before,
             after,
-            components(before, after),
+            components(before, after, changedFiles(before, after)),
             members(before, after),
             changedFiles(before, after)
           )
@@ -203,14 +204,20 @@ object ArchDiff {
     case _ => Nil
   }
 
-  private def components(before: Option[Module], after: Option[Module]): List[ComponentDiff] =
+  private def components(
+    before: Option[Module],
+    after: Option[Module],
+    changedFiles: List[String]
+  ): List[ComponentDiff] =
     keyed(before.toList.flatMap(_.components), after.toList.flatMap(_.components))(_.name).map {
       (
         name,
         b,
         a
       ) =>
-        ComponentDiff(name, status(b, a)(c => (c.kind, c.dependencies)), b, a)
+        val componentStatus = status(b, a)(c => (c.kind, c.dependencies))
+        val fileChanged     = a.exists(component => changedFiles.exists(path => component.loc.path.endsWith(s"/$path")))
+        ComponentDiff(name, componentStatus, b, a, codeChanged = componentStatus == Status.Unchanged && fileChanged)
     }
 
   private def moduleFacts(module: Module, model: ArchModel): ModuleFacts = {

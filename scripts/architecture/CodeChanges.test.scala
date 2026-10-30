@@ -53,4 +53,29 @@ class CodeChangesSuite extends munit.FunSuite {
     val diff = ArchDiff.compare(Extractor.extract(withOutbox("3")), Extractor.extract(withOutbox("5")), "b", "h")
     assertEquals(GraphView.shown(diff).map(_.id), List("utils/outbox"))
   }
+
+  private def wired(validity: String, extra: String = "") = Fixtures.project(
+    Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AuthModule"),
+    Fixtures
+      .src("auth/AuthModule.scala", s"package app.auth\ntrait AuthModule {\n  lazy val tokenPolicy: TokenPolicy = wire[TokenPolicy]\n$extra\n}"),
+    Fixtures.src("auth/services/TokenPolicy.scala", s"package app.auth.services\nclass TokenPolicy {\n  def validFor = $validity\n}"),
+    Fixtures.src("auth/services/Sessions.scala", "package app.auth.services\nclass Sessions")
+  )
+
+  test("a component whose file changed but whose dependencies didn't gets the dotted outline, inside an amber module too") {
+    val base = Extractor.extract(wired("30.minutes"))
+    val head = Extractor.extract(wired("30.days", "  lazy val sessions: Sessions = wire[Sessions]"))
+    val diff = ArchDiff.compare(base, head, "b", "h")
+    assertEquals(diff.modules.map(_.status), List(Status.Changed))
+    assertEquals(
+      diff.modules.flatMap(_.components).map(c => (c.name, c.status, c.codeChanged)),
+      List(("Sessions", Status.Added, false), ("TokenPolicy", Status.Unchanged, true))
+    )
+    val graph = GraphView.changes(diff)
+    assertEquals(
+      graph.nodes.filter(_.kind == NodeKind.Component).map(n => n.key -> n.codeChanged),
+      List("component:auth:Sessions" -> false, "component:auth:TokenPolicy" -> true)
+    )
+    assert(Mermaid.diagram(graph).contains("class component_auth_TokenPolicy touched"), Mermaid.diagram(graph))
+  }
 }

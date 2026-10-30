@@ -346,7 +346,7 @@ body.changed-only [data-status="unchanged"] { display: none; }
     section('Consumes', membersOf('Consumes').map(m => [`${m.text} ← ${providerOf(m.name)}`, m.loc, m.status]));
     section('Provides', membersOf('Provides').map(m => [m.text, m.loc, m.status]));
     section('Contributes', membersOf('Contributes').map(m => [m.text, m.loc, m.status]));
-    section('Components', diff.components.map(c => { const comp = latest(c); return [`${c.name} (${comp.kind.toLowerCase()})${comp.dependencies.length ? ' ← ' + comp.dependencies.join(', ') : ''}`, comp.loc, c.status]; }));
+    section('Components', diff.components.map(c => { const comp = latest(c); return [`${c.name} (${comp.kind.toLowerCase()})${comp.dependencies.length ? ' ← ' + comp.dependencies.join(', ') : ''}`, comp.loc, c.codeChanged ? 'code changed' : c.status]; }));
     section('Tables', data.tables.filter(t => moduleOf(latest(t).owner) === id).map(t => [latest(t).name, latest(t).loc, t.status]));
     section('Topics and events', data.topics.filter(t => moduleOf(latest(t).owner) === id).map(t => [`${latest(t).name} (bus)`, latest(t).loc, t.status])
       .concat(data.events.filter(e => moduleOf(latest(e).owner) === id).map(e => [`${latest(e).eventType} (outbox)`, latest(e).loc, e.status])));

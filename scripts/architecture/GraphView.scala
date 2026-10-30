@@ -51,7 +51,7 @@ object GraphView {
     val visible    = top.map(_.key).toSet
     val components = shown(diff)
       .filter(m => included(s"module:${m.id}"))
-      .flatMap(m => m.components.filter(_.status != Status.Unchanged).map(componentNode(m.id, _)))
+      .flatMap(m => m.components.filter(c => c.status != Status.Unchanged || c.codeChanged).map(componentNode(m.id, _)))
     val edges = mergedEdges(
       diff.edges.filter(e =>
         visible(e.edge.from) && visible(e.edge.to) && included(e.edge.from) && included(e.edge.to) &&
@@ -106,7 +106,14 @@ object GraphView {
 
   private def componentNode(moduleId: String, component: ComponentDiff): GNode = {
     val kind = component.head.orElse(component.base).map(_.kind.toString.toLowerCase).getOrElse("other")
-    GNode(s"component:$moduleId:${component.name}", s"${component.name} ($kind)", NodeKind.Component, Some(s"module:$moduleId"), component.status)
+    GNode(
+      s"component:$moduleId:${component.name}",
+      s"${component.name} ($kind)",
+      NodeKind.Component,
+      Some(s"module:$moduleId"),
+      component.status,
+      component.codeChanged
+    )
   }
 
   private val MaxNamedTypes = 3
