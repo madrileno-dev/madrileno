@@ -20,12 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: VirtusLab/scala-cli-setup@d320e01a605bf27128a5657575382668f83ef34e # v1
-      - name: Compile every scripts/*.scala
+      - name: Compile every scripts/*.scala and run it with --help
         run: |
           set -e
           for f in scripts/*.scala; do
-            echo "==> compiling $f"
-            scala-cli compile "$f"
+            echo "==> $f --help"
+            scala-cli run "$f" -- --help
           done
 
   test-architecture:

@@ -6,6 +6,7 @@
 //> using dep org.scalameta::scalameta:4.17.4
 //> using dep com.lihaoyi::mainargs:0.7.8
 //> using file architecture
+//> using mainClass ArchitectureMain
 
 import architecture.*
 import mainargs.{arg, main, Flag, ParserForMethods}
@@ -47,5 +48,9 @@ object ArchitectureMain {
     }
   }
 
-  def main(args: Array[String]): Unit = ParserForMethods(this).runOrExit(args.toIndexedSeq)
+  def main(args: Array[String]): Unit =
+    ParserForMethods(this).runEither(args.toIndexedSeq).left.foreach { usage =>
+      System.err.println(usage)
+      sys.exit(2)
+    }
 }
