@@ -9,7 +9,7 @@ import org.flywaydb.core.Flyway
 import org.scalatest.Suite
 import org.typelevel.otel4s.metrics.MeterProvider
 import org.typelevel.otel4s.trace.TracerProvider
-import skunk.Session
+import skunk.{Session, Transaction}
 
 trait TestTransactor extends TestContainersForAll { self: Suite =>
 
@@ -59,7 +59,7 @@ trait TestTransactor extends TestContainersForAll { self: Suite =>
     transactor.inSession {
       val session = summon[Session[IO]]
       session.transaction.use { tx =>
-        given skunk.Transaction[IO] = tx
+        given Transaction[IO] = tx
         f.flatTap(_ => tx.rollback)
       }
     }

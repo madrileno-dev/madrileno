@@ -42,6 +42,7 @@ libraryDependencies ++= {
   val scrimageV          = "4.6.7"
   val scalatestV         = "3.2.20"
   val reflectionsV       = "0.10.2"
+  val scalametaV         = "4.17.4"
   Seq(
     "org.http4s"                      %% "http4s-ember-server"                       % http4sV,
     "org.http4s"                      %% "http4s-dsl"                                % http4sV,
@@ -104,6 +105,7 @@ libraryDependencies ++= {
     "org.flywaydb"                     % "flyway-database-postgresql"                % flywayV,
     "org.scalatest"                   %% "scalatest"                                 % scalatestV         % "test",
     "org.reflections"                  % "reflections"                               % reflectionsV       % "test",
+    "org.scalameta"                   %% "scalameta"                                 % scalametaV         % "test",
     "io.opentelemetry"                 % "opentelemetry-sdk-testing"                 % otelV              % "test",
     "org.typelevel"                   %% "cats-effect-testkit"                       % catsEffectV        % "test",
     "org.typelevel"                   %% "cats-effect-testing-scalatest"             % catsEffectTestingV % "test"
@@ -214,6 +216,21 @@ Test / verifyErrorCodes := Def.uncached {
   }
   streams.value.log.info(s"All ${emitted.size} router error codes appear in the generated contract")
 }
+
+Test / sourceGenerators += Def.task {
+  val inputs = ((Compile / unmanagedSources).value ++ (Test / unmanagedSources).value ++
+    ((Compile / resourceDirectory).value / "db" / "migration" ** "*.sql").get()).sortBy(_.getPath)
+  val sha256 = java.security.MessageDigest.getInstance("SHA-256")
+  inputs.foreach { file =>
+    sha256.update(IO.relativize(baseDirectory.value, file).getOrElse(file.getPath).getBytes("UTF-8"))
+    sha256.update(IO.readBytes(file))
+  }
+  val digest = sha256.digest().map(byte => f"$byte%02x").mkString
+  val file   = (Test / sourceManaged).value / "SourcesDigest.scala"
+  val code   = s"package madrileno.sourcechecks\n\nprivate[sourcechecks] object SourcesDigest {\n  val value: String = \"$digest\"\n}\n"
+  if (!file.exists() || IO.read(file) != code) IO.write(file, code)
+  Seq(file)
+}.taskValue
 
 lazy val verifyAll = taskKey[Unit]("Performs all verifications to assure that the build will pass CI checks.")
 Test / verifyAll := Def.uncached {

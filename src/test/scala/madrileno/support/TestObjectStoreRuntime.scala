@@ -1,7 +1,7 @@
 package madrileno.support
 
 import cats.effect.{IO, Ref}
-import fs2.Stream
+import fs2.{Chunk, Stream}
 import madrileno.utils.storage.{ObjectStat, ObjectStore, ObjectStoreRuntime, ObjectTooLarge, PresignedPut, SignedUrlTtl, StorageKey}
 import org.http4s.headers.`Content-Type`
 import org.http4s.{Header, Headers, Uri}
@@ -31,7 +31,7 @@ object TestObjectStoreRuntime {
         ): IO[ObjectStore.GetResult] = {
           val _ = ttl
           state.get.map(_.get(key)).map {
-            case Some((ct, bytes)) => ObjectStore.GetResult.Streamed(ct, fileName, Stream.chunk(fs2.Chunk.byteVector(bytes)))
+            case Some((ct, bytes)) => ObjectStore.GetResult.Streamed(ct, fileName, Stream.chunk(Chunk.byteVector(bytes)))
             case None              => ObjectStore.GetResult.NotFound
           }
         }

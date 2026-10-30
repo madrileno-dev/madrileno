@@ -94,10 +94,10 @@ object ConfigAdminRouter {
       }
     case ConfigValueType.NUMBER =>
       value.unwrapped() match {
-        case n: java.lang.Long    => Json.fromLong(n)
-        case n: java.lang.Integer => Json.fromInt(n)
-        case n: java.lang.Double  => Json.fromDoubleOrString(n)
-        case other                => Json.fromString(String.valueOf(other))
+        case n: java.lang.Long   => Json.fromLong(n)
+        case n: Integer          => Json.fromInt(n)
+        case n: java.lang.Double => Json.fromDoubleOrString(n)
+        case other               => Json.fromString(String.valueOf(other))
       }
     case ConfigValueType.NULL => Json.Null
   }

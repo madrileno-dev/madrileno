@@ -9,8 +9,8 @@ import pl.iterators.stir.server.directives.PathDirectives.pathPrefix
 import pl.iterators.stir.server.directives.RouteDirectives.reject
 import pl.iterators.stir.server.{Directive, Directive0, Directive1}
 
-import java.time.Instant
 import java.time.format.DateTimeFormatter
+import java.time.{Instant, ZoneOffset}
 
 private val apiVersionAttrKey: Key[ApiVersion] = new Key[ApiVersion](new Unique.Token)
 
@@ -40,7 +40,7 @@ trait ApiVersionDirectives {
     mapResponseHeaders(_ ++ Headers(deprecationHeader))
 
   def deprecatedWithSunset(sunset: Instant): Directive0 = {
-    val sunsetStr = DateTimeFormatter.RFC_1123_DATE_TIME.format(sunset.atOffset(java.time.ZoneOffset.UTC))
+    val sunsetStr = DateTimeFormatter.RFC_1123_DATE_TIME.format(sunset.atOffset(ZoneOffset.UTC))
     mapResponseHeaders(_ ++ Headers(deprecationHeader, Header.Raw(ci"Sunset", sunsetStr)))
   }
 }

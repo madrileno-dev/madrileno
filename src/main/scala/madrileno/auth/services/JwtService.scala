@@ -9,7 +9,7 @@ import pureconfig.*
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.time.{Duration, Instant}
-import java.util.Base64
+import java.util.{Base64, Collections}
 import scala.jdk.CollectionConverters.*
 import scala.util.{Failure, Success, Try}
 
@@ -47,7 +47,7 @@ class JwtService(config: JwtService.Config) {
   ): InternalJwt = {
     val base = JWT
       .create()
-      .withPayload(encoder(payload).asObject.fold(java.util.Collections.emptyMap[String, AnyRef]())(jsonObjectToJava))
+      .withPayload(encoder(payload).asObject.fold(Collections.emptyMap[String, AnyRef]())(jsonObjectToJava))
       .withIssuedAt(now)
       .withExpiresAt(now.plus(config.validFor))
     val finalBuilder = List[JWTCreator.Builder => JWTCreator.Builder](

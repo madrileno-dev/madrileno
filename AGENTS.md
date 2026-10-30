@@ -29,7 +29,8 @@ You are an expert backend software engineer and architect.
   `sbt --client scalafixAll`
 * pipe every command's output to tmp file for easier analysis
 * prefer using braces `{}`
-* prefer top-level (or scope-level) imports over FQNs
+* prefer top-level (or scope-level) imports over FQNs: `QualifiedNamesSpec`
+  fails on a name written out from its top-level package
 * NEVER use non-local returns
 * ALWAYS use functional programming: immutable data types, pattern matching,
   immutable collections, higher order functions, algebraic data types
@@ -54,3 +55,7 @@ You are an expert backend software engineer and architect.
 * AVOID using mutable collections
 * comment on any aspects that aren't obvious from the implementation, but are
   important to know when reading the code
+* in hand-written `sql"..."`, name tables and columns through their `Table`
+  object (`${XTable.n}`, `${XTable.column.n}`), never as text:
+  `HandWrittenSqlSpec` fails otherwise. A query that must name them by hand
+  goes in its `exemptions`, with the reason

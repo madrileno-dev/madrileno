@@ -9,9 +9,10 @@ import madrileno.utils.observability.TelemetryContext
 import org.http4s.headers.{Accept, `Content-Type`}
 import org.http4s.server.middleware.EntityLimiter.EntityTooLarge
 import org.http4s.server.websocket.WebSocketBuilder2
-import org.http4s.{EntityEncoder, MediaType, Request, Status, UrlForm}
+import org.http4s.{EntityEncoder, Header, MediaType, Request, Status, UrlForm}
 import org.scalatest.funspec.AnyFunSpec
 import org.scalatest.matchers.should.Matchers
+import org.typelevel.ci.CIString
 import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.trace.Tracer
 import pl.iterators.stir.server.Route
@@ -179,7 +180,7 @@ class HandlersSpec extends AnyFunSpec with Matchers with ScalatestRouteTest {
     }
 
     it("names the header whose value could not be parsed") {
-      Get("/parsed-header").withHeaders(org.http4s.Header.Raw(org.typelevel.ci.CIString("X-Number"), "abc")) ~> probe.route ~> check {
+      Get("/parsed-header").withHeaders(Header.Raw(CIString("X-Number"), "abc")) ~> probe.route ~> check {
         status shouldBe Status.BadRequest
         field("type") shouldBe Some("rejection:malformed-header")
         field("headerName") shouldBe Some("X-Number")

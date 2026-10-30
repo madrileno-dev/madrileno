@@ -11,6 +11,7 @@ import org.http4s.headers.`Content-Type`
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
 import org.testcontainers.containers.wait.strategy.Wait
+import org.typelevel.ci.CIString
 import scodec.bits.ByteVector
 import software.amazon.awssdk.auth.credentials.{AwsBasicCredentials, StaticCredentialsProvider}
 import software.amazon.awssdk.regions.Region
@@ -18,7 +19,7 @@ import software.amazon.awssdk.services.s3.S3AsyncClient
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest
 import sttp.client4.basicRequest
 import sttp.client4.httpurlconnection.HttpURLConnectionBackend
-import sttp.model.Uri as SttpUri
+import sttp.model.{Header, Uri as SttpUri}
 
 import java.net.URI
 import scala.concurrent.duration.DurationInt
@@ -176,7 +177,7 @@ class S3ObjectStoreSpec extends AsyncWordSpec with AsyncIOSpec with Matchers wit
             val bytes = "uploaded directly".getBytes("UTF-8")
             for {
               presigned <- store.presignPut(key, ttl, plainText, bytes.length.toLong)
-              sttpHeaders = presigned.signedHeaders.headers.map(h => sttp.model.Header(h.name.toString, h.value))
+              sttpHeaders = presigned.signedHeaders.headers.map(h => Header(h.name.toString, h.value))
               response <- IO.blocking {
                             val backend = HttpURLConnectionBackend()
                             try {
@@ -189,7 +190,7 @@ class S3ObjectStoreSpec extends AsyncWordSpec with AsyncIOSpec with Matchers wit
                           }
               stat <- store.head(key)
             } yield {
-              presigned.signedHeaders.get(org.typelevel.ci.CIString("content-type")).map(_.head.value) shouldBe Some("text/plain")
+              presigned.signedHeaders.get(CIString("content-type")).map(_.head.value) shouldBe Some("text/plain")
               response.code.code shouldBe 200
               stat shouldBe Some(ObjectStat(bytes.length.toLong, plainText))
             }

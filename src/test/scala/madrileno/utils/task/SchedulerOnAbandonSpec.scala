@@ -1,8 +1,9 @@
 package madrileno.utils.task
 
 import cats.effect.testing.scalatest.AsyncIOSpec
-import cats.effect.{IO, Ref}
-import io.circe.Codec
+import cats.effect.{Clock, IO, Ref}
+import io.circe.{Codec, Decoder, Encoder}
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.support.TestTransactor
 import madrileno.utils.observability.TelemetryContext
 import org.scalatest.matchers.should.Matchers
@@ -14,8 +15,8 @@ import scala.concurrent.duration.*
 
 class SchedulerOnAbandonSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
-  given TelemetryContext    = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
-  private given Codec[Unit] = Codec.from(io.circe.Decoder.decodeUnit, io.circe.Encoder.encodeUnit)
+  given TelemetryContext    = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
+  private given Codec[Unit] = Codec.from(Decoder.decodeUnit, Encoder.encodeUnit)
 
   private val config = SchedulerConfig(pollingInterval = 100.millis, retryBaseDelay = 100.millis, maxRetries = None)
 
@@ -68,7 +69,7 @@ class SchedulerOnAbandonSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
         client    = scheduler.client
         result <- scheduler.run(recurringTasks = Nil, oneTimeTasks = Nil, customTasks = List(task)).use { _ =>
                     for {
-                      now       <- cats.effect.Clock[IO].realTimeInstant
+                      now       <- Clock[IO].realTimeInstant
                       _         <- client.schedule(task.instance("chain-1", (), firstAt = now))
                       _         <- waitFor(abandoned, 1)
                       a         <- attempts.get

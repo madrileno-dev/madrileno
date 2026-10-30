@@ -4,6 +4,7 @@ import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.{IO, Ref}
 import io.circe.Json
 import io.circe.syntax.*
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.support.{TestData, TestTransactor}
 import madrileno.utils.events.EventCodec
 import madrileno.utils.observability.TelemetryContext
@@ -29,7 +30,7 @@ object DispatchEvent {
 
 class OutboxDispatcherSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
-  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
   private lazy val outbox   = new OutboxRepository
   private lazy val delivery = new OutboxDeliveryRepository

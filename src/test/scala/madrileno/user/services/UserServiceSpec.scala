@@ -3,6 +3,7 @@ package madrileno.user.services
 import cats.effect.std.UUIDGen
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.{Clock, IO}
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.support.{TestData, TestGivens, TestTransactor}
 import madrileno.user.repositories.UserRepository
 import madrileno.utils.events.outbox.*
@@ -21,7 +22,7 @@ class UserServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with 
   private given Clock[IO]   = TestGivens.fixedClock(now)
   private given UUIDGen[IO] = TestGivens.deterministicUUIDs()
 
-  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
   private lazy val userRepository     = new UserRepository
   private lazy val outboxRepository   = new OutboxRepository

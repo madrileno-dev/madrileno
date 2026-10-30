@@ -181,6 +181,34 @@ sql"UPDATE … SET … WHERE …".command
 
 For single-row updates, prefer `updateById(id, transform)`. It's atomic, takes the lock for you, and reads as a domain-level operation.
 
+## Hand-written SQL
+
+Hand-written `sql"…"` names tables and columns through their `Table` object, never as text:
+
+```scala
+sql"""SELECT ${AuctionRowTable.*("a")}, b.${BidRowTable.amount.n}
+      FROM ${AuctionRowTable.n} a
+      JOIN ${BidRowTable.n} b ON ${BidRowTable.auctionId.n("b")} = a.${AuctionRowTable.id.n}"""
+```
+
+A renamed column then changes in one place, and every table a query touches has a `Table` object a reader can find.
+
+`HandWrittenSqlSpec`, one of the [source checks](testing-guide.md#layer-5-source-checks), enforces this. It reads the names of the tables, views and materialized views the migrations create, and of their columns, from the migrated test database. It fails with `file:line` for each one written as text in a `sql"…"` string under `src/main/scala`. These don't count:
+
+- `'…'` string literals and comments
+- function calls, `::` casts and `AS` aliases
+- an alias given right after an interpolated table (`${BidRowTable.n} bid`), wherever that query uses it
+
+Names match as written, so `DATE` in capitals isn't the column `date`, while a quoted `"user"` is the table `user`. System views such as `pg_stat_statements` aren't created by the migrations, so they're never flagged. The check reads `sql"…"` strings only: SQL spliced in from a plain string with `#$`, or written with skunk's `const"…"`, isn't checked.
+
+A query that has to name tables by hand goes in the spec's `exemptions`, with the reason:
+
+```scala
+Exemption("src/main/scala/madrileno/reporting/repositories/ReportRepository.scala", "ReportRepository.monthlyTotals", "a reporting query over three modules' tables")
+```
+
+The member is the class or object and its `def` or `val`, as the failure prints it, and the exemption covers every name in it, inner `val`s included. The spec also fails when an exemption no longer covers anything, so the list can't go stale.
+
 ## The two-phase reordering trick
 
 Some operations can't be expressed as one statement because of constraints. Reordering positions is the canonical example: swapping `[A=0, B=1]` to `[A=1, B=0]` would violate the `(auction_id, position) WHERE deleted_at IS NULL` partial unique index mid-transaction.
