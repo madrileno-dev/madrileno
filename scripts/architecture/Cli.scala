@@ -15,6 +15,19 @@ final case class Options(
   strict: Boolean)
 
 object Options {
+  def outputOf(
+    mermaid: Boolean,
+    json: Boolean,
+    out: Option[String],
+    project: os.Path,
+    isDiff: Boolean
+  ): Either[String, Output] =
+    if (mermaid && json) Left("--mermaid and --json are exclusive")
+    else if (out.isDefined && (mermaid || json)) Left("--out writes the HTML, so it can't be combined with --mermaid or --json")
+    else if (mermaid) Right(Output.Mermaid)
+    else if (json) Right(Output.Json)
+    else Right(Output.Html(out.map(os.Path(_, os.pwd)).getOrElse(defaultHtml(project, isDiff))))
+
   def defaultHtml(project: os.Path, isDiff: Boolean): os.Path =
     project / "target" / "architecture" / (if (isDiff) "architecture-diff.html" else "architecture.html")
 }

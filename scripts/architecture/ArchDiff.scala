@@ -119,7 +119,7 @@ object ArchDiff {
       events = nodes(base.outboxEvents, head.outboxEvents)(_.eventType)(e =>
         (e.typeName, e.owner, sites(e.publishers), e.subscribers.map(s => (s.consumer, s.site.owner, s.site.enclosing)).toSet)
       ).map(withCodeChange(_, changedPaths)(_.definedIn)),
-      tasks = nodes(base.tasks, head.tasks)(_.name)(t => (t.kind, t.schedule, t.owner, sites(t.scheduledFrom))),
+      tasks = nodes(base.tasks, head.tasks)(t => s"${t.owner.label}:${t.name}")(t => (t.kind, t.schedule, t.owner, sites(t.scheduledFrom))),
       edges = edgeDiffs(edges(base), edges(head)),
       references = nodes(base.references, head.references)(r => s"${r.from}->${r.to}:${r.layer}.${r.symbol}")(_ => ()),
       wirings = nodes(base.wirings, head.wirings)(w => s"${w.consumer}:${w.member}:${w.provider}")(_ => ()),
@@ -179,6 +179,7 @@ object ArchDiff {
   }
 
   private final case class ModuleFacts(
+    mixedIn: Boolean,
     consumes: Set[(String, String)],
     provides: Set[(String, String)],
     contributions: Set[(Registry, List[String])],
@@ -246,6 +247,7 @@ object ArchDiff {
   private def moduleFacts(module: Module, model: ArchModel): ModuleFacts = {
     val owner = Owner.Module(module.id)
     ModuleFacts(
+      module.mixedIn,
       module.consumes.map(m => (m.name, m.tpe)).toSet,
       module.provides.map(m => (m.name, m.tpe)).toSet,
       module.contributions.map(c => (c.registry, c.items)).toSet,

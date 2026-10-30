@@ -173,4 +173,21 @@ class GraphViewSuite extends munit.FunSuite {
     assert(graph.edges.exists(e => e.from == "event:gone.v1" && e.to == "module:d"), graph.edges)
     assert(!graph.edges.exists(e => e.from == "module:b" && e.to == "module:d"), graph.edges)
   }
+
+  test("a platform table that only platform code uses is not drawn") {
+    val diff = ArchDiff.full(
+      Extractor.extract(
+        Fixtures.project(
+          Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ShopModule"),
+          Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),
+          Fixtures.src(
+            "utils/task/SchedulerRepository.scala",
+            "package app.utils.task\nobject TaskRowTable extends Table[TaskRow](\"scheduled_task\")\nclass SchedulerRepository { def f = TaskRowTable }"
+          )
+        )
+      ),
+      "h"
+    )
+    assertEquals(GraphView.full(diff, Level.Everything).nodes.map(_.key), List("module:shop"))
+  }
 }

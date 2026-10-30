@@ -112,4 +112,34 @@ class CodeChangesSuite extends munit.FunSuite {
     assert(text.contains("- topic `shop_events`: `shop/domain/ShopEvent.scala`"), text)
     assert(Html.render(diff).contains("""<tr data-status="touched" class="touched"><td>user-deleted.v1</td>"""))
   }
+
+  private def twoCreated(a: String, b: String) = Fixtures.project(
+    Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AModule with BModule"),
+    Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule"),
+    Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule"),
+    Fixtures.src(
+      "a/domain/Created.scala",
+      s"package app.a.domain\nfinal case class Created($a)\nobject Created {\n  given DomainEventDescriptor[Created] = DomainEventDescriptor(\"a-created.v1\", \"a\", _.id)\n}"
+    ),
+    Fixtures.src("b/domain/Created.scala", s"package app.b.domain\nfinal case class Created($b)")
+  )
+
+  test("an event's payload is the type in its own module, not another module's type with the same name") {
+    val base     = Extractor.extract(twoCreated("id: Id", "name: String"))
+    val bChanged = ArchDiff.compare(base, Extractor.extract(twoCreated("id: Id", "name: String, at: Instant")), "b", "h")
+    val aChanged = ArchDiff.compare(base, Extractor.extract(twoCreated("id: Id, at: Instant", "name: String")), "b", "h")
+    assertEquals(bChanged.events.map(_.codeChanged), List(false))
+    assertEquals(aChanged.events.map(_.codeChanged), List(true))
+    assert(Mermaid.render(aChanged).contains("- event `a-created.v1`: `a/domain/Created.scala`"), Mermaid.render(aChanged))
+  }
+
+  test("taking a module out of ApplicationLoader is an architecture change") {
+    def loader(modules: String) = Fixtures.project(
+      Fixtures.src("main/ApplicationLoader.scala", s"package app.main\nclass ApplicationLoader extends $modules"),
+      Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule"),
+      Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule")
+    )
+    val diff = ArchDiff.compare(Extractor.extract(loader("AModule with BModule")), Extractor.extract(loader("AModule")), "b", "h")
+    assertEquals(diff.modules.map(m => m.id -> m.status), List("a" -> Status.Unchanged, "b" -> Status.Changed))
+  }
 }

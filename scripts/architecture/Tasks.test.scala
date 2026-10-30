@@ -88,8 +88,8 @@ class TasksSuite extends munit.FunSuite {
   test("a diff marks a task added or changed, and the module that owns it changed") {
     val added   = ArchDiff.compare(Extractor.extract(shop("")), Extractor.extract(shop(nightly)), "b", "h")
     val changed = ArchDiff.compare(Extractor.extract(shop(nightly)), Extractor.extract(shop(hourly)), "b", "h")
-    assertEquals(added.tasks.map(t => t.key -> t.status), List("purge-carts" -> Status.Added))
-    assertEquals(changed.tasks.map(t => t.key -> t.status), List("purge-carts" -> Status.Changed))
+    assertEquals(added.tasks.map(t => t.key -> t.status), List("shop:purge-carts" -> Status.Added))
+    assertEquals(changed.tasks.map(t => t.key -> t.status), List("shop:purge-carts" -> Status.Changed))
     assertEquals(changed.modules.map(m => m.id -> m.status), List("shop" -> Status.Changed))
   }
 
@@ -99,5 +99,26 @@ class TasksSuite extends munit.FunSuite {
     assert(page.contains("""<section id="tasks"><h2>Tasks</h2>"""), page)
     assert(page.contains("purge-carts") && page.contains("cron 0 0 * * * ?"))
     assert(Mermaid.render(diff).contains("**Tasks**\n\n- changed `purge-carts`: recurring, cron `0 0 * * * ?`, in shop"), Mermaid.render(diff))
+  }
+
+  test("same-named tasks in two modules stay apart, warn, and are matched to the calls in their own module") {
+    val files = Fixtures.parsed(
+      Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule"),
+      Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule"),
+      Fixtures.src(
+        "a/services/AService.scala",
+        "package app.a.services\nclass AService {\n  val dup = Task.oneTime(TaskDescriptor[Int](\"dup\"))(_ => IO.unit)\n}"
+      ),
+      Fixtures.src(
+        "b/services/BService.scala",
+        "package app.b.services\nclass BService {\n  val dup = Task.oneTime(TaskDescriptor[Int](\"dup\"))(_ => IO.unit)\n  def go = scheduler.schedule(dup.instance(\"x\", 1))\n}"
+      )
+    )
+    val result = TaskExtractor.extract(files, Ownership.of(files))
+    assertEquals(
+      result.value.map(t => (t.name, t.owner, t.scheduledFrom.map(_.enclosing))),
+      List(("dup", Owner.Module("a"), Nil), ("dup", Owner.Module("b"), List("BService")))
+    )
+    assertEquals(result.warnings.map(w => w.key -> w.message), List("duplicate-task:dup" -> "task dup is declared in a, b"))
   }
 }

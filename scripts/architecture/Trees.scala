@@ -21,6 +21,23 @@ object Trees {
 
   def parentNames(template: Template): List[String] = template.inits.map(init => typeName(init.tpe))
 
+  def closure(names: Set[String], parents: Map[String, List[String]]): Set[String] = {
+    val next = names ++ names.flatMap(name => parents.getOrElse(name, Nil).filter(parents.contains))
+    if (next == names) names else closure(next, parents)
+  }
+
+  def argument(
+    args: List[Term],
+    name: String,
+    position: Int
+  ): Option[Term] =
+    args
+      .collectFirst { case Term.Assign(Term.Name(`name`), value) => value }
+      .orElse(args.lift(position).filter {
+        case _: Term.Assign => false
+        case _              => true
+      })
+
   def isPrivate(mods: List[Mod]): Boolean = mods.exists {
     case _: Mod.Private => true
     case _              => false

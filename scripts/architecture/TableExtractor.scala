@@ -16,24 +16,26 @@ object TableExtractor {
     val withUsers = declared.map(table => table.copy(users = usersOf(table, declared, files, ownership)))
     val migrated  = migrations.flatMap(migrationTablesIn)
 
-    val crossModule = withUsers.flatMap { table =>
-      table.users
-        .flatMap(site =>
-          site.owner match {
-            case Owner.Module(user) if table.owner != Owner.Module(user) && !(site.owner.inUtils && table.owner.inUtils) => Some(user -> site)
-            case _                                                                                                       => None
-          }
-        )
-        .distinctBy(_._1)
-        .map((user, site) =>
-          Warning(
-            WarningKind.CrossModuleTableUse,
-            s"cross-module-table:${table.name}:$user",
-            s"$user uses table ${table.name} owned by ${table.owner.label}",
-            site.loc
+    val crossModule = withUsers
+      .flatMap { table =>
+        table.users
+          .flatMap(site =>
+            site.owner match {
+              case Owner.Module(user) if table.owner != Owner.Module(user) && !(site.owner.inUtils && table.owner.inUtils) => Some(user -> site)
+              case _                                                                                                       => None
+            }
           )
-        )
-    }
+          .distinctBy(_._1)
+          .map((user, site) =>
+            Warning(
+              WarningKind.CrossModuleTableUse,
+              s"cross-module-table:${table.name}:$user",
+              s"$user uses table ${table.name} owned by ${table.owner.label}",
+              site.loc
+            )
+          )
+      }
+      .distinctBy(_.key)
     val byName     = withUsers.groupBy(_.name).values.toList.map(_.sortBy(t => (t.loc.path, t.loc.line)))
     val merged     = byName.map(same => same.head.copy(users = same.flatMap(_.users).distinct))
     val duplicates = byName.flatMap { same =>
@@ -65,7 +67,7 @@ object TableExtractor {
     file.tree.collect { case obj: Defn.Object => obj }.flatMap { obj =>
       obj.templ.inits
         .collectFirst {
-          case init if Trees.typeName(init.tpe) == "Table" => init.argClauses.headOption.flatMap(_.values.headOption)
+          case init if Trees.typeName(init.tpe) == "Table" => init.argClauses.headOption.flatMap(args => Trees.argument(args.values, "tableName", 0))
         }
         .flatten
         .map { arg =>

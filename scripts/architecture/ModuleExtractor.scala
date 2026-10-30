@@ -177,19 +177,23 @@ object ModuleExtractor {
       .flatMap(_.values.map(_.decltpe.map(_.syntax).getOrElse("")))
       .toList
 
-  private def applicationLoaderParents(files: List[ParsedFile], ownership: Ownership): Set[String] =
-    files
-      .filter(file => ownership.ownerOf(file.pkg) == Owner.CompositionRoot)
-      .flatMap(file =>
-        Trees
-          .topLevel(file.tree)
-          .collect {
-            case d: Defn.Class if d.name.value == "ApplicationLoader"  => Trees.parentNames(d.templ)
-            case d: Defn.Trait if d.name.value == "ApplicationLoader"  => Trees.parentNames(d.templ)
-            case d: Defn.Object if d.name.value == "ApplicationLoader" => Trees.parentNames(d.templ)
-          }
-          .flatten
+  private def applicationLoaderParents(files: List[ParsedFile], ownership: Ownership): Set[String] = {
+    val parents = files
+      .filter(file =>
+        ownership.ownerOf(file.pkg) match {
+          case Owner.Module(_) => false
+          case _               => true
+        }
       )
-      .toSet
+      .flatMap(file =>
+        Trees.topLevel(file.tree).collect {
+          case d: Defn.Class  => d.name.value -> Trees.parentNames(d.templ)
+          case d: Defn.Trait  => d.name.value -> Trees.parentNames(d.templ)
+          case d: Defn.Object => d.name.value -> Trees.parentNames(d.templ)
+        }
+      )
+      .toMap
+    Trees.closure(Set("ApplicationLoader").filter(parents.contains), parents).flatMap(parents)
+  }
 
 }

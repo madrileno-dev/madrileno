@@ -99,23 +99,22 @@ object GraphView {
   private def atLevel(level: Level)(edge: EdgeDiff): Boolean = level != Level.Everything || edge.edge.kind != EdgeKind.Event
 
   private def topLevel(diff: DiffModel): List[GNode] = {
-    val hidden     = diff.modules.map(m => s"module:${m.id}").toSet -- shown(diff).map(m => s"module:${m.id}")
-    val onlyHidden = (key: String) => {
-      val others = diff.edges.collect {
-        case e if e.edge.from == key => e.edge.to
-        case e if e.edge.to == key   => e.edge.from
-      }
-      others.nonEmpty && others.forall(hidden)
-    }
+    val shownKeys = shown(diff).map(m => s"module:${m.id}").toSet
+    val drawn     = (key: String, owner: Option[Owner]) =>
+      owner.exists {
+        case Owner.Module(id) => shownKeys(s"module:$id")
+        case _                => false
+      } || diff.edges.exists(e => (e.edge.from == key && shownKeys(e.edge.to)) || (e.edge.to == key && shownKeys(e.edge.from)))
     val shared =
-      diff.tables.map(t => GNode(s"table:${t.key}", t.key, NodeKind.Table, None, t.status)) ++
-        diff.topics.map(t => GNode(s"topic:${t.key}", t.key, NodeKind.Topic, None, t.status, t.codeChanged)) ++
+      diff.tables.map(t => GNode(s"table:${t.key}", t.key, NodeKind.Table, None, t.status) -> t.head.orElse(t.base).map(_.owner)) ++
+        diff.topics.map(t => GNode(s"topic:${t.key}", t.key, NodeKind.Topic, None, t.status, t.codeChanged) -> t.head.orElse(t.base).map(_.owner)) ++
         diff.events.map(e =>
-          GNode(s"event:${e.key}", e.head.orElse(e.base).map(_.typeName).getOrElse(e.key), NodeKind.Event, None, e.status, e.codeChanged)
+          GNode(s"event:${e.key}", e.head.orElse(e.base).map(_.typeName).getOrElse(e.key), NodeKind.Event, None, e.status, e.codeChanged) ->
+            e.head.orElse(e.base).map(_.owner)
         )
     shown(diff).map(m =>
       GNode(s"module:${m.id}", m.id, NodeKind.Module, None, m.status, codeChanged = m.status == Status.Unchanged && m.changedFiles.nonEmpty)
-    ) ++ shared.filterNot(node => onlyHidden(node.key))
+    ) ++ shared.collect { case (node, owner) if drawn(node.key, owner) => node }
   }
 
   private def componentNode(moduleId: String, component: ComponentDiff): GNode = {

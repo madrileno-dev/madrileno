@@ -217,18 +217,20 @@ It reads source only: no compile, no running app, no database. It works on a bra
 ./scripts/architecture.scala --json                   # print the model as JSON
 ```
 
+`--out` names the HTML file, so it can't be combined with `--mermaid` or `--json`, which print to the terminal.
+
 `--diff <ref>` compares the merge-base of `<ref>` and `HEAD` (what a GitHub pull request compares against) with the working tree, uncommitted and untracked files included. The base revision is read from a temporary copy; the working tree, index and branches are left alone. Modules, tables and events are matched by their path below the project's package, so a diff across `init-project`'s rename still lines up.
 
 The HTML is one file. It has:
 - the metrics
 - a module diagram at three levels of detail: modules only, with their services, repositories, routers and gateways, or with tables and events too. Zoom buttons scale it, and it starts fitted to the page. At the first two levels, an event between modules is a dotted arrow from the module that publishes it to each module that subscribes, labelled with the event; with tables and events, the event is a box of its own instead. An event published and consumed inside one module gets no arrow. Modules under `utils/`, the platform the template ships, stay off the diagram and the module list unless a diff changes them, together with the tables and events only they touch; the events, tables and warnings sections still list them.
 - a list of the modules. Clicking a module there or in the diagram shows its details and focuses the diagram on it. The focused diagram has the module and the modules it depends on or that depend on it. With tables and events shown, it also has the modules on the other side of its tables and events. Clicking the focused module again, or **Show all modules**, goes back to the whole map.
-- the events, tasks and tables views. A task's name is the string it's given; a name the code computes, like the outbox's per-consumer delivery tasks, is shown as the expression that computes it. "Scheduled from" lists the classes that call the task's `instance(…)`; recurring tasks have none, since the scheduler registers them at startup.
+- the events, tasks and tables views. A task's name is the string it's given; a name the code computes, like the outbox's per-consumer delivery tasks, is shown as the expression that computes it. "Scheduled from" lists the classes that call the task's `instance(…)`. When two modules hold a task under the same name, a call goes to the one in its own module, and to neither when that doesn't settle it. Recurring tasks have none, since the scheduler registers them at startup.
 - the warnings
 
 The diagram is drawn by Mermaid, which the page loads from jsDelivr: a pinned version, checked against an integrity hash. Without network access the page says so in place of the diagram, and the rest of it still works.
 
-In a diff, added, removed and changed items are marked. A module whose code changed while its architecture didn't, say a method body rather than a dependency, gets a dotted outline and lists the changed files in its details. So does a service, repository, router or gateway whose file changed while its dependencies didn't, also inside a module that changed for another reason. An outbox event or bus topic whose payload type's file changed while its publishers and subscribers didn't gets it too, since its consumers depend on that payload; it is marked in the events table and listed under the Mermaid diagram. Comments and formatting don't count. Such a module joins the changes diagram without pulling in its neighbours. **Changed only** hides the rest and draws just the changes and their direct neighbours at the chosen level of detail; with tables and events it is the same diagram as the Mermaid output.
+In a diff, added, removed and changed items are marked. A module whose code changed while its architecture didn't, say a method body rather than a dependency, gets a dotted outline and lists the changed files in its details. So does a service, repository, router or gateway whose file changed while its dependencies didn't, also inside a module that changed for another reason. An outbox event or bus topic whose payload type's file changed while its publishers and subscribers didn't gets it too, since its consumers depend on that payload; it is marked in the events table and listed under the Mermaid diagram. Comments and formatting don't count. Such a module joins the changes diagram without pulling in its neighbours. **Changed only** hides the rest and draws just the changes and their direct neighbours at the chosen level of detail. With tables and events, it has the boxes of the Mermaid output, plus any changed services, repositories, routers and gateways that the Mermaid output leaves out past 30 boxes.
 
 Without `--diff`, the Mermaid output is the whole map with the current metrics and warnings. It draws services, repositories, routers and gateways inside their modules while that stays within 30 boxes. With `--diff`, it shows only the changed modules, tables and events, plus their direct neighbours. Added, removed and changed services, repositories, routers and gateways are drawn inside their modules; past 30 boxes they're left out. Past 80 boxes or 300 arrows, which is more than GitHub renders, the output is a list of what was added, removed and changed instead of a diagram. Modules whose code changed without an architecture change are listed under the diagram with their files, then added, removed and changed tasks, such as a new cron job, then new warnings. When code is all that changed, the output says there are no architecture changes and still lists the modules.
 
@@ -272,7 +274,7 @@ git worktree remove /tmp/arch-at
 
 ### Warnings
 
-- **Not mixed in:** a `*Module` trait that `ApplicationLoader` doesn't extend.
+- **Not mixed in:** a `*Module` trait that `ApplicationLoader` doesn't extend, either directly or through a trait outside the modules that groups them.
 - **Unprovided member:** a module consumes a member that nothing provides, neither another module, nor `main/`, nor the platform packages.
 - **Module cycle:** modules that depend on each other through imports or wired members. A type that platform code itself imports from a module, such as `AuthContext`, counts as platform and creates no dependency.
 - **Subscriber without publisher:** something subscribes to a topic or outbox event that nothing publishes. Publishing an event nobody subscribes to yet is fine.
@@ -280,6 +282,7 @@ git worktree remove /tmp/arch-at
 - **Duplicate table:** `Table` objects in different modules declare the same table. The map shows the table once, owned by the module of the first declaration, with the users of every declaration.
 - **Duplicate topic:** two `topic` calls use the same name, so their buses share one channel. The map shows the topic once, as the first declaration, with the publishers and subscribers of every declaration.
 - **Duplicate event:** two `DomainEventDescriptor`s use the same event type, so the outbox can hand one type's payload to the other type's subscribers. The map shows the event once, as the first declaration, with the publishers and subscribers of every declaration.
+- **Duplicate task:** two tasks use the same name, which the scheduler needs to be unique. The map lists both, each in its own module.
 - **Migration table without `Table`:** a migration creates a table that no `Table` object declares.
 
 ### Unclassified
@@ -288,7 +291,7 @@ The map reads source, not compiled code, so some things can't be resolved:
 - a `publishTransactionally(event)` whose argument doesn't show its type
 - a `wire[X]` whose class isn't in the module
 - a topic or `Table` whose name isn't a string literal
-- a second `*Module` trait in a package that already has one; only the trait mixed into `ApplicationLoader` is mapped
+- a second `*Module` trait in a package that already has one, when they aren't both mixed into `ApplicationLoader`; only the mixed-in trait is mapped. When both are mixed in, they're mapped as one module.
 - a file that doesn't parse
 
 Instead of guessing, the map lists these under **Unclassified**, each with its location.

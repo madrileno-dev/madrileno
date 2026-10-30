@@ -26,13 +26,10 @@ object ArchitectureMain {
     @arg(doc = "exit 1 when there are warnings or unclassified items (only new ones with --diff)")
     strict: Flag
   ): Unit = {
-    val root   = os.Path(project, os.pwd)
-    val output =
-      if (mermaid.value && json.value) Left("--mermaid and --json are exclusive")
-      else if (mermaid.value) Right(Output.Mermaid)
-      else if (json.value) Right(Output.Json)
-      else Right(Output.Html(out.map(os.Path(_, os.pwd)).getOrElse(Options.defaultHtml(root, diff.isDefined))))
-    output.flatMap(o => Cli.run(Options(root, diff, o, strict.value))) match {
+    val root = os.Path(project, os.pwd)
+    Options
+      .outputOf(mermaid.value, json.value, out, root, diff.isDefined)
+      .flatMap(o => Cli.run(Options(root, diff, o, strict.value))) match {
       case Left(message) =>
         System.err.println(s"architecture: $message")
         sys.exit(2)

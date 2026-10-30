@@ -50,13 +50,8 @@ object WiringExtractor {
         case d: Defn.Object => d.name.value -> Definition(Trees.parentNames(d.templ), memberNames(d.templ))
       })
       .toMap
-    val reachable = closure(Set("ApplicationLoader").filter(definitions.contains), definitions)
+    val reachable = Trees.closure(Set("ApplicationLoader").filter(definitions.contains), definitions.view.mapValues(_.parents).toMap)
     reachable.flatMap(name => definitions(name).names)
-  }
-
-  private def closure(names: Set[String], definitions: Map[String, Definition]): Set[String] = {
-    val next = names ++ names.flatMap(name => definitions(name).parents.filter(definitions.contains))
-    if (next == names) names else closure(next, definitions)
   }
 
   private def memberNames(template: Template): List[String] =

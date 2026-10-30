@@ -98,4 +98,19 @@ class TablesSuite extends munit.FunSuite {
       List("table-name:shop/repositories/R.scala:OrderTable")
     )
   }
+
+  test("a table named by a named argument, and one cross-module warning when a module uses two declarations of a table") {
+    val files = Fixtures.parsed(
+      Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule"),
+      Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule"),
+      Fixtures.src("c/CModule.scala", "package app.c\ntrait CModule"),
+      Fixtures.src("a/repositories/A.scala", "package app.a.repositories\nobject ATable extends Table[ARow](tableName = \"shared\")"),
+      Fixtures.src("b/repositories/B.scala", "package app.b.repositories\nobject BTable extends Table[BRow](\"shared\")"),
+      Fixtures.src("c/repositories/C.scala", "package app.c.repositories\nclass CRepository { def f = (ATable, BTable) }")
+    )
+    val result = TableExtractor.extract(files, Nil, Ownership.of(files))
+    assertEquals(result.unclassified, Nil)
+    assertEquals(result.value._1.map(t => t.name -> t.users.map(_.enclosing)), List("shared" -> List("CRepository")))
+    assertEquals(result.warnings.count(_.kind == WarningKind.CrossModuleTableUse), 1, result.warnings)
+  }
 }

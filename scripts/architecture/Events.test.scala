@@ -37,7 +37,7 @@ class EventsSuite extends munit.FunSuite {
 
   test("a bus topic with a subscriber and no publisher warns") {
     assertEquals(topics.map(t => (t.name, t.eventType, t.subscribers.map(_.enclosing))), List(("shop_events", "ShopEvent", List("ShopRouter"))))
-    assertEquals(result.warnings.map(_.key), List("no-publisher:shop_events"))
+    assertEquals(result.warnings.map(_.key), List("no-publisher:topic:shop_events"))
   }
 
   test("a topic whose name is not a literal is unclassified") {
@@ -100,5 +100,34 @@ class EventsSuite extends munit.FunSuite {
       result.warnings.map(w => w.key -> w.message),
       List("duplicate-event:shared.v1" -> "event shared.v1 is declared by AEvent in a, BEvent in b")
     )
+  }
+
+  test("a descriptor with an explicit type argument is an outbox event") {
+    val files = Fixtures.parsed(
+      Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule"),
+      Fixtures.src(
+        "a/domain/Created.scala",
+        "package app.a.domain\nfinal case class Created(id: Id)\nobject Created {\n  given DomainEventDescriptor[Created] = DomainEventDescriptor[Created](\"a-created.v1\", \"a\", _.id)\n}"
+      )
+    )
+    assertEquals(EventExtractor.extract(files, Ownership.of(files)).value._2.map(_.eventType), List("a-created.v1"))
+  }
+
+  test("a topic named by a named argument, and topic and event warnings that can't share a key") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "a/AModule.scala",
+        "package app.a\ntrait AModule {\n  lazy val bus: EventBus[Same] = eventBusRuntime.topic[Same](name = \"same\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src("a/routers/ARouter.scala", "package app.a.routers\nclass ARouter(bus: EventBus[Same]) {\n  def s = bus.subscribe\n}"),
+      Fixtures.src(
+        "a/domain/Same.scala",
+        "package app.a.domain\nfinal case class Same(id: Id)\nobject Same {\n  given DomainEventDescriptor[Same] = DomainEventDescriptor(\"same\", \"a\", _.id)\n}"
+      ),
+      Fixtures.src("a/AModuleSubscriptions.scala", "package app.a\nobject Subs {\n  val s = OutboxSubscription[Same](\"a\")(h)\n}")
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files))
+    assertEquals(result.value._1.map(_.name), List("same"))
+    assertEquals(result.warnings.map(_.key).sorted, List("no-publisher:event:same", "no-publisher:topic:same"))
   }
 }

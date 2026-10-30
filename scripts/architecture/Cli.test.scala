@@ -64,4 +64,17 @@ class CliSuite extends munit.FunSuite {
     val outcome = Cli.run(Options(clean, None, Output.Mermaid, strict = false)).toOption.get
     assert(outcome.stdout.startsWith("### Architecture: `working tree`"), outcome.stdout)
   }
+
+  test("--out goes with the HTML only") {
+    assertEquals(
+      Options.outputOf(mermaid = true, json = false, out = Some("x.html"), clean, isDiff = false),
+      Left("--out writes the HTML, so it can't be combined with --mermaid or --json")
+    )
+    assertEquals(Options.outputOf(mermaid = false, json = true, out = None, clean, isDiff = false), Right(Output.Json))
+    assertEquals(Options.outputOf(mermaid = true, json = true, out = None, clean, isDiff = false), Left("--mermaid and --json are exclusive"))
+    assertEquals(
+      Options.outputOf(mermaid = false, json = false, out = None, clean, isDiff = true),
+      Right(Output.Html(Options.defaultHtml(clean, isDiff = true)))
+    )
+  }
 }
