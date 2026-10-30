@@ -221,7 +221,7 @@ Test / sourceGenerators += Def.task {
     ((Compile / resourceDirectory).value / "db" / "migration" ** "*.sql").get()).sortBy(_.getPath)
   val sha256 = java.security.MessageDigest.getInstance("SHA-256")
   inputs.foreach { file =>
-    sha256.update(file.getPath.getBytes("UTF-8"))
+    sha256.update(IO.relativize(baseDirectory.value, file).getOrElse(file.getPath).getBytes("UTF-8"))
     sha256.update(IO.readBytes(file))
   }
   val digest = sha256.digest().map(byte => f"$byte%02x").mkString
