@@ -192,6 +192,7 @@ Compile / scalacOptions ++= {
 }
 coverageMinimumStmtTotal := 75
 coverageFailOnMinimum := true
+coverageDataDir := (Compile / classDirectory).value
 addCommandAlias("coverageAll", "; coverage; testFull; coverageReport; coverageOff")
 
 // scalafix
