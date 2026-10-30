@@ -1014,7 +1014,7 @@ class ProductRouterSpec extends BaseRouteSpec with TestApplicationLoader {
 }
 ```
 
-Baklava specs **are** the OpenAPI generator. Every `onRequest(...).respondsWith[T](status, ...)` writes one path + status to `target/baklava/openapi/openapi.yml`. When you run `sbt testFull`, the file is regenerated from whatever specs passed. (Use `testFull`, not `test`: under sbt 2 the cached incremental `test` can skip the router specs on a warm cache and regenerate an empty spec — see [dev-workflow.md](dev-workflow.md).)
+Baklava specs **are** the OpenAPI generator. Every `onRequest(...).respondsWith[T](status, ...)` writes one path + status to `target/baklava/openapi/openapi.yml`. Every test run regenerates the file: `testOnly *ProductRouterSpec` replaces that suite's entries and keeps every other suite's, `test` does the same for whatever suites ran, `testFull` rebuilds everything. (If the file is missing, run `testFull` once — see [dev-workflow.md](dev-workflow.md).)
 
 Keep router specs as "endpoint × status code" smoke tests. If you find yourself writing detailed domain-behavior cases here, push them down to the service spec — Baklava's class-construction binding (see pitfalls) makes heavy parameterization painful.
 

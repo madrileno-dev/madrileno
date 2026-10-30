@@ -6,10 +6,10 @@ It is deliberately a **sibling repo, not a subdirectory**, and the backend stays
 
 ## The contract loop
 
-Baklava turns the router specs — the same test-driven specs that produce the OpenAPI surface (see [`http.md`](http.md)) — into a typed TypeScript client package on `sbt testFull`. The frontend vendors that output and builds its API layer on top:
+Baklava turns the router specs — the same test-driven specs that produce the OpenAPI surface (see [`http.md`](http.md)) — into a typed TypeScript client package on every test run (`sbt test`, or `testOnly` for a single spec). The frontend vendors that output and builds its API layer on top:
 
 ```
-router specs ──sbt testFull──▶ target/baklava/views/client/orpc/src/*.ts  (oRPC contract + zod schemas + client, admin routes left out)
+router specs ──sbt test──────▶ target/baklava/views/client/orpc/src/*.ts  (oRPC contract + zod schemas + client, admin routes left out)
                                     │  the frontend's `sync-contracts` copies them in
                                     ▼
                     madrileno-frontend/src/contracts/        (committed, so the app builds standalone)
@@ -18,7 +18,7 @@ router specs ──sbt testFull──▶ target/baklava/views/client/orpc/src/*.
                               tsc  ◀── a renamed backend DTO field is a compile error at the call site
 ```
 
-Rename a field in a router spec, run `sbt testFull`, resync on the frontend, and its typecheck fails at the exact call site that read the old shape. That drift-as-compile-error is the whole point of the pairing — the wire boundary is checked by two compilers, not by hope.
+Rename a field in a router spec, run that spec (`sbt "testOnly *AuctionRouterSpec"`), resync on the frontend, and its typecheck fails at the exact call site that read the old shape. That drift-as-compile-error is the whole point of the pairing — the wire boundary is checked by two compilers, not by hope.
 
 The emitted package name and format are configured by the baklava generate config in [`build.sbt`](../build.sbt) (the `orpc-package-contract-json` block, published as `@madrileno-dev/<project>-orpc-contracts`). Nothing else here knows the frontend exists.
 
