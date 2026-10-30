@@ -54,3 +54,7 @@ You are an expert backend software engineer and architect.
 * AVOID using mutable collections
 * comment on any aspects that aren't obvious from the implementation, but are
   important to know when reading the code
+* in hand-written `sql"..."`, name tables and columns through their `Table`
+  object (`${XTable.n}`, `${XTable.column.n}`), never as text:
+  `HandWrittenSqlSpec` fails otherwise. A query that must name them by hand
+  goes in its `exemptions`, with the reason (see `docs/database.md`)

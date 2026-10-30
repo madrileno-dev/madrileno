@@ -181,6 +181,28 @@ sql"UPDATE … SET … WHERE …".command
 
 For single-row updates, prefer `updateById(id, transform)`. It's atomic, takes the lock for you, and reads as a domain-level operation.
 
+## Hand-written SQL
+
+Hand-written `sql"…"` names tables and columns through their `Table` object, never as text:
+
+```scala
+sql"""SELECT ${AuctionRowTable.*("a")}, b.${BidRowTable.amount.n}
+      FROM ${AuctionRowTable.n} a
+      JOIN ${BidRowTable.n} b ON ${BidRowTable.auctionId.n("b")} = a.${AuctionRowTable.id.n}"""
+```
+
+A renamed column then changes in one place, and every table a query touches has a `Table` object a reader can find.
+
+`HandWrittenSqlSpec` enforces this. It reads the table and column names from the migrated test database and fails with `file:line` for each one written as text in a `sql"…"` string under `src/main/scala`. Quoted strings, comments, function calls, `::` casts and `AS` aliases don't count, and names match as written, so `DATE` in capitals isn't the column `date`. System views such as `pg_stat_statements` aren't created by the migrations, so they're never flagged.
+
+A query that has to name tables by hand goes in the spec's `exemptions`, with the reason:
+
+```scala
+Exemption("madrileno/reporting/repositories/ReportRepository.scala", "monthlyTotals", "a reporting query over three modules' tables")
+```
+
+An exemption covers every name in that `def` or `val`. The spec also fails when an exemption no longer covers anything, so the list can't go stale.
+
 ## The two-phase reordering trick
 
 Some operations can't be expressed as one statement because of constraints. Reordering positions is the canonical example: swapping `[A=0, B=1]` to `[A=1, B=0]` would violate the `(auction_id, position) WHERE deleted_at IS NULL` partial unique index mid-transaction.
