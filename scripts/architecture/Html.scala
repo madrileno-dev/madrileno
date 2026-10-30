@@ -40,6 +40,7 @@ object Html {
         """<label><input type="radio" name="level" value="everything"> with tables and events</label>""" +
         """<button type="button" id="show-all" hidden>Show all modules</button>""" +
         """<span class="zoom"><button type="button" data-zoom="out" aria-label="Zoom out">−</button><button type="button" data-zoom="fit">Fit</button><button type="button" data-zoom="in" aria-label="Zoom in">+</button></span></div>""",
+      if (diff.isDiff) """<p class="muted">Green: added · red: removed · amber: changed · dotted: code changed, architecture didn't.</p>""" else "",
       moduleList(diff),
       """<div class="modules-layout">""",
       """<div class="graph" id="graph"><p class="muted">Drawing the diagram…</p></div>""",
@@ -101,9 +102,8 @@ object Html {
 
   private def moduleList(diff: DiffModel): String = {
     val chips = GraphView.shown(diff).map { m =>
-      s"""<button class="module-chip ${statusClass(m.status)}" data-module="${escape(m.id)}" data-status="${statusClass(m.status)}">${escape(
-          marker(m.status) + m.id
-        )}</button>"""
+      val state = if (m.status == Status.Unchanged && m.changedFiles.nonEmpty) "touched" else statusClass(m.status)
+      s"""<button class="module-chip $state" data-module="${escape(m.id)}" data-status="$state">${escape(marker(m.status) + m.id)}</button>"""
     }
     s"""<nav class="module-list" aria-label="Modules">${chips.mkString}</nav>"""
   }
@@ -276,7 +276,7 @@ main { padding: 0 24px 40px; }
 .module-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .module-chip { font: inherit; font-size: 13px; padding: 3px 10px; border-radius: 14px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--fg); cursor: pointer; }
 .module-chip:hover, .module-chip.selected { border-color: var(--fg); border-width: 2px; padding: 2px 9px; }
-.module-chip.added { border-color: var(--added); } .module-chip.removed { border-color: var(--removed); border-style: dashed; } .module-chip.changed { border-color: var(--changed); }
+.module-chip.touched { border-color: var(--changed); border-style: dotted; } .module-chip.added { border-color: var(--added); } .module-chip.removed { border-color: var(--removed); border-style: dashed; } .module-chip.changed { border-color: var(--changed); }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { color: var(--muted); font-weight: 600; }
@@ -329,7 +329,9 @@ body.changed-only [data-status="unchanged"] { display: none; }
     const mod = latest(diff);
     panel.replaceChildren();
     panel.appendChild(node('h2', id));
-    panel.appendChild(node('p', `${mod.traitName}${diff.status !== 'Unchanged' ? ' · ' + diff.status.toLowerCase() : ''}`, 'muted'));
+    const changedFiles = diff.changedFiles || [];
+    const state = diff.status !== 'Unchanged' ? diff.status.toLowerCase() : changedFiles.length ? 'code changed' : '';
+    panel.appendChild(node('p', `${mod.traitName}${state ? ' · ' + state : ''}`, 'muted'));
     const m = mod.metrics;
     panel.appendChild(node('p', `${m.linesOfCode} lines · ${m.components} components · ${m.tablesOwned} tables · ${m.eventsOwned} events`, 'muted'));
     const coupling = data.metrics.coupling.find(c => c.id === id);
@@ -340,6 +342,7 @@ body.changed-only [data-status="unchanged"] { display: none; }
       return wiring.provider['$type'] === 'FromModule' ? wiring.provider.id : 'platform';
     };
     const membersOf = name => diff.members.filter(m => m.section === name);
+    if (changedFiles.length) section('Code changed', changedFiles.map(path => [path, null, null]));
     section('Consumes', membersOf('Consumes').map(m => [`${m.text} ← ${providerOf(m.name)}`, m.loc, m.status]));
     section('Provides', membersOf('Provides').map(m => [m.text, m.loc, m.status]));
     section('Contributes', membersOf('Contributes').map(m => [m.text, m.loc, m.status]));

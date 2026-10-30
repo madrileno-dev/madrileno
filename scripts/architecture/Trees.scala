@@ -2,6 +2,10 @@ package architecture
 
 import scala.meta.*
 
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import scala.annotation.tailrec
+
 object Trees {
   def topLevel(source: Source): List[Stat] = flatten(source.stats)
 
@@ -39,15 +43,30 @@ object Trees {
     if (single.length > max) s"${single.take(max - 1)}…" else single
   }
 
-  def codeLines(tree: Tree): Int =
-    tree.tokens
-      .filter {
-        case _: Token.Comment => false
-        case token            => token.text.trim.nonEmpty
-      }
-      .flatMap(token => token.pos.startLine to token.pos.endLine)
-      .distinct
-      .size
+  def codeLines(tree: Tree): Int = codeTokens(tree).flatMap(token => token.pos.startLine to token.pos.endLine).distinct.size
+
+  def codeDigest(tree: Tree, rootPackage: String): String = {
+    val root = rootPackage.split('.').toList.flatMap(segment => List(".", segment)).drop(1)
+    @tailrec
+    def normalize(
+      rest: List[String],
+      previous: String,
+      done: List[String]
+    ): List[String] = rest match {
+      case Nil                                                                                         => done.reverse
+      case _ if rest.startsWith(root) && (previous == "package" || rest.lift(root.size).contains(".")) =>
+        normalize(rest.drop(root.size), "<root>", "<root>" :: done)
+      case head :: tail => normalize(tail, head, head :: done)
+    }
+    val code = normalize(codeTokens(tree).map(_.text).toList, "", Nil).mkString(" ")
+    MessageDigest.getInstance("SHA-256").digest(code.getBytes(StandardCharsets.UTF_8)).take(12).map(byte => f"$byte%02x").mkString
+  }
+
+  private def codeTokens(tree: Tree): Seq[Token] =
+    tree.tokens.filter {
+      case _: Token.Comment => false
+      case token            => token.text.trim.nonEmpty
+    }
 
   def ancestors(tree: Tree): List[Tree] = tree.parent.toList.flatMap(parent => parent :: ancestors(parent))
 

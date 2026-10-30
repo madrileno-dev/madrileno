@@ -9,7 +9,8 @@ final case class GNode(
   label: String,
   kind: NodeKind,
   parent: Option[String],
-  status: Status)
+  status: Status,
+  codeChanged: Boolean = false)
 
 final case class GEdge(
   from: String,
@@ -35,7 +36,7 @@ object GraphView {
   val MaxDiagramEdges: Int = 300
 
   def shown(diff: DiffModel): List[ModuleDiff] =
-    diff.modules.filter(m => !m.id.startsWith("utils/") || (diff.isDiff && m.status != Status.Unchanged))
+    diff.modules.filter(m => !m.id.startsWith("utils/") || (diff.isDiff && (m.status != Status.Unchanged || m.changedFiles.nonEmpty)))
 
   def changes(diff: DiffModel): Graph = {
     val top        = topLevel(diff)
@@ -44,7 +45,8 @@ object GraphView {
     val neighbours = diff.edges.flatMap { e =>
       List(e.edge.from -> e.edge.to, e.edge.to -> e.edge.from).collect { case (node, other) if changed(node) => other }
     }.toSet
-    val included   = changed ++ touched ++ neighbours
+    val codeOnly   = top.filter(_.codeChanged).map(_.key).toSet
+    val included   = changed ++ touched ++ neighbours ++ codeOnly
     val nodes      = top.filter(node => included(node.key))
     val visible    = top.map(_.key).toSet
     val components = shown(diff)
@@ -97,7 +99,9 @@ object GraphView {
       diff.tables.map(t => GNode(s"table:${t.key}", t.key, NodeKind.Table, None, t.status)) ++
         diff.topics.map(t => GNode(s"topic:${t.key}", t.key, NodeKind.Topic, None, t.status)) ++
         diff.events.map(e => GNode(s"event:${e.key}", e.head.orElse(e.base).map(_.typeName).getOrElse(e.key), NodeKind.Event, None, e.status))
-    shown(diff).map(m => GNode(s"module:${m.id}", m.id, NodeKind.Module, None, m.status)) ++ shared.filterNot(node => onlyHidden(node.key))
+    shown(diff).map(m =>
+      GNode(s"module:${m.id}", m.id, NodeKind.Module, None, m.status, codeChanged = m.status == Status.Unchanged && m.changedFiles.nonEmpty)
+    ) ++ shared.filterNot(node => onlyHidden(node.key))
   }
 
   private def componentNode(moduleId: String, component: ComponentDiff): GNode = {

@@ -46,7 +46,8 @@ final case class ModuleDiff(
   base: Option[Module],
   head: Option[Module],
   components: List[ComponentDiff],
-  members: List[MemberDiff])
+  members: List[MemberDiff],
+  changedFiles: List[String] = Nil)
     derives ReadWriter
 
 final case class NodeDiff[A](
@@ -104,7 +105,8 @@ object ArchDiff {
             before,
             after,
             components(before, after),
-            members(before, after)
+            members(before, after),
+            changedFiles(before, after)
           )
       },
       tables = nodes(base.tables, head.tables)(_.name)(t => (t.owner, sites(t.users))),
@@ -192,6 +194,14 @@ object ArchDiff {
         after
       ) => NodeDiff(k, status(before, after)(facts), before, after)
     )
+
+  private def changedFiles(before: Option[Module], after: Option[Module]): List[String] = (before, after) match {
+    case (Some(b), Some(a)) =>
+      val was = b.files.map(f => f.path -> f.digest).toMap
+      val is  = a.files.map(f => f.path -> f.digest).toMap
+      (was.keySet ++ is.keySet).filter(path => was.get(path) != is.get(path)).toList.sorted
+    case _ => Nil
+  }
 
   private def components(before: Option[Module], after: Option[Module]): List[ComponentDiff] =
     keyed(before.toList.flatMap(_.components), after.toList.flatMap(_.components))(_.name).map {

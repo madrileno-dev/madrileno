@@ -44,6 +44,8 @@ final case class Metrics(
   eventsOwned: Int)
     derives ReadWriter
 
+final case class FileDigest(path: String, digest: String) derives ReadWriter
+
 final case class Module(
   id: String,
   traitName: String,
@@ -53,7 +55,8 @@ final case class Module(
   contributions: List[Contribution],
   components: List[Component],
   metrics: Metrics,
-  loc: Loc)
+  loc: Loc,
+  files: List[FileDigest] = Nil)
     derives ReadWriter
 
 enum Provider derives ReadWriter {

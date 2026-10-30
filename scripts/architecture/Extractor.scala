@@ -25,7 +25,9 @@ object Extractor {
 
     ArchModel(
       rootPackage = input.rootPackage,
-      modules = modules.value.map(module => withOwnedCounts(module, topics, outboxEvents, tableDecls)),
+      modules = modules.value.map(module =>
+        withOwnedCounts(module, topics, outboxEvents, tableDecls).copy(files = digestsOf(module, files, ownership, input.rootPackage))
+      ),
       wirings = wiring.value,
       references = references,
       topics = topics,
@@ -37,6 +39,17 @@ object Extractor {
       unclassified = (parsed.unclassified ++ modules.unclassified ++ wiring.unclassified ++ events.unclassified ++ tables.unclassified).sortBy(_.key)
     )
   }
+
+  private def digestsOf(
+    module: Module,
+    files: List[ParsedFile],
+    ownership: Ownership,
+    rootPackage: String
+  ): List[FileDigest] =
+    files
+      .filter(file => ownership.ownerOf(file.pkg) == Owner.Module(module.id))
+      .map(file => FileDigest(file.source.packagePath, Trees.codeDigest(file.tree, rootPackage)))
+      .sortBy(_.path)
 
   private def withOwnedCounts(
     module: Module,

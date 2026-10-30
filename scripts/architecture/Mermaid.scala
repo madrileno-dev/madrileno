@@ -33,7 +33,7 @@ object Mermaid {
   def render(diff: DiffModel): String = {
     val graph  = GraphView.changes(diff)
     val footer = footerOf(diff)
-    if (graph.nodes.isEmpty)
+    if (graph.nodes.forall(_.status == Status.Unchanged) && graph.edges.forall(_.status == Status.Unchanged))
       s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n${if (metricsMoved(diff)) metricsSection(diff) else ""}$footer$Credit"
     else if (graph.nodes.size > GraphView.MaxDiagramNodes || graph.edges.size > GraphView.MaxDiagramEdges) {
       val intro =
@@ -100,6 +100,9 @@ object Mermaid {
         s"  style ${idOf(node.key)} fill:${palette.fill},stroke:${palette.stroke},color:#ffffff${palette.extra}"
       } else s"  class ${idOf(node.key)} ${node.status.toString.toLowerCase}"
     }
+    val codeLines = graph.nodes.filter(_.codeChanged).map { node =>
+      if (subgraphs.contains(node)) s"  style ${idOf(node.key)} $CodeChangedStyle" else s"  class ${idOf(node.key)} touched"
+    }
     val linkStyles = graph.edges.zipWithIndex.collect {
       case (edge, index) if edge.status == Status.Added   => s"  linkStyle $index stroke:#2f7d4a,stroke-width:2px"
       case (edge, index) if edge.status == Status.Removed => s"  linkStyle $index stroke:#b5122b"
@@ -108,7 +111,8 @@ object Mermaid {
       val palette = palettes(status)
       s"  classDef ${status.toString.toLowerCase} fill:${palette.fill},stroke:${palette.stroke},color:#ffffff${palette.extra}"
     }
-    (classDefs ++ nodeLines ++ edgeLines ++ classLines ++ linkStyles).map(_ + "\n").mkString
+    val codeDef = Option.when(codeLines.nonEmpty)(s"  classDef touched $CodeChangedStyle")
+    (classDefs ++ codeDef ++ nodeLines ++ edgeLines ++ classLines ++ codeLines ++ linkStyles).map(_ + "\n").mkString
   }
 
   private def edgeLine(edge: GEdge): String = {
@@ -171,8 +175,17 @@ object Mermaid {
         s"- $change `${task.name}`: ${task.kind.label}${task.schedule.fold("")(schedule => s", ${scheduleText(schedule)}")}, in ${task.owner.label}"
       }
     }
-    section("Tasks", tasks) + section("New warnings", warnings) + section("New unclassified", unclassified)
+    val code = diff.modules.filter(m => m.status == Status.Unchanged && m.changedFiles.nonEmpty).map { m =>
+      val files = m.changedFiles.map(path => s"`${path.stripPrefix(s"${m.id}/")}`")
+      s"- ${m.id}: ${(files.take(MaxListedFiles) ++ Option.when(files.size > MaxListedFiles)(s"+${files.size - MaxListedFiles} more")).mkString(", ")}"
+    }
+    section("Code changed, architecture unchanged", code) + section("Tasks", tasks) + section("New warnings", warnings) +
+      section("New unclassified", unclassified)
   }
+
+  private val MaxListedFiles = 5
+
+  private val CodeChangedStyle = "stroke:#a8660b,stroke-width:2px,stroke-dasharray:3 3"
 
   private def scheduleText(schedule: String): String = schedule.split(" ", 2) match {
     case Array(kind @ ("cron" | "every" | "after"), value) => s"$kind `$value`"

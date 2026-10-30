@@ -7,7 +7,11 @@ class HtmlSuite extends munit.FunSuite {
   test("diff page has title, module nodes, changed-only filter and embedded data") {
     assert(page.contains("<title>Architecture diff: main@abc1234 → working tree</title>"))
     assert(page.contains("""<button class="module-chip added" data-module="order" data-status="added">+ order</button>"""), page)
-    assert(page.contains("""data-module="user" data-status="unchanged""""), "Changed only hides unchanged modules from the list")
+    assert(
+      Html.render(ArchDiff.compare(Fixtures.diffBase, Fixtures.diffBase, "b", "h")).contains("""data-module="user" data-status="unchanged""""),
+      "Changed only hides unchanged modules from the list"
+    )
+    assert(page.contains("""data-module="user" data-status="touched""""), "a module whose code changed stays under Changed only")
     assert(page.contains("Changed only"))
     assert(page.contains("<script type=\"application/json\" id=\"arch-data\">"))
   }
