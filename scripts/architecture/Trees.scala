@@ -39,7 +39,15 @@ object Trees {
     if (single.length > max) s"${single.take(max - 1)}…" else single
   }
 
-  def nonBlankLines(content: String): Int = content.linesIterator.count(_.trim.nonEmpty)
+  def codeLines(tree: Tree): Int =
+    tree.tokens
+      .filter {
+        case _: Token.Comment => false
+        case token            => token.text.trim.nonEmpty
+      }
+      .flatMap(token => token.pos.startLine to token.pos.endLine)
+      .distinct
+      .size
 
   def ancestors(tree: Tree): List[Tree] = tree.parent.toList.flatMap(parent => parent :: ancestors(parent))
 

@@ -66,7 +66,7 @@ object ModuleExtractor {
         provides = stats.flatMap(provided(file, _)),
         contributions = stats.flatMap(contribution(file, _)),
         components = resolved,
-        metrics = Metrics(ownFiles.map(f => Trees.nonBlankLines(f.source.content)).sum, resolved.size, 0, 0),
+        metrics = Metrics(ownFiles.map(f => Trees.codeLines(f.tree)).sum, resolved.size, 0, 0),
         loc = Trees.loc(file, defn)
       ),
       Nil,

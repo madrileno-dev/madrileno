@@ -254,7 +254,7 @@ Six numbers summarise the architecture. For each one, lower is better. They move
 
 The metrics:
 - **Propagation cost:** the share of other modules a change in one module can reach through dependencies. This is MacCormack, Rusnak and Baldwin's measure, without counting a module as reaching itself, so 0% means no ripple at all. Merging modules lowers it, because fewer modules leave fewer pairs to ripple between, so read it together with size concentration.
-- **Size concentration:** how much of the feature code sits in one module. It's the Herfindahl index of each feature module's share of the lines of code, with `utils/` left out: 100% when all the code is in one module, lower as it spreads out. Merging modules always raises it, so collapsing a project into a god module can't pass as an improvement.
+- **Size concentration:** how much of the feature code sits in one module. It's the Herfindahl index of each feature module's share of the lines of code, counting only lines that hold code (comments and blank lines don't), with `utils/` left out: 100% when all the code is in one module, lower as it spreads out. Merging modules always raises it, so collapsing a project into a god module can't pass as an improvement.
 - **Largest cycle:** the number of modules in the biggest group that all depend on each other, or 0 when there are no cycles.
 - **Stable-dependency violations:** dependencies on a module that changes more easily than the one depending on it (Robert Martin's Stable Dependencies Principle). A module's instability is its outgoing dependencies divided by all its dependencies, in and out.
 - **Cake bypasses:** the number of `uses`, meaning types taken from another module's internals around the wiring.

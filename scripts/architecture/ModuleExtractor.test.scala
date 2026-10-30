@@ -72,9 +72,19 @@ class ModuleExtractorSuite extends munit.FunSuite {
     assertEquals(result.unclassified.map(_.key), List("component:billing:Missing"))
   }
 
-  test("lines of code count non-blank lines of the module's files") {
+  test("lines of code count the lines of the module's files that hold code") {
     assert(user.metrics.linesOfCode >= 18)
     assertEquals(user.metrics.components, 3)
+  }
+
+  test("lines of code leave out comments and blank lines, and count every line of a multi-line string") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "notes/NotesModule.scala",
+        "package app.notes\n\n// a line comment\n/** scaladoc\n  * over lines\n  */\ntrait NotesModule {\n  /* block */\n  val sql = \"\"\"SELECT 1\n    FROM t\"\"\" // trailing\n}\n"
+      )
+    )
+    assertEquals(ModuleExtractor.extract(files, Ownership.of(files)).value.map(_.metrics.linesOfCode), List(5))
   }
 
   test("a second module trait in the same package is unclassified and the mixed-in one is kept") {
