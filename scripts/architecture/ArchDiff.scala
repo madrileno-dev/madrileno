@@ -1,5 +1,7 @@
 package architecture
 
+import upickle.implicits.serializeDefaults
+
 import upickle.default.ReadWriter
 
 enum Status derives ReadWriter {
@@ -21,6 +23,7 @@ final case class Edge(
   label: String)
     derives ReadWriter
 
+@serializeDefaults(true)
 final case class ComponentDiff(
   name: String,
   status: Status,
@@ -41,6 +44,7 @@ final case class MemberDiff(
   loc: Loc)
     derives ReadWriter
 
+@serializeDefaults(true)
 final case class ModuleDiff(
   id: String,
   status: Status,
@@ -51,6 +55,7 @@ final case class ModuleDiff(
   changedFiles: List[String] = Nil)
     derives ReadWriter
 
+@serializeDefaults(true)
 final case class NodeDiff[A](
   key: String,
   status: Status,
@@ -65,6 +70,7 @@ final case class WarningDiff(warning: Warning, status: WarningStatus) derives Re
 
 final case class UnclassifiedDiff(item: Unclassified, status: WarningStatus) derives ReadWriter
 
+@serializeDefaults(true)
 final case class DiffModel(
   isDiff: Boolean,
   baseLabel: String,
@@ -119,7 +125,7 @@ object ArchDiff {
       headLabel = headLabel,
       modules = modules,
       tables = nodes(base.tables, head.tables)(_.name)(t => (t.owner, sites(t.users))).map(t =>
-        t.copy(codeChanged = t.status == Status.Unchanged && (columnChanges(t).nonEmpty || migrated(t.key.split('.').last)))
+        t.copy(codeChanged = t.status == Status.Unchanged && (columnChanges(t).nonEmpty || migrated(t.key)))
       ),
       topics = nodes(base.topics, head.topics)(_.name)(t => (t.eventType, t.owner, sites(t.publishers), sites(t.subscribers)))
         .map(withCodeChange(_, changedPaths)(_.definedIn)),

@@ -125,4 +125,18 @@ class WiringSuite extends munit.FunSuite {
       List(("domain", "RouteId"), ("module", "RouteFailure"))
     )
   }
+
+  test("a given with a body provides its member") {
+    val files = Fixtures.parsed(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ClockModule with CellarModule"),
+      Fixtures
+        .src("clock/ClockModule.scala", "package app.clock\ntrait ClockModule {\n  given auditClock: Clock[IO] with {\n    def now = ???\n  }\n}"),
+      Fixtures.src("cellar/CellarModule.scala", "package app.cellar\ntrait CellarModule {\n  given auditClock: Clock[IO]\n}")
+    )
+    val ownership = Ownership.of(files)
+    val modules   = ModuleExtractor.extract(files, ownership).value
+    val wiring    = WiringExtractor.extract(modules, files, ownership)
+    assertEquals(wiring.value, List(Wiring("auditClock", "cellar", Provider.FromModule("clock"))))
+    assertEquals(wiring.warnings, Nil)
+  }
 }

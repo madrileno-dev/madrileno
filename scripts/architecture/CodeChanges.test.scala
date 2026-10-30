@@ -31,7 +31,7 @@ class CodeChangesSuite extends munit.FunSuite {
   test("the pull request output lists code changes, and says there are no architecture changes when that's all there is") {
     val text = Mermaid.render(against(project("30.days")))
     assert(text.startsWith("No architecture changes between `main` and `working tree`."), text)
-    assert(text.contains("**Code changed, architecture unchanged**\n\n- auth: `services/TokenPolicy.scala`"), text)
+    assert(text.contains("**Code changed**\n\n- auth: `services/TokenPolicy.scala`"), text)
   }
 
   test("a module with only code changes joins the changes diagram with a dotted outline, without its neighbours") {
@@ -218,10 +218,7 @@ class CodeChangesSuite extends munit.FunSuite {
     assertEquals(diff.changedOutside, List("main/ApplicationLoader.scala", "utils/task/Scheduler.scala"))
     val text = Mermaid.render(diff)
     assert(text.startsWith("No architecture changes"), text)
-    assert(
-      text.contains("**Code changed, architecture unchanged**\n\n- platform: `utils/task/Scheduler.scala`\n- main: `ApplicationLoader.scala`"),
-      text
-    )
+    assert(text.contains("**Code changed**\n\n- platform: `utils/task/Scheduler.scala`\n- main: `ApplicationLoader.scala`"), text)
     val page = Html.render(diff)
     assert(page.contains("""<section id="outside"><h2>Code outside modules</h2>"""), page)
     assert(
@@ -243,5 +240,26 @@ class CodeChangesSuite extends munit.FunSuite {
     )
     val diff = ArchDiff.compare(Extractor.extract(app("id: Id")), Extractor.extract(app("id: Id, at: Instant")), "b", "h")
     assertEquals(diff.events.map(_.codeChanged), List(true))
+  }
+
+  test("a table that changed for another reason still lists its column changes") {
+    def users(columns: String, use: String) = Fixtures.project(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),
+      Fixtures.src(
+        "user/repositories/AccountTable.scala",
+        s"package app.user.repositories\nobject AccountTable extends Table[Account](\"account\") {\n$columns\n}"
+      ),
+      Fixtures.src("shop/repositories/ShopRepository.scala", s"package app.shop.repositories\nclass ShopRepository {\n$use\n}")
+    )
+    val diff = ArchDiff.compare(
+      Extractor.extract(users(idOnly, "")),
+      Extractor.extract(users(idOnly + "\n  val email = column(\"email\", text)", "  def f = AccountTable")),
+      "b",
+      "h"
+    )
+    assertEquals(diff.tables.map(t => (t.status, t.codeChanged)), List((Status.Changed, false)))
+    assert(Mermaid.render(diff).contains("- table `account`: added column `email`"), Mermaid.render(diff))
   }
 }

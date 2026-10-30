@@ -1,5 +1,7 @@
 package architecture
 
+import upickle.implicits.serializeDefaults
+
 import upickle.default.ReadWriter
 
 final case class Loc(path: String, line: Int) derives ReadWriter
@@ -46,6 +48,7 @@ final case class Metrics(
 
 final case class FileDigest(path: String, digest: String) derives ReadWriter
 
+@serializeDefaults(true)
 final case class Module(
   id: String,
   traitName: String,
@@ -70,6 +73,7 @@ final case class Wiring(
   provider: Provider)
     derives ReadWriter
 
+@serializeDefaults(true)
 final case class Reference(
   from: String,
   to: String,
@@ -89,6 +93,7 @@ final case class Site(
   loc: Loc)
     derives ReadWriter
 
+@serializeDefaults(true)
 final case class BusTopic(
   name: String,
   eventType: String,
@@ -101,6 +106,7 @@ final case class BusTopic(
 
 final case class OutboxSubscriber(consumer: String, site: Site) derives ReadWriter
 
+@serializeDefaults(true)
 final case class OutboxEvent(
   typeName: String,
   eventType: String,
@@ -132,6 +138,7 @@ final case class TaskDecl(
 
 final case class TableColumn(name: String, codec: String) derives ReadWriter
 
+@serializeDefaults(true)
 final case class TableDecl(
   name: String,
   objectName: String,
@@ -141,6 +148,7 @@ final case class TableDecl(
   columns: List[TableColumn] = Nil)
     derives ReadWriter
 
+@serializeDefaults(true)
 final case class Migration(
   path: String,
   digest: String,
@@ -181,6 +189,7 @@ final case class Extracted[A](
   warnings: List[Warning],
   unclassified: List[Unclassified])
 
+@serializeDefaults(true)
 final case class ArchModel(
   rootPackage: String,
   modules: List[Module],

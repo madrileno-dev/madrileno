@@ -77,4 +77,12 @@ class CliSuite extends munit.FunSuite {
       Right(Output.Html(Options.defaultHtml(clean, isDiff = true)))
     )
   }
+
+  test("the JSON has every field, empty or not, so its shape doesn't depend on the project") {
+    val json = ujson.read(Cli.run(Options(clean, None, Output.Json, strict = false)).toOption.get.stdout)
+    assert(json.obj.contains("migrations") && json.obj.contains("changedOutside"), json.obj.keySet)
+    val module = json("modules")(0)
+    assert(module.obj.contains("changedFiles"), module.obj.keySet)
+    assert(module("head").obj.contains("files"), module("head").obj.keySet)
+  }
 }

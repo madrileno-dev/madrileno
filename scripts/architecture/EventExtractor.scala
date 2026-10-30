@@ -153,27 +153,48 @@ object EventExtractor {
           )
     }
 
-  private def busUsesIn(file: ParsedFile, ownership: Ownership): List[BusUse] =
-    file.tree.collect { case cls: Defn.Class => cls }.flatMap { cls =>
-      val buses = cls.ctor.paramClauses
-        .flatMap(_.values)
-        .flatMap { param =>
-          param.decltpe.collect {
-            case Type.Apply.After_4_6_0(Type.Name("EventBus"), targs) if targs.values.size == 1 =>
-              param.name.value -> targs.values.head.syntax
-          }
-        }
-        .toMap
-      cls.templ.collect {
-        case select @ Term.Select(Term.Name(name), Term.Name(method)) if buses.contains(name) && busRole(method).isDefined =>
-          BusUse(
-            buses(name),
-            busRole(method).getOrElse(Role.Subscribes),
-            Site(ownership.ownerOf(file.pkg), cls.name.value, Trees.loc(file, select)),
-            file.source.packagePath
-          )
-      }
+  private def busUsesIn(file: ParsedFile, ownership: Ownership): List[BusUse] = {
+    val scopes = file.tree.collect {
+      case cls: Defn.Class =>
+        (cls: Tree) -> (
+          cls.name.value,
+          cls.ctor.paramClauses.flatMap(_.values).flatMap(p => busOf(p.name.value, p.decltpe)).toMap ++ busesIn(cls.templ)
+        )
+      case t: Defn.Trait    => (t: Tree)   -> (t.name.value, busesIn(t.templ))
+      case obj: Defn.Object => (obj: Tree) -> (obj.name.value, busesIn(obj.templ))
     }
+    file.tree.collect {
+      case select @ Term.Select(Term.Name(name), Term.Name(method)) if busRole(method).isDefined =>
+        Trees
+          .ancestors(select)
+          .flatMap(ancestor => scopes.find(_._1 eq ancestor).map(_._2))
+          .collectFirst { case (enclosing, buses) if buses.contains(name) => (enclosing, buses(name)) }
+          .map((enclosing, eventType) =>
+            BusUse(
+              eventType,
+              busRole(method).getOrElse(Role.Subscribes),
+              Site(ownership.ownerOf(file.pkg), enclosing, Trees.loc(file, select)),
+              file.source.packagePath
+            )
+          )
+    }.flatten
+  }
+
+  private def busesIn(template: Template): Map[String, String] =
+    Trees
+      .members(template)
+      .flatMap {
+        case d: Defn.Val => Trees.patNames(d.pats).flatMap(busOf(_, d.decltpe))
+        case d: Decl.Val => Trees.patNames(d.pats).flatMap(busOf(_, Some(d.decltpe)))
+        case d: Defn.Def => busOf(d.name.value, d.decltpe)
+        case d: Decl.Def => busOf(d.name.value, Some(d.decltpe))
+        case _           => Nil
+      }
+      .toMap
+
+  private def busOf(name: String, tpe: Option[Type]): Option[(String, String)] = tpe.collect {
+    case Type.Apply.After_4_6_0(Type.Name("EventBus"), targs) if targs.values.size == 1 => name -> targs.values.head.syntax
+  }
 
   private def busRole(method: String): Option[Role] = method match {
     case "publish"                      => Some(Role.Publishes)
@@ -201,9 +222,10 @@ object EventExtractor {
 
   private def publishesIn(file: ParsedFile, ownership: Ownership): List[Either[Unclassified, (String, Site)]] =
     file.tree.collect {
-      case call @ Term.Apply.After_4_6_0(Term.Select(_, Term.Name("publishTransactionally")), args) if args.values.size == 1 =>
+      case call @ Term.Apply.After_4_6_0(fun, args) if publishedType(fun).isDefined && args.values.size == 1 =>
         val site = Site(ownership.ownerOf(file.pkg), Trees.enclosingName(call), Trees.loc(file, call))
-        eventTypeOf(args.values.head)
+        publishedType(fun).flatten
+          .orElse(eventTypeOf(args.values.head))
           .map(_ -> site)
           .toRight(
             Unclassified(
@@ -213,6 +235,13 @@ object EventExtractor {
             )
           )
     }
+
+  private def publishedType(fun: Term): Option[Option[String]] = fun match {
+    case Term.Select(_, Term.Name("publishTransactionally"))                                                              => Some(None)
+    case Term.ApplyType.After_4_6_0(Term.Select(_, Term.Name("publishTransactionally")), targs) if targs.values.size == 1 =>
+      Some(Some(Trees.typeName(targs.values.head)))
+    case _ => None
+  }
 
   private def eventTypeOf(arg: Term): Option[String] = arg match {
     case Term.Apply.After_4_6_0(Term.Name(name), _) if isTypeName(name)                 => Some(name)

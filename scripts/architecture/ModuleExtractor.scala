@@ -84,8 +84,10 @@ object ModuleExtractor {
   private def provided(file: ParsedFile, stat: Stat): List[Member] = stat match {
     case d: Defn.Val if visible(d.mods) =>
       Trees.patNames(d.pats).map(Member(_, d.decltpe.map(_.syntax).orElse(instantiated(d.rhs)).getOrElse(""), Trees.loc(file, d)))
-    case d: Defn.GivenAlias if visible(d.mods) => List(Member(d.name.value, d.decltpe.syntax, Trees.loc(file, d)))
-    case d: Defn.Def if visible(d.mods)        =>
+    case d: Defn.GivenAlias if visible(d.mods)                     => List(Member(d.name.value, d.decltpe.syntax, Trees.loc(file, d)))
+    case d: Defn.Given if visible(d.mods) && d.name.value.nonEmpty =>
+      List(Member(d.name.value, d.templ.inits.headOption.map(_.tpe.syntax).getOrElse(""), Trees.loc(file, d)))
+    case d: Defn.Def if visible(d.mods) =>
       List(Member(d.name.value, d.decltpe.map(_.syntax).orElse(instantiated(d.body)).getOrElse(""), Trees.loc(file, d)))
     case _ => Nil
   }

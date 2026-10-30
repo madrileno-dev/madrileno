@@ -303,7 +303,7 @@ Instead of guessing, the map lists these under **Unclassified**, each with its l
 
 ### What it doesn't do
 
-- **Doesn't read hand-written SQL.** It knows a table only through its `Table` object.
+- **Doesn't read the SQL in Scala code.** A repository's queries don't count as using a table; only references to its `Table` object do.
 - **Doesn't analyse tests.**
 - **Doesn't resolve types.** A wildcard import counts as a reference to the package, not to each symbol in it.
 

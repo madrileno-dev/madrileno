@@ -3,9 +3,6 @@ package architecture
 import scala.meta.{Member as _, *}
 
 object TableExtractor {
-  private val CreateTable =
-    """(?i)\bcreate\s+table\s+(?:if\s+not\s+exists\s+)?((?:"[^"]+"|[A-Za-z_][A-Za-z0-9_]*)(?:\.(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_]*))?)""".r
-
   def extract(
     files: List[ParsedFile],
     migrations: List[SourceFile],
@@ -14,7 +11,7 @@ object TableExtractor {
     val found     = files.flatMap(declarationsIn(_, ownership))
     val declared  = found.collect { case Right(table) => table }
     val withUsers = declared.map(table => table.copy(users = usersOf(table, declared, files, ownership)))
-    val migrated  = migrations.flatMap(migrationTablesIn)
+    val migrated  = migrations.flatMap(MigrationExtractor.created)
 
     val crossModule = withUsers
       .flatMap { table =>
@@ -73,7 +70,9 @@ object TableExtractor {
         .map { arg =>
           Trees
             .stringLiteral(arg)
-            .map(name => TableDecl(normalize(name), obj.name.value, ownership.ownerOf(file.pkg), Nil, Trees.loc(file, obj), columnsOf(obj)))
+            .map(name =>
+              TableDecl(MigrationExtractor.tableName(name), obj.name.value, ownership.ownerOf(file.pkg), Nil, Trees.loc(file, obj), columnsOf(obj))
+            )
             .toRight(
               Unclassified(
                 s"table-name:${file.source.packagePath}:${obj.name.value}",
@@ -122,13 +121,4 @@ object TableExtractor {
     case _                => false
   }
 
-  private def migrationTablesIn(file: SourceFile): List[MigrationTable] =
-    CreateTable
-      .findAllMatchIn(file.content)
-      .map { m =>
-        MigrationTable(normalize(m.group(1).split('.').last), Loc(file.projectPath, file.content.take(m.start).count(_ == '\n') + 1))
-      }
-      .toList
-
-  private def normalize(name: String): String = name.stripPrefix("\"").stripSuffix("\"").toLowerCase
 }

@@ -151,4 +151,27 @@ class TablesSuite extends munit.FunSuite {
     )
     assertEquals(migrations.map(_.digest).distinct.size, 1)
   }
+
+  test("a CREATE TABLE in a comment or for a partition is not a migration table, and an unlogged one is") {
+    val sql = Fixtures.migration(
+      "V1__init.sql",
+      "-- create table for bookings\n/* create table legacy (\n   id int); */\ncreate unlogged table cache_entries (k text);\n" +
+        "create table orders_2024 partition of orders for values from ('2024-01-01') to ('2025-01-01');\n" +
+        "create table if not exists orders_2025 partition of orders for values from ('2025-01-01') to ('2026-01-01');"
+    )
+    val result = TableExtractor.extract(Nil, List(sql), Ownership(Set.empty))
+    assertEquals(result.value._2.map(t => t.name -> t.loc.line), List("cache_entries" -> 4))
+    assertEquals(result.warnings.map(_.key), List("migration-table-without-table:cache_entries"))
+    assertEquals(MigrationExtractor.extract(List(sql)).map(_.creates), List(List("cache_entries")))
+  }
+
+  test("a schema-qualified Table name matches its migration") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src("user/repositories/UserTable.scala", "package app.user.repositories\nobject UserTable extends Table[UserRow](\"public.users\")")
+    )
+    val result = TableExtractor.extract(files, List(Fixtures.migration("V1__init.sql", "create table public.users (id uuid);")), Ownership.of(files))
+    assertEquals(result.value._1.map(_.name), List("users"))
+    assertEquals(result.warnings, Nil)
+  }
 }

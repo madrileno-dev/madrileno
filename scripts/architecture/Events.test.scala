@@ -130,4 +130,45 @@ class EventsSuite extends munit.FunSuite {
     assertEquals(result.value._1.map(_.name), List("same"))
     assertEquals(result.warnings.map(_.key).sorted, List("no-publisher:event:same", "no-publisher:topic:same"))
   }
+
+  test("a bus used in a module trait or an object is a publisher") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "user/UserModule.scala",
+        "package app.user\ntrait UserModule {\n  lazy val userBus: EventBus[UserEvent] = eventBusRuntime.topic[UserEvent](\"user_events\", maxQueued = 8)\n" +
+          "  lazy val starter = Lifecycle(userBus.publish(UserEvent.Started))\n}"
+      ),
+      Fixtures.src(
+        "user/services/Pinger.scala",
+        "package app.user.services\nobject Pinger {\n  val bus: EventBus[UserEvent] = ???\n  def ping = bus.publish(UserEvent.Ping)\n}"
+      ),
+      Fixtures.src(
+        "user/routers/UserRouter.scala",
+        "package app.user.routers\nclass UserRouter(bus: EventBus[UserEvent]) {\n  def ws = bus.subscribe\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files))
+    assertEquals(
+      result.value._1.map(t => (t.publishers.map(_.enclosing), t.subscribers.map(_.enclosing))),
+      List((List("UserModule", "Pinger"), List("UserRouter")))
+    )
+    assertEquals(result.warnings, Nil)
+  }
+
+  test("publishTransactionally with an explicit type argument publishes that type") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src(
+        "user/domain/UserDeleted.scala",
+        "package app.user.domain\nfinal case class UserDeleted(id: Id)\nobject UserDeleted {\n  given DomainEventDescriptor[UserDeleted] = DomainEventDescriptor(\"user-deleted.v1\", \"user\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "user/services/UserService.scala",
+        "package app.user.services\nclass UserService(outbox: Outbox) {\n  def d(ev: Ev) = outbox.publishTransactionally[UserDeleted](ev)\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files))
+    assertEquals(result.value._2.map(_.publishers.map(_.enclosing)), List(List("UserService")))
+    assertEquals(result.unclassified, Nil)
+  }
 }
