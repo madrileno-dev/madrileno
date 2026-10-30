@@ -17,7 +17,8 @@ final case class GEdge(
   to: String,
   label: String,
   status: Status,
-  repositories: Boolean)
+  repositories: Boolean,
+  event: Boolean = false)
 
 enum Level {
   case Modules, Components, Everything
@@ -45,7 +46,7 @@ object GraphView {
   ): Graph = {
     val atLevel    = (key: String) => level == Level.Everything || key.startsWith("module:")
     val top        = topLevel(diff).filter(node => atLevel(node.key))
-    val graphEdges = diff.edges.filter(e => atLevel(e.edge.from) && atLevel(e.edge.to))
+    val graphEdges = diff.edges.filter(e => atLevel(e.edge.from) && atLevel(e.edge.to) && GraphView.atLevel(level)(e))
     val changed    = top.filter(_.status != Status.Unchanged).map(_.key).toSet
     val touched    = graphEdges.filter(_.status != Status.Unchanged).flatMap(e => List(e.edge.from, e.edge.to)).toSet
     val neighbours = graphEdges.flatMap { e =>
@@ -76,7 +77,7 @@ object GraphView {
     val top        = topLevel(diff).filter(node => node.kind == NodeKind.Module || level == Level.Everything)
     val keys       = top.map(_.key).toSet
     val components = if (level == Level.Modules) Nil else shown(diff).flatMap(m => m.components.map(componentNode(m.id, _)))
-    val edges      = mergedEdges(diff.edges.filter(e => keys(e.edge.from) && keys(e.edge.to)), diff.references)
+    val edges      = mergedEdges(diff.edges.filter(e => keys(e.edge.from) && keys(e.edge.to) && atLevel(level)(e)), diff.references)
     Graph(top ++ components, edges, collapsed = false)
   }
 
@@ -94,6 +95,8 @@ object GraphView {
     val keys    = edges.flatMap(e => List(e.from, e.to)).toSet + center
     Graph(graph.nodes.filter(node => keys(node.key) || node.parent.contains(center)), edges, collapsed = false)
   }
+
+  private def atLevel(level: Level)(edge: EdgeDiff): Boolean = level != Level.Everything || edge.edge.kind != EdgeKind.Event
 
   private def topLevel(diff: DiffModel): List[GNode] = {
     val hidden     = diff.modules.map(m => s"module:${m.id}").toSet -- shown(diff).map(m => s"module:${m.id}")
@@ -142,7 +145,8 @@ object GraphView {
           labelOf(group, between),
           status,
           group.exists(e => e.edge.kind == EdgeKind.Reference && e.edge.label == "repositories") &&
-            between.exists(r => r.layer == "repositories" && r.explainedBy.isEmpty)
+            between.exists(r => r.layer == "repositories" && r.explainedBy.isEmpty),
+          group.forall(_.edge.kind == EdgeKind.Event)
         )
       }
 
@@ -170,13 +174,15 @@ object GraphView {
       .map(r => if (r.symbol == "*" || r.symbol == "given") s"${r.layer}.${r.symbol}" else r.symbol)
       .distinct
       .sorted
-    val named =
-      if (uses.size > MaxNamedTypes) s"${uses.take(MaxNamedTypes).mkString(", ")}, +${uses.size - MaxNamedTypes} more"
-      else uses.mkString(", ")
+    val named = (names: List[String]) =>
+      if (names.size > MaxNamedTypes) s"${names.take(MaxNamedTypes).mkString(", ")}, +${names.size - MaxNamedTypes} more"
+      else names.mkString(", ")
+    val events = labels(EdgeKind.Event).sorted
     List(
       Option.when(labels(EdgeKind.Wiring).nonEmpty)(s"wires ${labels(EdgeKind.Wiring).mkString(", ")}"),
       Option.when(imports.nonEmpty)(s"imports ${imports.mkString(", ")}"),
-      Option.when(uses.nonEmpty)(s"uses $named")
+      Option.when(uses.nonEmpty)(s"uses ${named(uses)}"),
+      Option.when(events.nonEmpty)(s"event ${named(events)}")
     ).flatten.++(consumers).mkString(" · ")
   }
 }

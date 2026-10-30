@@ -11,7 +11,7 @@ enum WarningStatus derives ReadWriter {
 }
 
 enum EdgeKind derives ReadWriter {
-  case Wiring, Reference, TableUse, Publishes, Subscribes
+  case Wiring, Reference, TableUse, Publishes, Subscribes, Event
 }
 
 final case class Edge(
@@ -162,7 +162,20 @@ object ArchDiff {
       moduleIds(e.publishers).map(id => Edge(EdgeKind.Publishes, s"module:$id", s"event:${e.eventType}", "")) ++
         e.subscribers.flatMap(s => moduleId(s.site.owner).map(id => Edge(EdgeKind.Subscribes, s"event:${e.eventType}", s"module:$id", s.consumer)))
     }
-    (wirings ++ references ++ tableUses ++ topics ++ events).toSet
+    val flows = model.topics.map(t => (t.name, moduleIds(t.publishers), moduleIds(t.subscribers))) ++
+      model.outboxEvents.map(e => (e.eventType, moduleIds(e.publishers), e.subscribers.flatMap(s => moduleId(s.site.owner)).distinct))
+    val eventFlows = flows.flatMap {
+      (
+        name,
+        publishers,
+        subscribers
+      ) =>
+        for {
+          publisher  <- publishers
+          subscriber <- subscribers if subscriber != publisher
+        } yield Edge(EdgeKind.Event, s"module:$publisher", s"module:$subscriber", name)
+    }
+    (wirings ++ references ++ tableUses ++ topics ++ events ++ eventFlows).toSet
   }
 
   private final case class ModuleFacts(

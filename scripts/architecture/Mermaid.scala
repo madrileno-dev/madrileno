@@ -117,7 +117,7 @@ object Mermaid {
 
   private def edgeLine(edge: GEdge): String = {
     val arrow =
-      if (edge.status == Status.Removed) "-.->"
+      if (edge.status == Status.Removed || edge.event) "-.->"
       else if (edge.repositories) "==>"
       else "-->"
     val label = if (edge.label.isEmpty) "" else s"""|"${escape(edge.label).replace("|", "#124;")}"|"""

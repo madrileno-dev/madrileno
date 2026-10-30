@@ -66,6 +66,50 @@ class GraphViewSuite extends munit.FunSuite {
     assertEquals(keys(Level.Everything), List("module:shop", "table:orders", "component:shop:ShopRepository"))
   }
 
+  private def eventsProject(shopSubscribes: Boolean) = Fixtures.project(
+    Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+    Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+    Fixtures.src(
+      "user/domain/UserDeleted.scala",
+      "package app.user.domain\nfinal case class UserDeleted(id: Id)\nobject UserDeleted {\n  given DomainEventDescriptor[UserDeleted] = DomainEventDescriptor(\"user-deleted.v1\", \"user\", _.id)\n}"
+    ),
+    Fixtures.src(
+      "user/services/UserService.scala",
+      "package app.user.services\nclass UserService(outbox: Outbox) {\n  def d(id: Id) = outbox.publishTransactionally(UserDeleted(id))\n}"
+    ),
+    Fixtures.src(
+      "shop/ShopModule.scala",
+      "package app.shop\ntrait ShopModule {\n  lazy val bus: EventBus[ShopEvent] = eventBusRuntime.topic[ShopEvent](\"shop_events\", maxQueued = 8)\n" +
+        (if (shopSubscribes)
+           "  override abstract def outboxSubscriptions = super.outboxSubscriptions :+ OutboxSubscription[UserDeleted](\"shop\")(h)\n"
+         else "") +
+        "}"
+    ),
+    Fixtures.src(
+      "shop/services/ShopService.scala",
+      "package app.shop.services\nclass ShopService(bus: EventBus[ShopEvent]) {\n  def p = bus.publish\n  def s = bus.subscribe\n}"
+    )
+  )
+
+  test("without event boxes, an event is a dotted arrow from the module that publishes it to each module that subscribes") {
+    val diff = ArchDiff.full(Extractor.extract(eventsProject(shopSubscribes = true)), "h")
+    assertEquals(
+      GraphView.full(diff, Level.Modules).edges.map(e => (e.from, e.to, e.label, e.event)),
+      List(("module:user", "module:shop", "event user-deleted.v1", true))
+    )
+    assert(Mermaid.diagram(GraphView.full(diff, Level.Modules)).contains("""module_user -.->|"event user-deleted.v1"| module_shop"""))
+    assert(!GraphView.full(diff, Level.Everything).edges.exists(_.event), "with event boxes, the event box carries the flow")
+  }
+
+  test("a new subscription adds an event arrow to the changes") {
+    val diff =
+      ArchDiff.compare(Extractor.extract(eventsProject(shopSubscribes = false)), Extractor.extract(eventsProject(shopSubscribes = true)), "b", "h")
+    assertEquals(
+      GraphView.changes(diff, Level.Modules, collapse = false).edges.map(e => (e.from, e.to, e.status, e.event)),
+      List(("module:user", "module:shop", Status.Added, true))
+    )
+  }
+
   test("the modules level shows modules and the dependencies between them") {
     val graph = GraphView.full(diff, Level.Modules)
     assertEquals(graph.nodes.map(_.key), List("module:shop", "module:user"))
@@ -112,10 +156,10 @@ class GraphViewSuite extends munit.FunSuite {
     "h"
   )
 
-  test("a focused module shows its direct neighbours and only the edges that touch it") {
+  test("a focused module shows its direct neighbours, the modules its events reach included, and only the edges that touch it") {
     val graph = GraphView.focus(web, "a", Level.Modules)
-    assertEquals(graph.nodes.map(_.key).toSet, Set("module:a", "module:b", "module:c"))
-    assertEquals(graph.edges.map(e => e.from -> e.to).toSet, Set("module:a" -> "module:b", "module:c" -> "module:a"))
+    assertEquals(graph.nodes.map(_.key).toSet, Set("module:a", "module:b", "module:c", "module:d"))
+    assertEquals(graph.edges.map(e => e.from -> e.to).toSet, Set("module:a" -> "module:b", "module:c" -> "module:a", "module:a" -> "module:d"))
   }
 
   test("only the focused module opens up into its services and repositories") {
