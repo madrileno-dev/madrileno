@@ -52,6 +52,11 @@ class HtmlSuite extends munit.FunSuite {
     assert(!out.contains("""data-module="utils/events/outbox""""), "utils modules are hidden from the module list")
   }
 
+  test("Changed only has a diagram per level, so the level buttons still work") {
+    assert(page.contains("diagrams.changed[levelName()]"))
+    assert(page.contains(""""changed":{"modules":"""), "the changed diagrams are keyed by level")
+  }
+
   test("full page has no changed-only filter") {
     assert(!Html.render(ArchDiff.full(Fixtures.diffHead, "working tree")).contains("Changed only"))
   }
@@ -117,7 +122,8 @@ class HtmlSuite extends munit.FunSuite {
     assertEquals(parsed("focus")("order").obj.keySet.toSet, Set("modules", "components", "everything"))
     assert(parsed("focus")("order")("modules").str.contains("module_order"))
     assert(parsed("modules").str.contains("flowchart LR"))
-    assert(parsed("changed").str.contains("module_order"))
+    assertEquals(parsed("changed").obj.keySet.toSet, Set("modules", "components", "everything"))
+    assert(parsed("changed")("everything").str.contains("module_order"))
     assertEquals(parsed("ids")("module_order").str, "order")
     assert(
       !ujson

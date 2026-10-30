@@ -44,6 +44,28 @@ class GraphViewSuite extends munit.FunSuite {
     assertEquals(GraphView.shown(diff).map(_.id), List("user", "utils/events/outbox"))
   }
 
+  test("the changes diagram follows the level: modules, then their components, then tables and events") {
+    def shop(repository: String) = Fixtures.project(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ShopModule"),
+      Fixtures.src("shop/ShopModule.scala", s"package app.shop\ntrait ShopModule {\n$repository\n}"),
+      Fixtures.src(
+        "shop/repositories/ShopRepository.scala",
+        "package app.shop.repositories\nobject OrderTable extends Table[OrderRow](\"orders\")\nclass ShopRepository { def f = OrderTable }"
+      )
+    )
+    val diff =
+      ArchDiff.compare(
+        Extractor.extract(shop("")),
+        Extractor.extract(shop("  lazy val shopRepository: ShopRepository = wire[ShopRepository]")),
+        "b",
+        "h"
+      )
+    val keys = (level: Level) => GraphView.changes(diff, level, collapse = false).nodes.map(_.key)
+    assertEquals(keys(Level.Modules), List("module:shop"))
+    assertEquals(keys(Level.Components), List("module:shop", "component:shop:ShopRepository"))
+    assertEquals(keys(Level.Everything), List("module:shop", "table:orders", "component:shop:ShopRepository"))
+  }
+
   test("the modules level shows modules and the dependencies between them") {
     val graph = GraphView.full(diff, Level.Modules)
     assertEquals(graph.nodes.map(_.key), List("module:shop", "module:user"))

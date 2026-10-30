@@ -38,28 +38,37 @@ object GraphView {
   def shown(diff: DiffModel): List[ModuleDiff] =
     diff.modules.filter(m => !m.id.startsWith("utils/") || (diff.isDiff && (m.status != Status.Unchanged || m.changedFiles.nonEmpty)))
 
-  def changes(diff: DiffModel): Graph = {
-    val top        = topLevel(diff)
+  def changes(
+    diff: DiffModel,
+    level: Level = Level.Everything,
+    collapse: Boolean = true
+  ): Graph = {
+    val atLevel    = (key: String) => level == Level.Everything || key.startsWith("module:")
+    val top        = topLevel(diff).filter(node => atLevel(node.key))
+    val graphEdges = diff.edges.filter(e => atLevel(e.edge.from) && atLevel(e.edge.to))
     val changed    = top.filter(_.status != Status.Unchanged).map(_.key).toSet
-    val touched    = diff.edges.filter(_.status != Status.Unchanged).flatMap(e => List(e.edge.from, e.edge.to)).toSet
-    val neighbours = diff.edges.flatMap { e =>
+    val touched    = graphEdges.filter(_.status != Status.Unchanged).flatMap(e => List(e.edge.from, e.edge.to)).toSet
+    val neighbours = graphEdges.flatMap { e =>
       List(e.edge.from -> e.edge.to, e.edge.to -> e.edge.from).collect { case (node, other) if changed(node) => other }
     }.toSet
     val codeOnly   = top.filter(_.codeChanged).map(_.key).toSet
     val included   = changed ++ touched ++ neighbours ++ codeOnly
     val nodes      = top.filter(node => included(node.key))
     val visible    = top.map(_.key).toSet
-    val components = shown(diff)
-      .filter(m => included(s"module:${m.id}"))
-      .flatMap(m => m.components.filter(c => c.status != Status.Unchanged || c.codeChanged).map(componentNode(m.id, _)))
+    val components =
+      if (level == Level.Modules) Nil
+      else
+        shown(diff)
+          .filter(m => included(s"module:${m.id}"))
+          .flatMap(m => m.components.filter(c => c.status != Status.Unchanged || c.codeChanged).map(componentNode(m.id, _)))
     val edges = mergedEdges(
-      diff.edges.filter(e =>
+      graphEdges.filter(e =>
         visible(e.edge.from) && visible(e.edge.to) && included(e.edge.from) && included(e.edge.to) &&
           (e.status != Status.Unchanged || changed(e.edge.from) || changed(e.edge.to))
       ),
       diff.references
     )
-    if (nodes.size + components.size > MaxNodes) Graph(nodes, edges, collapsed = true)
+    if (collapse && nodes.size + components.size > MaxNodes) Graph(nodes, edges, collapsed = true)
     else Graph(nodes ++ components, edges, collapsed = false)
   }
 

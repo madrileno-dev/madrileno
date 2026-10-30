@@ -116,8 +116,10 @@ object Html {
       m.id -> ujson.Obj.from(Levels.map((name, level) => name -> ujson.Str(Mermaid.diagram(GraphView.focus(diff, m.id, level)))))
     })
     val changed = Option.when(diff.isDiff) {
-      val graph = GraphView.changes(diff)
-      "changed" -> ujson.Str(if (graph.nodes.isEmpty) "" else Mermaid.diagram(graph))
+      "changed" -> ujson.Obj.from(Levels.map { (name, level) =>
+        val graph = GraphView.changes(diff, level, collapse = false)
+        name -> ujson.Str(if (graph.nodes.isEmpty) "" else Mermaid.diagram(graph))
+      })
     }
     val ids = GraphView.shown(diff).flatMap { m =>
       (Mermaid.nodeId(s"module:${m.id}") -> m.id) :: m.components.map(c => Mermaid.nodeId(s"component:${m.id}:${c.name}") -> m.id)
@@ -370,7 +372,7 @@ body.changed-only [data-status="unchanged"] { display: none; }
   const levelName = () => { const level = document.querySelector('input[name=level]:checked'); return level ? level.value : 'modules'; };
   const source = () => {
     if (focused && diagrams.focus[focused]) return diagrams.focus[focused][levelName()];
-    if (toggle && toggle.checked && 'changed' in diagrams) return diagrams.changed;
+    if (toggle && toggle.checked && 'changed' in diagrams) return diagrams.changed[levelName()];
     return diagrams[levelName()];
   };
   let natural = 0;
