@@ -1,5 +1,6 @@
 package madrileno.utils.featureflag.routers
 
+import io.circe.Json
 import madrileno.support.{BaseRouteSpec, TestApplicationLoader}
 import madrileno.utils.featureflag.domain.*
 import madrileno.utils.featureflag.routers.dto.*
@@ -19,7 +20,7 @@ class FeatureFlagAdminRouterSpec extends BaseRouteSpec with TestApplicationLoade
 
   // FlagVariant's JsonVariant payload (and EvaluationResultDto.value) is arbitrary JSON, and the rule ADTs are
   // sum types with payloads — neither has a derivable OpenAPI shape, so they're documented as free-form objects
-  private given Schema[io.circe.Json] = FreeFormSchema("FlagValue")
+  private given Schema[Json]          = FreeFormSchema("FlagValue")
   private given Schema[FlagVariant]   = FreeFormSchema("FlagVariant")
   private given Schema[RuleCondition] = FreeFormSchema("RuleCondition")
   private given Schema[RuleOutcome]   = FreeFormSchema("RuleOutcome")
@@ -293,7 +294,7 @@ class FeatureFlagAdminRouterSpec extends BaseRouteSpec with TestApplicationLoade
       ).respondsWith[EvaluationResultDto](Ok, description = "Evaluation result with reason")
         .assert { case (ctx, _) =>
           val response = ctx.performRequest(allRoutes)
-          response.body.value shouldBe io.circe.Json.False
+          response.body.value shouldBe Json.False
           response.body.reason shouldBe EvaluationReason.TargetingMatch
         },
       onRequest(

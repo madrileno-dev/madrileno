@@ -3,6 +3,7 @@ package madrileno.utils.http
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 import com.comcast.ip4s.*
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.utils.observability.TelemetryContext
 import org.http4s.{Header, Method, Request, Status, Uri}
 import org.scalatest.funspec.AnyFunSpec
@@ -16,7 +17,7 @@ import scala.concurrent.duration.DurationInt
 
 class RateLimitDirectivesSpec extends AnyFunSpec with Matchers {
 
-  private given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  private given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
   private given IORuntime        = IORuntime.global
 
   private def routerWith(runtime: RateLimiterRuntime): BaseRouter & RateLimitDirectives =

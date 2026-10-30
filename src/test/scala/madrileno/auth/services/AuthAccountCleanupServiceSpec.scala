@@ -2,6 +2,7 @@ package madrileno.auth.services
 
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.{Clock, IO}
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.auth.domain.*
 import madrileno.auth.repositories.*
 import madrileno.support.{TestData, TestGivens, TestTransactor}
@@ -21,7 +22,7 @@ class AuthAccountCleanupServiceSpec extends AsyncWordSpec with AsyncIOSpec with 
   private val now         = Instant.parse("2026-06-28T10:00:00Z")
   private given Clock[IO] = TestGivens.fixedClock(now)
 
-  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
   private lazy val userRepo         = new UserRepository
   private lazy val userAuthRepo     = new UserAuthRepository

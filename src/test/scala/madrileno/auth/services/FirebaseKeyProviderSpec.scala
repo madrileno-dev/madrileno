@@ -2,6 +2,7 @@ package madrileno.auth.services
 
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.{IO, Ref}
+import io.circe.Json
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
 import sttp.capabilities.fs2.Fs2Streams
@@ -9,6 +10,8 @@ import sttp.client4.WebSocketStreamBackend
 import sttp.client4.impl.cats.CatsMonadAsyncError
 import sttp.client4.testing.{ResponseStub, WebSocketStreamBackendStub}
 import sttp.model.{Header, StatusCode}
+
+import scala.concurrent.duration.DurationInt
 
 class FirebaseKeyProviderSpec extends AsyncWordSpec with AsyncIOSpec with Matchers {
 
@@ -35,7 +38,7 @@ class FirebaseKeyProviderSpec extends AsyncWordSpec with AsyncIOSpec with Matche
       |""".stripMargin
 
   private def certsJson(kids: String*): String =
-    kids.map(kid => s""""$kid": ${io.circe.Json.fromString(certificatePem).noSpaces}""").mkString("{", ",", "}")
+    kids.map(kid => s""""$kid": ${Json.fromString(certificatePem).noSpaces}""").mkString("{", ",", "}")
 
   private def backend(
     calls: Ref[IO, Int],
@@ -69,7 +72,7 @@ class FirebaseKeyProviderSpec extends AsyncWordSpec with AsyncIOSpec with Matche
         calls <- Ref.of[IO, Int](0)
         provider = new FirebaseKeyProvider(backend(calls, certsJson("kid-a"), Header("Cache-Control", "max-age=0")))
         _ <- provider.keyFor("kid-a")
-        _ <- IO.sleep(scala.concurrent.duration.DurationInt(1100).millis)
+        _ <- IO.sleep(DurationInt(1100).millis)
         _ <- provider.keyFor("kid-a")
         n <- calls.get
       } yield n shouldBe 2

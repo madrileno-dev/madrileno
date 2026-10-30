@@ -10,7 +10,7 @@ import io.opentelemetry.api.OpenTelemetry
 import madrileno.auction.domain.*
 import madrileno.auction.repositories.{AuctionImageRepository, AuctionRepository}
 import madrileno.support.{TestData, TestGivens, TestObjectStoreRuntime, TestTransactor}
-import madrileno.user.domain.User
+import madrileno.user.domain.{User, UserId}
 import madrileno.user.repositories.UserRepository
 import madrileno.utils.db.transactor.{DB, DBInTransaction, Transactor}
 import madrileno.utils.imaging.{Height, ImageFormat, Width}
@@ -21,6 +21,7 @@ import org.http4s.MediaType
 import org.http4s.headers.`Content-Type`
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
+import org.typelevel.ci.CIString
 import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.trace.Tracer
 import scodec.bits.ByteVector
@@ -54,7 +55,7 @@ class AuctionImageServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matche
   private def seedUser(user: User = TestData.user()): IO[User] =
     transactor.inSession(userRepo.create(user, Instant.now()))
 
-  private def seedAuction(sellerId: madrileno.user.domain.UserId): IO[Auction] = {
+  private def seedAuction(sellerId: UserId): IO[Auction] = {
     val auction = TestData.auction(sellerId = sellerId)
     transactor.inSession(auctionRepo.save(auction)).as(auction)
   }
@@ -62,7 +63,7 @@ class AuctionImageServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matche
   private def attach(
     service: AuctionImageService,
     auctionId: AuctionId,
-    sellerId: madrileno.user.domain.UserId,
+    sellerId: UserId,
     bytes: Array[Byte] = "data".getBytes("UTF-8")
   ): IO[AttachImageResult] =
     service.attachImage(auctionId, sellerId, "wine.jpg", jpeg, Stream.emits(bytes))
@@ -222,7 +223,7 @@ class AuctionImageServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matche
       } yield result match {
         case PresignUploadResult.Presigned(imageId, presigned) =>
           presigned.url.renderString should startWith(s"https://example.test/auctions/${auction.id}/images/$imageId")
-          presigned.signedHeaders.get(org.typelevel.ci.CIString("content-length")).map(_.head.value) shouldBe Some("1024")
+          presigned.signedHeaders.get(CIString("content-length")).map(_.head.value) shouldBe Some("1024")
         case other => fail(s"Expected Presigned, got $other")
       }
     }
@@ -536,8 +537,8 @@ class AuctionImageServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matche
                     }
         result <- service.serveImage(auction.id, attached.id)
       } yield result match {
-        case Some(_: madrileno.utils.storage.ObjectStore.GetResult.Streamed) => succeed
-        case other                                                           => fail(s"Expected Streamed, got $other")
+        case Some(_: ObjectStore.GetResult.Streamed) => succeed
+        case other                                   => fail(s"Expected Streamed, got $other")
       }
     }
   }

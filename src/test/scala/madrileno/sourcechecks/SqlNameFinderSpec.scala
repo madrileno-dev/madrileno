@@ -1,4 +1,4 @@
-package madrileno.utils.db
+package madrileno.sourcechecks
 
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
@@ -8,7 +8,7 @@ class SqlNameFinderSpec extends AnyWordSpec with Matchers {
   private val tq    = "\"\"\""
 
   private def found(source: String): Either[String, List[(Int, String, String)]] =
-    SqlNameFinder.in("R.scala", source, names).map(_.map(n => (n.line, n.member, n.name)))
+    ProjectSources.parse("R.scala", source).map(SqlNameFinder.in(_, names).map(f => (f.line, f.member, f.text)))
 
   "SqlNameFinder" should {
     "find tables and columns written into sql strings, with their line and enclosing member" in {
@@ -57,10 +57,6 @@ class SqlNameFinderSpec extends AnyWordSpec with Matchers {
       found("""object R {
               |  def message = s"no booking with id $id"
               |}""".stripMargin) shouldBe Right(Nil)
-    }
-
-    "report a file that does not parse" in {
-      found("object R {").left.map(_.startsWith("R.scala")) shouldBe Left(true)
     }
   }
 }

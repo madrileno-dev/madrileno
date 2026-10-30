@@ -6,6 +6,7 @@ import cats.effect.{Clock, IO}
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.auth.domain.*
 import madrileno.auth.repositories.*
 import madrileno.support.{FakeAuthVerifier, TestData, TestGivens, TestMailpit, TestTransactor}
@@ -35,7 +36,7 @@ class AuthenticationServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matc
   given Clock[IO]         = testClock
   given UUIDGen[IO]       = testUUIDGen
   given SecureRandom[IO]  = TestGivens.secureRandom
-  given TelemetryContext  = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  given TelemetryContext  = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
   private val jwtConfig  = JwtService.Config(secret = "test-secret-at-least-256-bits-long-for-hs256!!", validFor = Duration.ofMinutes(5))
   private val jwtService = JwtService(jwtConfig)

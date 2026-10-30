@@ -1,5 +1,6 @@
 package madrileno.utils.featureflag.services
 
+import io.circe.Json
 import madrileno.support.TestData
 import madrileno.utils.featureflag.domain.*
 import org.scalatest.matchers.should.Matchers
@@ -40,7 +41,7 @@ class FlagEvaluationEngineSpec extends AnyWordSpec with Matchers {
         FlagVariant.BoolVariant(true),
         FlagVariant.StringVariant("hello"),
         FlagVariant.IntVariant(42),
-        FlagVariant.JsonVariant(io.circe.Json.obj("k" -> io.circe.Json.fromString("v")))
+        FlagVariant.JsonVariant(Json.obj("k" -> Json.fromString("v")))
       )
       cases.foreach { value =>
         val f = TestData.featureFlag(defaultValue = value)

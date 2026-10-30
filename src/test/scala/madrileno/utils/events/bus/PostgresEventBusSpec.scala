@@ -5,6 +5,7 @@ import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.{IO, Ref, Resource}
 import cats.syntax.all.*
 import fs2.Stream
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.support.{TestData, TestTransactor}
 import madrileno.utils.db.transactor.{DB, DBInTransaction, Transactor}
 import madrileno.utils.events.EventCodec
@@ -19,7 +20,7 @@ import scala.concurrent.duration.*
 
 class PostgresEventBusSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
-  private given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  private given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
   private final case class Sample(id: Int, name: String) derives EventCodec
 
@@ -72,7 +73,7 @@ class PostgresEventBusSpec extends AsyncWordSpec with AsyncIOSpec with Matchers 
 
 class PostgresEventBusResilienceSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
-  private given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  private given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
   private final case class Sample(id: Int, name: String) derives EventCodec
 

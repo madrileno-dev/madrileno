@@ -6,6 +6,7 @@ import cats.effect.unsafe.implicits.global
 import cats.effect.{Clock, IO}
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.dimafeng.testcontainers.scalatest.TestContainersForAll
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.auction.gateways.VivinoGateway
 import madrileno.auth.domain.{AuthContext, Provider, VerifiedExternalToken}
 import madrileno.auth.services.{AuthVerifiers, DevAuthVerifier, JwtService}
@@ -41,7 +42,7 @@ trait TestApplicationLoader extends TestContainersForAll with TestMailpit { self
   given MeterProvider[IO]  = MeterProvider.noop[IO]
   given Tracer[IO]         = Tracer.noop[IO]
   given Meter[IO]          = Meter.noop[IO]
-  given TelemetryContext   = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  given TelemetryContext   = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
   // Finalizer discarded — supervised fibers live for the spec's JVM lifetime, same rationale as the pool below.
   given Supervisor[IO]   = Supervisor[IO].allocated.unsafeRunSync()._1
   given SecureRandom[IO] = TestGivens.secureRandom
