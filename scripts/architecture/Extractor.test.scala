@@ -100,4 +100,23 @@ class ExtractorSuite extends munit.FunSuite {
       List("FooKey" -> Some(Explanation.Wiring), "FooValue" -> Some(Explanation.Wiring))
     )
   }
+
+  test("the object that encloses an event type is explained as an event") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+        Fixtures.src(
+          "user/services/UserEvent.scala",
+          "package app.user.services\nobject UserEvent {\n  final case class Deleted(id: Id)\n  given DomainEventDescriptor[UserEvent.Deleted] = DomainEventDescriptor(\"user-deleted.v1\", \"user\", _.id)\n}"
+        ),
+        Fixtures.src(
+          "shop/ShopModule.scala",
+          "package app.shop\nimport app.user.services.UserEvent\ntrait ShopModule {\n  override abstract def outboxSubscriptions = super.outboxSubscriptions :+ OutboxSubscription[UserEvent.Deleted](\"shop\")(h)\n}"
+        )
+      )
+    )
+    assertEquals(model.references.map(r => r.symbol -> r.explainedBy), List("UserEvent" -> Some(Explanation.Event)))
+    assertEquals(ArchMetrics.of(model).cakeBypasses, 0)
+  }
 }

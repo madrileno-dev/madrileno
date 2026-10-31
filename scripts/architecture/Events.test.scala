@@ -547,4 +547,50 @@ class EventsSuite extends munit.FunSuite {
     )
     assertEquals(result.unclassified.map(_.key), List("outbox-event-descriptor:user/domain/UserRenamed.scala:UserRenamed"))
   }
+
+  test("a bus whose payload type is written qualified on one side and simple on the other links to its topic") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        "package app.shop\nimport app.shop.domain.Events\ntrait ShopModule {\n  lazy val bus: EventBus[Events.Order] = eventBusRuntime.topic[Events.Order](\"orders\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src("shop/domain/Events.scala", "package app.shop.domain\nobject Events {\n  final case class Order(id: Id)\n}"),
+      Fixtures.src(
+        "shop/services/OrderService.scala",
+        "package app.shop.services\nimport app.shop.domain.Events.Order\nclass OrderService(bus: EventBus[Order]) {\n  def p = bus.publish\n}"
+      ),
+      Fixtures.src(
+        "shop/routers/OrderRouter.scala",
+        "package app.shop.routers\nimport app.shop.domain.Events\nclass OrderRouter(bus: EventBus[Events.Order]) {\n  def s = bus.subscribe\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
+    assertEquals(
+      result.value._1.map(t => (t.name, t.publishers.map(_.enclosing), t.subscribers.map(_.enclosing))),
+      List(("orders", List("OrderService"), List("OrderRouter")))
+    )
+    assertEquals(result.unclassified, Nil)
+    assertEquals(result.warnings, Nil)
+  }
+
+  test("an event built with new or typed by an ascription has a visible type") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src(
+        "user/domain/UserDeleted.scala",
+        "package app.user.domain\nfinal case class UserDeleted(id: Id)\nobject UserDeleted {\n  given DomainEventDescriptor[UserDeleted] = DomainEventDescriptor(\"user-deleted.v1\", \"user\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "user/services/UserService.scala",
+        "package app.user.services\nclass UserService(outbox: Outbox) {\n  def d(id: Id) = outbox.publishTransactionally(new UserDeleted(id))\n}"
+      ),
+      Fixtures.src(
+        "user/services/AuditService.scala",
+        "package app.user.services\nclass AuditService(outbox: Outbox) {\n  def d(ev: Any) = outbox.publishTransactionally(ev: UserDeleted)\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
+    assertEquals(result.value._2.map(_.publishers.map(_.enclosing)), List(List("UserService", "AuditService")))
+    assertEquals(result.unclassified, Nil)
+  }
 }

@@ -49,20 +49,21 @@ object EventExtractor {
     val subscribed  = files.flatMap(file => subscribesIn(file, ownership, typeOwners(file)))
     val subscribes  = subscribed.collect { case Right(subscription) => subscription }
 
-    val namesByType = topics.groupMap(_.eventType)(_.name).view.mapValues(_.distinct.sorted).toMap
-
-    def topicOf(use: BusUse): Option[Either[List[String], String]] =
-      namesByType.get(use.eventType).map {
+    def topicOf(use: BusUse): Option[Either[List[String], String]] = {
+      val exact    = topics.filter(_.eventType == use.eventType)
+      val matching = if (exact.nonEmpty) exact else topics.filter(t => unqualified(t.eventType) == unqualified(use.eventType))
+      Option.when(matching.nonEmpty)(matching.map(_.name).distinct.sorted match {
         case List(name) => Right(name)
         case names      =>
-          topics.filter(t => t.eventType == use.eventType && use.typeOwner.contains(t.owner)).map(_.name).distinct match {
+          matching.filter(t => use.typeOwner.contains(t.owner)).map(_.name).distinct match {
             case List(name) => Right(name)
             case _          => Left(names)
           }
-      }
+      })
+    }
 
     val linkedTopics = topics.map { topic =>
-      val uses = busUses.filter(use => use.eventType == topic.eventType && topicOf(use).contains(Right(topic.name)))
+      val uses = busUses.filter(use => topicOf(use).contains(Right(topic.name)))
       topic.copy(
         publishers = uses.filter(_.role == Role.Publishes).map(_.site).distinctBy(perClass),
         subscribers = uses.filter(_.role == Role.Subscribes).map(_.site).distinctBy(perClass)
@@ -80,7 +81,7 @@ object EventExtractor {
       )
       .distinctBy(_.key)
     val busWithoutTopic = busUses
-      .filterNot(use => topics.exists(_.eventType == use.eventType))
+      .filter(use => topicOf(use).isEmpty)
       .map(use =>
         Unclassified(
           s"bus-without-topic:${use.packagePath}:${use.eventType}",
@@ -97,7 +98,7 @@ object EventExtractor {
       def matching(same: (String, String) => Boolean) =
         use.candidates.view.map(candidate => declaredTypes.filter(d => same(d.typeName, candidate))).find(_.nonEmpty)
       val typeName = use.candidates.head
-      matching(_ == _).orElse(matching(simpleName(_) == simpleName(_))) match {
+      matching(_ == _).orElse(matching(unqualified(_) == unqualified(_))) match {
         case None =>
           Left(Unclassified(s"outbox-event-unknown:$typeName", s"$typeName is published or subscribed but has no DomainEventDescriptor", site.loc))
         case Some(found) =>
@@ -225,6 +226,11 @@ object EventExtractor {
   }
 
   private def simpleName(typeName: String): String = typeName.takeWhile(_ != '[').split('.').last
+
+  private def unqualified(typeName: String): String = {
+    val base = typeName.takeWhile(_ != '[')
+    base.split('.').last + typeName.drop(base.length)
+  }
 
   private def byDeclaration[A](items: List[A])(key: A => String)(loc: A => Loc): List[List[A]] =
     items.groupBy(key).values.toList.map(_.sortBy(item => (loc(item).path, loc(item).line)))
@@ -465,6 +471,8 @@ object EventExtractor {
     case Term.Apply.After_4_6_0(Term.Name(name), _) if isTypeName(name) => List(name)
     case Term.Apply.After_4_6_0(select: Term.Select, _)                 => typesSelectedBy(select)
     case select: Term.Select                                            => typesSelectedBy(select)
+    case Term.New(init)                                                 => List(init.tpe.syntax, Trees.typeName(init.tpe)).distinct
+    case Term.Ascribe(_, tpe)                                           => List(tpe.syntax, Trees.typeName(tpe)).distinct
     case _                                                              => Nil
   }
 

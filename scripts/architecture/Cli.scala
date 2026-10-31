@@ -1,5 +1,6 @@
 package architecture
 
+import java.nio.file.FileSystemException
 import scala.util.Try
 
 enum Output {
@@ -71,10 +72,15 @@ object Cli {
   def baseLabel(ref: String, sha: String): String =
     if (sha.startsWith(ref)) ref else s"$ref@${sha.take(7)}"
 
+  def writeFailure(path: os.Path, error: Throwable): String = error match {
+    case e: FileSystemException if e.getReason == null => s"cannot write $path: ${e.getClass.getSimpleName} for ${e.getFile}"
+    case e                                             => s"cannot write $path: ${e.getMessage}"
+  }
+
   private def emit(output: Output, diff: DiffModel): Either[String, Outcome] = output match {
     case Output.Html(path) =>
       Try(os.write.over(path, Html.render(diff), createFolders = true)).toEither.left
-        .map(error => s"cannot write $path: ${error.getMessage}")
+        .map(writeFailure(path, _))
         .map(_ => Outcome("", Some(path), Nil))
     case Output.Mermaid => Right(Outcome(if (diff.isDiff) Mermaid.render(diff) else Mermaid.renderFull(diff), None, Nil))
     case Output.Json    => Right(Outcome(upickle.default.write(diff, indent = 2) + "\n", None, Nil))

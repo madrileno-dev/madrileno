@@ -5,6 +5,7 @@ import scala.meta.{Member as _, *}
 object ModuleExtractor {
   private val ItemLength = 80
 
+  private val ListOperators                                                           = Set(":+", "+:", "++", "::")
   def extract(files: List[ParsedFile], ownership: Ownership): Extracted[List[Module]] = {
     val mixedIn = applicationLoaderParents(files)
     val results = files.flatMap { file =>
@@ -132,9 +133,14 @@ object ModuleExtractor {
   }
 
   private def operands(term: Term): List[Term] = term match {
-    case infix: Term.ApplyInfix                     => operands(infix.lhs) ++ infix.argClause.values.flatMap(operands)
-    case other if other.syntax.startsWith("super.") => Nil
-    case other                                      => List(other)
+    case infix: Term.ApplyInfix => split(term, ListOperators + infix.op.value)
+    case other                  => split(other, ListOperators)
+  }
+
+  private def split(term: Term, operators: Set[String]): List[Term] = term match {
+    case infix: Term.ApplyInfix if operators(infix.op.value) => split(infix.lhs, operators) ++ infix.argClause.values.flatMap(split(_, operators))
+    case other if other.syntax.startsWith("super.")          => Nil
+    case other                                               => List(other)
   }
 
   private def componentOf(

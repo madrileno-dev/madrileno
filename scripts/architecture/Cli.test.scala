@@ -1,5 +1,7 @@
 package architecture
 
+import java.nio.file.{FileSystemException, NoSuchFileException}
+
 class CliSuite extends munit.FunSuite {
   private def project(files: (String, String)*): os.Path = {
     val dir = os.temp.dir()
@@ -18,6 +20,17 @@ class CliSuite extends munit.FunSuite {
     val outcome = Cli.run(Options(clean, None, Output.Html(Options.defaultHtml(clean, isDiff = false)), strict = false)).toOption.get
     assertEquals(outcome.written, Some(Options.defaultHtml(clean, isDiff = false)))
     assert(os.read(outcome.written.get).contains("<title>Architecture: working tree</title>"))
+  }
+
+  test("a page that can't be written names the error, not just a path") {
+    assertEquals(
+      Cli.writeFailure(os.Path("/proc/x/page.html"), new NoSuchFileException("/proc/x")),
+      "cannot write /proc/x/page.html: NoSuchFileException for /proc/x"
+    )
+    assertEquals(
+      Cli.writeFailure(os.Path("/a/page.html"), new FileSystemException("/a/page.html", null, "Not a directory")),
+      "cannot write /a/page.html: /a/page.html: Not a directory"
+    )
   }
 
   test("strict lists warnings in full mode") {

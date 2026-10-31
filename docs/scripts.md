@@ -200,7 +200,7 @@ Draws a map of the project's architecture from its source:
 - modules, which are the traits named `*Module` outside `main/` (a sealed one is a type, not a module), with what each one consumes and provides and the routes, tasks, outbox subscriptions and mail previews it contributes
 - the classes each module wires, such as its services, repositories, routers and gateways
 - references between modules, from imports, exports and fully qualified names
-- event-bus topics and outbox events, with their publishers and subscribers
+- event-bus topics and outbox events, with their publishers and subscribers. A payload type matches whether it's written qualified, like `Events.Order`, or by its name alone.
 - tables, with the module that owns each one, the modules that use it and, in the JSON and a diff, its columns. A `Table` object can also extend a class that extends `Table`.
 - migrations in version order, with the tables each one creates, alters, drops, indexes or writes to
 - scheduled tasks: one-time, recurring with their cron or interval, and custom, with the code that schedules them

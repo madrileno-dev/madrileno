@@ -69,6 +69,22 @@ class ModuleExtractorSuite extends munit.FunSuite {
     )
   }
 
+  test("a parenthesised expression under another operator is one item, and list operators still split") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        "package app.shop\ntrait ShopModule {\n  override abstract def route: Route =\n    super.route ~ (shopRouter.routes orElse fallback.routes) ~ adminRouter.routes\n  override abstract def mailPreviews = super.mailPreviews ++ List(A.preview) :+ B.preview\n}"
+      )
+    )
+    assertEquals(
+      ModuleExtractor.extract(files, Ownership.of(files)).value.flatMap(_.contributions.map(c => c.registry -> c.items)),
+      List(
+        Registry.Routes       -> List("shopRouter.routes orElse fallback.routes", "adminRouter.routes"),
+        Registry.MailPreviews -> List("List(A.preview)", "B.preview")
+      )
+    )
+  }
+
   test("components with kinds and constructor dependencies") {
     assertEquals(
       user.components.map(c => (c.name, c.kind, c.dependencies)),

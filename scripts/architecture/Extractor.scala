@@ -9,7 +9,7 @@ object Extractor {
     val wiring                 = WiringExtractor.extract(modules.value, files, ownership)
     val events                 = EventExtractor.extract(files, ownership, input.rootPackage)
     val (topics, outboxEvents) = events.value
-    val eventTypes             = topics.map(_.eventType).toSet ++ outboxEvents.map(_.typeName).toSet
+    val eventTypes             = (topics.map(_.eventType) ++ outboxEvents.map(_.typeName)).flatMap(name => name :: outerType(name).toList).toSet
     val references             = ExplainedReferences.mark(
       ReferenceExtractor.extract(files, ownership, input.rootPackage),
       wiring.value,
@@ -47,6 +47,8 @@ object Extractor {
       }
     )
   }
+
+  private def outerType(typeName: String): Option[String] = typeName.takeWhile(_ != '[').split('.').find(_.headOption.exists(_.isUpper))
 
   private def digestsOf(
     files: List[ParsedFile],
