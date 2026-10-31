@@ -78,16 +78,33 @@ object EventExtractor {
       )
       .distinctBy(_.key)
 
-    val knownTypes        = (descriptors.map(_.typeName) ++ unnamed.map(_.typeName)).toSet
-    val resolvedPublishes = publishes.collect { case Right((candidates, site)) => candidates.find(knownTypes).getOrElse(candidates.head) -> site }
-    val linkedEvents      = descriptors.map { event =>
+    val knownTypes = (descriptors.map(_.typeName) ++ unnamed.map(_.typeName)).toSet
+
+    def described(candidates: List[String]): String =
+      candidates
+        .find(knownTypes)
+        .orElse(
+          candidates.view
+            .flatMap(candidate =>
+              knownTypes.filter(simpleName(_) == simpleName(candidate)).toList match {
+                case List(known) => Some(known)
+                case _           => None
+              }
+            )
+            .headOption
+        )
+        .getOrElse(candidates.head)
+
+    val resolvedPublishes  = publishes.collect { case Right((candidates, site)) => described(candidates) -> site }
+    val resolvedSubscribes = subscribes.map((typeName, subscriber) => described(List(typeName)) -> subscriber)
+    val linkedEvents       = descriptors.map { event =>
       event.copy(
         publishers = resolvedPublishes.filter(_._1 == event.typeName).map(_._2).distinctBy(perClass),
-        subscribers = subscribes.filter(_._1 == event.typeName).map(_._2).distinctBy(s => (s.consumer, perClass(s.site)))
+        subscribers = resolvedSubscribes.filter(_._1 == event.typeName).map(_._2).distinctBy(s => (s.consumer, perClass(s.site)))
       )
     }
     val unknownTypes =
-      (resolvedPublishes.map((typeName, site) => typeName -> site.loc) ++ subscribes.map((typeName, sub) => typeName -> sub.site.loc))
+      (resolvedPublishes.map((typeName, site) => typeName -> site.loc) ++ resolvedSubscribes.map((typeName, sub) => typeName -> sub.site.loc))
         .filterNot((typeName, _) => knownTypes(typeName))
         .map((typeName, loc) =>
           Unclassified(s"outbox-event-unknown:$typeName", s"$typeName is published or subscribed but has no DomainEventDescriptor", loc)
@@ -186,9 +203,11 @@ object EventExtractor {
     declaredIn: String,
     owner: Owner
   ): Option[String] = {
-    val candidates = types.filter(_.name == typeName.takeWhile(_ != '[').split('.').last)
+    val candidates = types.filter(_.name == simpleName(typeName))
     List(candidates.filter(_.path == declaredIn), candidates.filter(_.owner == owner), candidates).collectFirst { case List(only) => only.file }
   }
+
+  private def simpleName(typeName: String): String = typeName.takeWhile(_ != '[').split('.').last
 
   private def byDeclaration[A](items: List[A])(key: A => String)(loc: A => Loc): List[List[A]] =
     items.groupBy(key).values.toList.map(_.sortBy(item => (loc(item).path, loc(item).line)))

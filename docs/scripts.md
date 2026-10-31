@@ -220,7 +220,7 @@ It reads source only: no compile, no running app, no database. It works on a bra
 
 `--out` names the HTML file, so it can't be combined with `--mermaid` or `--json`, which print to the terminal.
 
-In the JSON, module ids, a module's `files` and `changedFiles`, `changedOutside` and the `definedIn` of topics and events are paths below the project's package directory, and migrations are paths below `src/main/resources/db/migration`. Every `loc.path` is a path from the project directory.
+In the JSON, module ids, a module's `files` and `changedFiles`, a component's `file`, `changedOutside` and the `definedIn` of topics and events are paths below the project's package directory, and migrations are paths below `src/main/resources/db/migration`. Every `loc.path` is a path from the project directory.
 
 `--diff <ref>` compares the merge-base of `<ref>` and `HEAD` (what a GitHub pull request compares against) with the working tree, uncommitted and untracked files included. The base revision is read from a temporary copy; the working tree, index and branches are left alone. Modules and files are matched by their path below the project's package, so a diff across `init-project`'s rename still lines up. Tables are matched by their SQL name, topics and events by their name, tasks by their module and name, and migrations by their file.
 
@@ -314,6 +314,7 @@ Instead of guessing, the map lists these under **Unclassified**, each with its l
 - **Doesn't analyse tests.**
 - **Doesn't nest SQL block comments.** Postgres does, but the map ends a migration's block comment at its first `*/`, so in `/* a /* b */ create table c (…) */` the `create table` counts.
 - **Reads only the project's package directory.** A file elsewhere under `src/main/scala` isn't read.
+- **Doesn't parse syntax newer than scalameta's.** A file using experimental syntax scalameta doesn't support yet, such as `tracked` parameters, is listed as unparseable, and a module whose trait is in that file is left out of the map, so the modules that consume its members warn.
 - **Doesn't resolve types.** A wildcard import counts as a reference to the package, not to each symbol in it. A bus reached through another object, such as `deps.bus.publish(…)`, or inherited from a parent class is matched by its name, so it's found only when the buses that classes declare with that name all have one type. A bus passed as a parameter or matched by a typed pattern is known by its type, and one typed by a type parameter, like `EventBus[E]` in a generic helper, isn't a use. Neither is a bus held in an untyped local `val`, like `val bus = deps.bus`.
 
 ## Template-internal CI workflows

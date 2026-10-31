@@ -2,14 +2,15 @@ package architecture
 
 object Extractor {
   def extract(input: ProjectInput): ArchModel = {
-    val parsed     = Parsing.parseAll(input)
-    val files      = parsed.value
-    val ownership  = Ownership.of(files)
-    val modules    = ModuleExtractor.extract(files, ownership)
-    val wiring     = WiringExtractor.extract(modules.value, files, ownership)
-    val events     = EventExtractor.extract(files, ownership, input.rootPackage)
-    val eventTypes = events.value._1.map(_.eventType).toSet ++ events.value._2.map(_.typeName).toSet
-    val references = ExplainedReferences.mark(
+    val parsed                 = Parsing.parseAll(input)
+    val files                  = parsed.value
+    val ownership              = Ownership.of(files)
+    val modules                = ModuleExtractor.extract(files, ownership)
+    val wiring                 = WiringExtractor.extract(modules.value, files, ownership)
+    val events                 = EventExtractor.extract(files, ownership, input.rootPackage)
+    val (topics, outboxEvents) = events.value
+    val eventTypes             = topics.map(_.eventType).toSet ++ outboxEvents.map(_.typeName).toSet
+    val references             = ExplainedReferences.mark(
       ReferenceExtractor.extract(files, ownership, input.rootPackage),
       wiring.value,
       modules.value,
@@ -17,11 +18,10 @@ object Extractor {
       ownership,
       eventTypes
     )
-    val cycles                 = Cycles.warnings(modules.value, wiring.value, references)
-    val tables                 = TableExtractor.extract(files, input.migrations, ownership)
-    val tasks                  = TaskExtractor.extract(files, ownership)
-    val (topics, outboxEvents) = events.value
-    val tableDecls             = tables.value
+    val cycles     = Cycles.warnings(modules.value, wiring.value, references)
+    val tables     = TableExtractor.extract(files, input.migrations, ownership)
+    val tasks      = TaskExtractor.extract(files, ownership)
+    val tableDecls = tables.value
 
     ArchModel(
       rootPackage = input.rootPackage,

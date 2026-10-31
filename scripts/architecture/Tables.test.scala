@@ -166,6 +166,12 @@ class TablesSuite extends munit.FunSuite {
     assertEquals(migrations.map(_.digest).distinct.size, 1)
   }
 
+  test("whitespace inside a string literal changes a migration's digest, and outside one it doesn't") {
+    val digest = (content: String) => MigrationExtractor.extract(List(Fixtures.migration("V2__seed.sql", content))).map(_.digest)
+    assertNotEquals(digest("insert into tags values ('a b');"), digest("insert into tags values ('a    b');"))
+    assertEquals(digest("insert into tags values ('a b');"), digest("insert  into tags\nvalues ( 'a b' ) ;"))
+  }
+
   test("a CREATE TABLE in a comment or for a partition is not a migration table, and an unlogged one is") {
     val sql = Fixtures.migration(
       "V1__init.sql",

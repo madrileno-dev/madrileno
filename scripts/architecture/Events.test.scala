@@ -445,4 +445,32 @@ class EventsSuite extends munit.FunSuite {
     )
     assertEquals(result.unclassified.map(_.key), List("bus-ambiguous:c/services/CListener.scala:Event"))
   }
+
+  test("an event nested in an object matches a descriptor that names it by its simple or its qualified name, from publishers and subscribers") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src(
+        "user/domain/Events.scala",
+        "package app.user.domain\nobject Events {\n  final case class UserDeleted(id: Id)\n  given DomainEventDescriptor[UserDeleted] = DomainEventDescriptor(\"user-deleted.v1\", \"user\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "user/domain/Orders.scala",
+        "package app.user.domain\nobject Orders {\n  final case class Placed(id: Id)\n}\ngiven DomainEventDescriptor[Orders.Placed] = DomainEventDescriptor(\"order-placed.v1\", \"user\", _.id)"
+      ),
+      Fixtures.src(
+        "user/services/UserService.scala",
+        "package app.user.services\nimport app.user.domain.Orders.*\nclass UserService(outbox: Outbox) {\n  def d(id: Id) = outbox.publishTransactionally(Events.UserDeleted(id))\n  def p(id: Id) = outbox.publishTransactionally(Placed(id))\n}"
+      ),
+      Fixtures.src(
+        "billing/BillingModule.scala",
+        "package app.billing\ntrait BillingModule {\n  override abstract def outboxSubscriptions = super.outboxSubscriptions :+ OutboxSubscription[Events.UserDeleted](\"billing\")(h)\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
+    assertEquals(
+      result.value._2.map(e => (e.eventType, e.publishers.map(_.enclosing), e.subscribers.map(_.consumer))),
+      List(("order-placed.v1", List("UserService"), Nil), ("user-deleted.v1", List("UserService"), List("billing")))
+    )
+    assertEquals(result.unclassified, Nil)
+  }
 }
