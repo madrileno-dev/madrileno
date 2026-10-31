@@ -188,7 +188,7 @@ object EventExtractor {
           .toRight(
             Unclassified(
               s"topic-name:${file.source.packagePath}:$eventType",
-              s"topic[$eventType] in ${Trees.enclosingName(call)} is named by ${name.syntax}, not a string literal",
+              s"topic[$eventType] in ${Trees.enclosingName(file, call)} is named by ${name.syntax}, not a string literal",
               Trees.loc(file, call)
             )
           )
@@ -208,7 +208,9 @@ object EventExtractor {
         case Term.Select(_, Term.Name(name))            => unique(name)
         case _                                          => None
       }
-      eventType.map(BusUse(_, role, Site(ownership.ownerOf(file.pkg), Trees.enclosingName(select), Trees.loc(file, select)), file.source.packagePath))
+      eventType.map(
+        BusUse(_, role, Site(ownership.ownerOf(file.pkg), Trees.enclosingName(file, select), Trees.loc(file, select)), file.source.packagePath)
+      )
     }.flatten
 
   private def bindings(tree: Tree): Map[String, Option[String]] = {
@@ -298,7 +300,7 @@ object EventExtractor {
                     typeName,
                     Unclassified(
                       s"outbox-event-name:${file.source.packagePath}:$typeName",
-                      s"DomainEventDescriptor[$typeName] in ${Trees.enclosingName(alias)} has the event type ${eventType.syntax}, not a string literal",
+                      s"DomainEventDescriptor[$typeName] in ${Trees.enclosingName(file, alias)} has the event type ${eventType.syntax}, not a string literal",
                       Trees.loc(file, alias)
                     )
                   )
@@ -316,7 +318,7 @@ object EventExtractor {
   private def publishesIn(file: ParsedFile, ownership: Ownership): List[Either[Unclassified, (String, Site)]] =
     file.tree.collect {
       case call @ Term.Apply.After_4_6_0(fun, args) if publishedType(fun).isDefined && args.values.size == 1 =>
-        val site = Site(ownership.ownerOf(file.pkg), Trees.enclosingName(call), Trees.loc(file, call))
+        val site = Site(ownership.ownerOf(file.pkg), Trees.enclosingName(file, call), Trees.loc(file, call))
         publishedType(fun).flatten
           .orElse(eventTypeOf(args.values.head))
           .map(_ -> site)
@@ -350,7 +352,7 @@ object EventExtractor {
       case call @ Term.Apply.After_4_6_0(Term.ApplyType.After_4_6_0(fun, targs), args)
           if Set("OutboxSubscription", "OutboxSubscription.withDelivery").contains(fun.syntax) && targs.values.size == 1 =>
         val typeName = targs.values.head.syntax
-        val site     = Site(ownership.ownerOf(file.pkg), Trees.enclosingName(call), Trees.loc(file, call))
+        val site     = Site(ownership.ownerOf(file.pkg), Trees.enclosingName(file, call), Trees.loc(file, call))
         Trees.argument(args.values, "consumer", 0).map { consumer =>
           Trees
             .stringLiteral(consumer)

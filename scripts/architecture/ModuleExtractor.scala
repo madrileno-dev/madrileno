@@ -8,7 +8,7 @@ object ModuleExtractor {
   private val InfixOperators = Set(":+", "+:", "++", "~", "::")
 
   def extract(files: List[ParsedFile], ownership: Ownership): Extracted[List[Module]] = {
-    val mixedIn = applicationLoaderParents(files, ownership)
+    val mixedIn = applicationLoaderParents(files)
     val results = files.flatMap { file =>
       Ownership.moduleTraits(file).map(module(file, _, files, ownership, mixedIn))
     }
@@ -191,14 +191,8 @@ object ModuleExtractor {
       .flatMap(_.values.map(_.decltpe.map(_.syntax).getOrElse("")))
       .toList
 
-  private def applicationLoaderParents(files: List[ParsedFile], ownership: Ownership): Set[String] = {
+  private def applicationLoaderParents(files: List[ParsedFile]): Set[String] = {
     val parents = files
-      .filter(file =>
-        ownership.ownerOf(file.pkg) match {
-          case Owner.Module(_) => false
-          case _               => true
-        }
-      )
       .flatMap(file =>
         Trees.topLevel(file.tree).collect {
           case d: Defn.Class  => d.name.value -> Trees.parentNames(d.templ)
@@ -206,7 +200,7 @@ object ModuleExtractor {
           case d: Defn.Object => d.name.value -> Trees.parentNames(d.templ)
         }
       )
-      .toMap
+      .groupMapReduce(_._1)(_._2)(_ ++ _)
     Trees.closure(Set("ApplicationLoader").filter(parents.contains), parents).flatMap(parents)
   }
 

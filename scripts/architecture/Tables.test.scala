@@ -114,6 +114,20 @@ class TablesSuite extends munit.FunSuite {
     assertEquals(result.warnings.count(_.kind == WarningKind.CrossModuleTableUse), 1, result.warnings)
   }
 
+  test("a table used outside any class, like a top-level import, is used by the file") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),
+      Fixtures.src("user/repositories/UserRowTable.scala", "package app.user.repositories\nobject UserRowTable extends Table[Row](\"users\")"),
+      Fixtures.src(
+        "shop/repositories/Queries.scala",
+        "package app.shop.repositories\nimport app.user.repositories.UserRowTable.*\nclass ShopRepository"
+      )
+    )
+    val result = TableExtractor.extract(files, Nil, Ownership.of(files))
+    assertEquals(result.value.map(t => t.name -> t.users.map(_.enclosing)), List("users" -> List("Queries")))
+  }
+
   test("a Table object's columns, with their codecs") {
     val files = Fixtures.parsed(
       Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),

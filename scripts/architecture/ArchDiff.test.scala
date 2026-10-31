@@ -33,6 +33,24 @@ class ArchDiffSuite extends munit.FunSuite {
     assertEquals(moved.unclassified.map(u => u.item.key -> u.status), List("outbox-publish:user/services/S.scala:S:ev" -> WarningStatus.Existing))
   }
 
+  test("a cycle that shrinks stays existing, and one that grows is new without the old one resolved") {
+    def model(imports: (String, String)*) = Extractor.extract(Fixtures.project(List("a", "b", "c", "d").map { id =>
+      val lines = imports.collect { case (`id`, to) => s"import app.$to.domain.${to.toUpperCase}\n" }.mkString
+      Fixtures.src(s"$id/${id.toUpperCase}Module.scala", s"package app.$id\n${lines}trait ${id.toUpperCase}Module")
+    }*))
+    val base   = model("a" -> "b", "b" -> "a", "b" -> "c", "c" -> "a")
+    val shrunk = ArchDiff.compare(base, model("a" -> "b", "b" -> "a", "b" -> "c"), "b", "h")
+    assertEquals(
+      shrunk.warnings.filter(_.warning.kind == WarningKind.ModuleCycle).map(w => w.warning.key -> w.status),
+      List("cycle:a,b" -> WarningStatus.Existing, "cycle:a,b,c" -> WarningStatus.Resolved)
+    )
+    val grown = ArchDiff.compare(base, model("a" -> "b", "b" -> "a", "b" -> "c", "c" -> "a", "c" -> "d", "d" -> "a"), "b", "h")
+    assertEquals(
+      grown.warnings.filter(_.warning.kind == WarningKind.ModuleCycle).map(w => w.warning.key -> w.status),
+      List("cycle:a,b,c,d" -> WarningStatus.New)
+    )
+  }
+
   test("members of a module carry their own status") {
     def model(members: String) =
       Extractor.extract(Fixtures.project(Fixtures.src("shop/ShopModule.scala", s"package app.shop\ntrait ShopModule {\n$members\n}")))

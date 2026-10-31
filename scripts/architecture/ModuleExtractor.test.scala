@@ -130,6 +130,17 @@ class ModuleExtractorSuite extends munit.FunSuite {
     assertEquals(WiringExtractor.extract(result.value, files, ownership).warnings, Nil)
   }
 
+  test("a module trait that extends another module trait mixes that module in") {
+    val files = Fixtures.parsed(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AdminModule"),
+      Fixtures.src("admin/AdminModule.scala", "package app.admin\ntrait AdminModule extends UserModule"),
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule")
+    )
+    val result = ModuleExtractor.extract(files, Ownership.of(files))
+    assertEquals(result.value.map(m => m.id -> m.mixedIn), List("admin" -> true, "user" -> true))
+    assertEquals(result.warnings, Nil)
+  }
+
   test("modules mixed in through a grouping trait are mixed in") {
     val files = Fixtures.parsed(
       Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends FeatureModules"),

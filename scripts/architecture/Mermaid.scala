@@ -250,6 +250,7 @@ object Mermaid {
 
   private def escape(text: String): String =
     text
+      .replace("#", "#35;")
       .replace("\"", "#quot;")
       .replace("<", "#lt;")
       .replace(">", "#gt;")

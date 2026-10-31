@@ -233,4 +233,22 @@ class TasksSuite extends munit.FunSuite {
     )
     assertEquals(TaskExtractor.extract(files, Ownership.of(files)).value.map(_.name), List("Other.name", "PingName", "label", "settings.name"))
   }
+
+  test("two tasks whose names the map doesn't know are not duplicates") {
+    val files = Fixtures.parsed(
+      Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule"),
+      Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule"),
+      Fixtures.src(
+        "a/services/A.scala",
+        "package app.a.services\nclass A(settings: Settings) {\n  val run = Task.recurring(settings.name, Schedule.RecurringWithFixedRate(1.hour))(_ => IO.unit)\n}"
+      ),
+      Fixtures.src(
+        "b/services/B.scala",
+        "package app.b.services\nclass B(settings: Settings) {\n  val run = Task.recurring(settings.name, Schedule.RecurringWithFixedRate(1.hour))(_ => IO.unit)\n}"
+      )
+    )
+    val result = TaskExtractor.extract(files, Ownership.of(files))
+    assertEquals(result.value.map(t => t.name -> t.owner.label), List("settings.name" -> "a", "settings.name" -> "b"))
+    assertEquals(result.warnings, Nil)
+  }
 }

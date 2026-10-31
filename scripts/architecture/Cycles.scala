@@ -1,6 +1,8 @@
 package architecture
 
 object Cycles {
+  private val KeyPrefix = "cycle:"
+
   def warnings(
     modules: List[Module],
     wirings: List[Wiring],
@@ -13,13 +15,16 @@ object Cycles {
         val ids = cycle.toList.sorted
         Warning(
           WarningKind.ModuleCycle,
-          s"cycle:${ids.mkString(",")}",
+          s"$KeyPrefix${ids.mkString(",")}",
           s"modules ${ids.mkString(", ")} depend on each other",
           locOf(cycle, modules, wirings, references)
         )
       }
       .sortBy(_.key)
   }
+
+  def members(warning: Warning): Option[Set[String]] =
+    Option.when(warning.kind == WarningKind.ModuleCycle)(warning.key.stripPrefix(KeyPrefix).split(',').toSet)
 
   private def locOf(
     cycle: Set[String],

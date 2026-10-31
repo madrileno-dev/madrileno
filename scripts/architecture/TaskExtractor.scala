@@ -3,7 +3,10 @@ package architecture
 import scala.meta.{Member as _, *}
 
 object TaskExtractor {
-  private final case class Definition(task: TaskDecl, definedAs: Option[String])
+  private final case class Definition(
+    task: TaskDecl,
+    definedAs: Option[String],
+    named: Boolean)
 
   private final case class Constant(
     path: String,
@@ -13,13 +16,16 @@ object TaskExtractor {
 
   def extract(files: List[ParsedFile], ownership: Ownership): Extracted[List[TaskDecl]] = {
     val constants   = files.flatMap(constantsIn)
-    val found       = files.flatMap(file => definitionsIn(file, ownership, nameOf(file, constants)))
+    val found       = files.flatMap(file => definitionsIn(file, ownership, knownName(file, constants)))
     val definitions = found.collect { case Right(definition) => definition }
     val resolved    = files.flatMap(instancesIn(_, ownership)).flatMap((name, site) => resolve(definitions, name, site).map(_ -> site))
-    val tasks       = definitions.map { definition =>
-      definition.task.copy(scheduledFrom = resolved.collect { case (`definition`, site) => site }.distinctBy(site => (site.owner, site.enclosing)))
+    val scheduled   = definitions.map { definition =>
+      definition -> definition.task.copy(scheduledFrom =
+        resolved.collect { case (`definition`, site) => site }.distinctBy(site => (site.owner, site.enclosing))
+      )
     }
-    val duplicates = tasks.groupBy(_.name).values.toList.collect {
+    val tasks      = scheduled.map(_._2)
+    val duplicates = scheduled.collect { case (definition, task) if definition.named => task }.groupBy(_.name).values.toList.collect {
       case same if same.size > 1 =>
         val ordered = same.sortBy(t => (t.loc.path, t.loc.line))
         val labels  = ordered.map(_.owner.label)
@@ -54,21 +60,21 @@ object TaskExtractor {
   private def definitionsIn(
     file: ParsedFile,
     ownership: Ownership,
-    nameOf: Term => String
+    knownName: Term => Option[String]
   ): List[Either[Unclassified, Definition]] =
     file.tree.collect {
       case call @ Term.Apply.After_4_6_0(fun, args) if taskMethod(fun).contains("recurring") =>
         Trees.argument(args.values, "name", 0).filterNot(isParameter).map { name =>
-          Right(definition(file, ownership, call, nameOf(name), TaskKind.Recurring, Trees.argument(args.values, "schedule", 1).map(scheduleOf)))
+          Right(definition(file, ownership, call, name, knownName, TaskKind.Recurring, Trees.argument(args.values, "schedule", 1).map(scheduleOf)))
         }
       case call @ Term.Apply.After_4_6_0(fun, args) if taskMethod(fun).exists(Set("oneTime", "custom")) =>
         Trees.argument(args.values, "descriptor", 0).flatMap { descriptor =>
-          fromDescriptor(file, ownership, call, descriptor, if (taskMethod(fun).contains("oneTime")) TaskKind.OneTime else TaskKind.Custom, nameOf)
+          fromDescriptor(file, ownership, call, descriptor, if (taskMethod(fun).contains("oneTime")) TaskKind.OneTime else TaskKind.Custom, knownName)
         }
       case call @ Term.Apply.After_4_6_0(fun, args) if constructed(fun).isDefined =>
         Trees
           .argument(args.values, "descriptor", 0)
-          .flatMap(fromDescriptor(file, ownership, call, _, constructed(fun).getOrElse(TaskKind.OneTime), nameOf))
+          .flatMap(fromDescriptor(file, ownership, call, _, constructed(fun).getOrElse(TaskKind.OneTime), knownName))
     }.flatten
 
   private def taskMethod(fun: Term): Option[String] = fun match {
@@ -83,13 +89,13 @@ object TaskExtractor {
     call: Term,
     descriptor: Term,
     kind: TaskKind,
-    nameOf: Term => String
+    knownName: Term => Option[String]
   ): Option[Either[Unclassified, Definition]] =
-    descriptorName(descriptor, nameOf) match {
-      case Some(name)                      => Some(Right(definition(file, ownership, call, name, kind, None)))
+    taskNameOf(descriptor) match {
+      case Some(name)                      => Some(Right(definition(file, ownership, call, name, knownName, kind, None)))
       case None if isParameter(descriptor) => None
       case None                            =>
-        val enclosing = Trees.enclosingName(call)
+        val enclosing = Trees.enclosingName(file, call)
         Some(
           Left(
             Unclassified(
@@ -116,7 +122,8 @@ object TaskExtractor {
     file: ParsedFile,
     ownership: Ownership,
     call: Term,
-    name: String,
+    name: Term,
+    knownName: Term => Option[String],
     kind: TaskKind,
     schedule: Option[String]
   ): Definition = {
@@ -124,7 +131,12 @@ object TaskExtractor {
       case d: Defn.Val if Trees.patNames(d.pats).nonEmpty => Trees.patNames(d.pats).head
       case d: Defn.Def                                    => d.name.value
     }
-    Definition(TaskDecl(name, kind, schedule, ownership.ownerOf(file.pkg), Nil, Trees.loc(file, call)), definedAs)
+    val known = knownName(name)
+    Definition(
+      TaskDecl(known.getOrElse(Trees.collapse(name.pos.text, 80)), kind, schedule, ownership.ownerOf(file.pkg), Nil, Trees.loc(file, call)),
+      definedAs,
+      known.isDefined
+    )
   }
 
   private def constructed(fun: Term): Option[TaskKind] = fun match {
@@ -134,15 +146,14 @@ object TaskExtractor {
     case _                                    => None
   }
 
-  private def descriptorName(term: Term, nameOf: Term => String): Option[String] = term match {
-    case Term.Apply.After_4_6_0(Term.ApplyType.After_4_6_0(Term.Name("TaskDescriptor"), _), args) =>
-      Trees.argument(args.values, "taskName", 0).map(nameOf)
-    case Term.Apply.After_4_6_0(Term.Name("TaskDescriptor"), args) => Trees.argument(args.values, "taskName", 0).map(nameOf)
-    case _                                                         => None
+  private def taskNameOf(term: Term): Option[Term] = term match {
+    case Term.Apply.After_4_6_0(Term.ApplyType.After_4_6_0(Term.Name("TaskDescriptor"), _), args) => Trees.argument(args.values, "taskName", 0)
+    case Term.Apply.After_4_6_0(Term.Name("TaskDescriptor"), args)                                => Trees.argument(args.values, "taskName", 0)
+    case _                                                                                        => None
   }
 
-  private def nameOf(file: ParsedFile, constants: List[Constant])(term: Term): String =
-    Trees.stringLiteral(term).orElse(constantOf(file, constants, term)).getOrElse(Trees.collapse(term.pos.text, 80))
+  private def knownName(file: ParsedFile, constants: List[Constant])(term: Term): Option[String] =
+    Trees.stringLiteral(term).orElse(constantOf(file, constants, term))
 
   private def constantOf(
     file: ParsedFile,
@@ -186,6 +197,6 @@ object TaskExtractor {
   private def instancesIn(file: ParsedFile, ownership: Ownership): List[(String, Site)] =
     file.tree.collect {
       case call @ Term.Apply.After_4_6_0(Term.Select(receiver, Term.Name("instance")), _) if lastName(receiver).isDefined =>
-        lastName(receiver).toList.map(_ -> Site(ownership.ownerOf(file.pkg), Trees.enclosingName(call), Trees.loc(file, call)))
+        lastName(receiver).toList.map(_ -> Site(ownership.ownerOf(file.pkg), Trees.enclosingName(file, call), Trees.loc(file, call)))
     }.flatten
 }

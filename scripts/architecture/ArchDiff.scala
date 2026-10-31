@@ -144,7 +144,9 @@ object ArchDiff {
           before,
           after
         ) =>
-          after.map(WarningDiff(_, presence(before))).orElse(before.map(WarningDiff(_, WarningStatus.Resolved)))
+          after
+            .map(warning => WarningDiff(warning, if (withinCycleOf(base)(warning)) WarningStatus.Existing else presence(before)))
+            .orElse(before.filterNot(withinCycleOf(head)).map(WarningDiff(_, WarningStatus.Resolved)))
       },
       unclassified = keyed(base.unclassified, head.unclassified)(_.key).flatMap {
         (
@@ -221,6 +223,11 @@ object ArchDiff {
     events: Set[String],
     tasks: List[(String, Int, Option[String])],
     references: Set[(String, String, String)])
+
+  private def withinCycleOf(model: ArchModel)(warning: Warning): Boolean = {
+    val cycles = model.warnings.flatMap(Cycles.members)
+    Cycles.members(warning).exists(cycle => cycles.exists(cycle.subsetOf))
+  }
 
   private def presence(before: Option[?]): WarningStatus = if (before.isDefined) WarningStatus.Existing else WarningStatus.New
 

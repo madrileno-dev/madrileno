@@ -147,7 +147,7 @@ object TableExtractor {
         .collect {
           case name: Term.Name
               if name.value == table.objectName && !isDefinitionName(name) && !shadowed(table, owner, local) && resolvesTo(table, declared, owner) =>
-            Site(owner, Trees.enclosingName(name), Trees.loc(file, name))
+            Site(owner, Trees.enclosingName(file, name), Trees.loc(file, name))
         }
         .distinctBy(_.enclosing)
     }

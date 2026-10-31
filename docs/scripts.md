@@ -277,15 +277,15 @@ git worktree remove /tmp/arch-at
 
 ### Warnings
 
-- **Not mixed in:** a `*Module` trait that `ApplicationLoader` doesn't extend, either directly or through a trait outside the modules that groups them.
+- **Not mixed in:** a `*Module` trait that `ApplicationLoader` doesn't extend, either directly or through a trait that extends it, such as a trait outside the modules that groups them or another `*Module` trait.
 - **Unprovided member:** a module consumes a member that nothing provides, neither another module, nor `main/`, nor the platform packages.
-- **Module cycle:** modules that depend on each other through imports or wired members. Importing another module's event type to subscribe to it counts too, since it's a compile-time dependency, even though the arrow isn't labelled `uses`. A type that platform code itself imports from a module, such as `AuthContext`, counts as platform and creates no dependency.
+- **Module cycle:** modules that depend on each other through imports or wired members. Importing another module's event type to subscribe to it counts too, since it's a compile-time dependency, even though the arrow isn't labelled `uses`. A type that platform code itself imports from a module, such as `AuthContext`, counts as platform and creates no dependency. In a diff, a cycle is new only when its modules weren't all in one cycle before, so breaking part of a cycle doesn't raise a new warning.
 - **Subscriber without publisher:** something subscribes to a topic or outbox event that nothing publishes. Publishing an event nobody subscribes to yet is fine.
 - **Cross-module table use:** a module references another module's `Table` object. Packages under `utils/` may use each other's tables, since the platform is built as one; a feature module using a `utils/` table still warns.
 - **Duplicate table:** `Table` objects in different modules declare the same table. The map shows the table once, owned by the module of the first declaration, with the users of every declaration.
 - **Duplicate topic:** two `topic` calls use the same name, so their buses share one channel. The map shows the topic once, as the first declaration, with the publishers and subscribers of every declaration.
 - **Duplicate event:** two `DomainEventDescriptor`s use the same event type, so the outbox can hand one type's payload to the other type's subscribers. The map shows the event once, as the first declaration, with the publishers and subscribers of every declaration.
-- **Duplicate task:** two tasks use the same name, which the scheduler needs to be unique. The map lists each of them under its own module.
+- **Duplicate task:** two tasks use the same name, which the scheduler needs to be unique. The map lists each of them under its own module. Names the map shows as the expression that computes them aren't compared.
 - **Migration table without `Table`:** a migration creates a table that no `Table` object declares, and no later migration drops or renames it. Migrations are read in version order.
 
 ### Unclassified

@@ -97,14 +97,14 @@ object Trees {
 
   def ancestors(tree: Tree): List[Tree] = tree.parent.toList.flatMap(parent => parent :: ancestors(parent))
 
-  def enclosingName(tree: Tree): String =
+  def enclosingName(file: ParsedFile, tree: Tree): String =
     ancestors(tree)
       .collectFirst {
         case d: Defn.Class  => d.name.value
         case d: Defn.Object => d.name.value
         case d: Defn.Trait  => d.name.value
       }
-      .getOrElse("")
+      .getOrElse(file.source.packagePath.split('/').last.stripSuffix(".scala"))
 
   def stringLiteral(term: Term): Option[String] = term match {
     case Lit.String(value) => Some(value)

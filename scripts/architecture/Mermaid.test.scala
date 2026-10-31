@@ -239,6 +239,11 @@ class MermaidSuite extends munit.FunSuite {
     assertEquals(Mermaid.nodeId("component:order:OrderService"), "component_order_OrderService")
   }
 
+  test("a hash in a label is not read as the start of an entity") {
+    val node = GNode("topic:t", "a#lt;b", NodeKind.Topic, None, Status.Unchanged)
+    assert(Mermaid.nodeLine(node).contains("a#35;lt;b"), Mermaid.nodeLine(node))
+  }
+
   test("underscores, tildes and backticks in a label are not Markdown") {
     val node = GNode("topic:t", "_a_ ~~b~~ `c`", NodeKind.Topic, None, Status.Unchanged)
     assert(Mermaid.nodeLine(node).contains("#95;a#95; #126;#126;b#126;#126; #96;c#96;"), Mermaid.nodeLine(node))
