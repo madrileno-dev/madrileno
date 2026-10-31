@@ -175,8 +175,8 @@ object ModuleExtractor {
   private def dependencies(cls: Defn.Class): List[String] =
     cls.ctor.paramClauses
       .filterNot(_.mod.exists {
-        case _: Mod.Using => true
-        case _            => false
+        case _: Mod.Using | _: Mod.Implicit => true
+        case _                              => false
       })
       .flatMap(_.values.map(_.decltpe.map(_.syntax).getOrElse("")))
       .toList

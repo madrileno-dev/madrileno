@@ -155,4 +155,12 @@ class ModuleExtractorSuite extends munit.FunSuite {
     assertEquals(billing.components.map(c => (c.name, c.kind)), List(("BillingService", ComponentKind.Service)))
     assertEquals(billing.provides.map(_.name), List("billingService", "config"))
   }
+
+  test("an implicit parameter clause is not a dependency, like a using clause") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule {\n  private lazy val s = wire[S]\n}"),
+      Fixtures.src("user/services/S.scala", "package app.user.services\nclass S(repo: Repo)(implicit tx: Transactor)")
+    )
+    assertEquals(ModuleExtractor.extract(files, Ownership.of(files)).value.flatMap(_.components.map(_.dependencies)), List(List("Repo")))
+  }
 }

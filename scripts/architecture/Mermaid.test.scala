@@ -262,4 +262,54 @@ class MermaidSuite extends munit.FunSuite {
     assert(dropped.contains("[\"utils/featureflag\"]") && dropped.contains("-.->|\"wires featureFlags\"|"), dropped)
     assert(!Mermaid.render(ArchDiff.compare(withFlags(""), withFlags(""), "b", "h")).contains("featureflag"))
   }
+
+  private def shopImporting(imports: String) = Extractor.extract(
+    Fixtures.project(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src("shop/ShopModule.scala", s"package app.shop\n$imports\ntrait ShopModule")
+    )
+  )
+
+  test("a type newly used from a layer the arrow already uses gets an arrow of its own") {
+    val diff = ArchDiff.compare(
+      shopImporting("import app.user.services.PriceCalculator"),
+      shopImporting("import app.user.services.{PriceCalculator, TaxCalculator}"),
+      "b",
+      "h"
+    )
+    assertEquals(
+      GraphView.changes(diff, Level.Modules, collapse = false).edges.map(e => (e.label, e.status)),
+      List("uses TaxCalculator" -> Status.Added, "uses PriceCalculator" -> Status.Unchanged)
+    )
+  }
+
+  test("an arrow for an imported event type says what it imports") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with BillingModule"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+        Fixtures.src(
+          "user/services/UserService.scala",
+          "package app.user.services\nfinal case class UserDeleted(id: Id)\nobject UserDeleted {\n  given DomainEventDescriptor[UserDeleted] = DomainEventDescriptor(\"user-deleted.v1\", \"user\", _.id)\n}\n" +
+            "class UserService(outbox: Outbox) {\n  def d(id: Id) = outbox.publishTransactionally(UserDeleted(id))\n}"
+        ),
+        Fixtures.src(
+          "billing/BillingModule.scala",
+          "package app.billing\nimport app.user.services.UserDeleted\ntrait BillingModule {\n  override abstract def outboxSubscriptions = super.outboxSubscriptions :+ OutboxSubscription[UserDeleted](\"billing\")(h)\n}"
+        )
+      )
+    )
+    val arrows = GraphView.full(ArchDiff.full(model, "h"), Level.Modules).edges.map(e => (e.from, e.to, e.label))
+    assert(arrows.contains(("module:billing", "module:user", "imports services")), arrows)
+  }
+
+  test("more than 30 boxes without services or repositories hide nothing, and say nothing about hiding") {
+    val many  = (1 to 31).map(i => Fixtures.src(s"m$i/M${i}Module.scala", s"package app.m$i\ntrait M${i}Module"))
+    val empty = ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil)
+    val head  = Extractor.extract(Fixtures.project(many*))
+    assert(!GraphView.changes(ArchDiff.compare(empty, head, "b", "h")).collapsed)
+    assert(!Mermaid.render(ArchDiff.compare(empty, head, "b", "h")).contains("are hidden"))
+    assert(!Mermaid.renderFull(ArchDiff.full(head, "h")).contains("are hidden"))
+  }
 }

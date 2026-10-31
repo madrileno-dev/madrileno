@@ -224,4 +224,18 @@ class EventsSuite extends munit.FunSuite {
     )
     assertEquals(EventExtractor.extract(files, Ownership.of(files)).value._1.map(_.publishers.map(_.enclosing)), List(List("ShopModule")))
   }
+
+  test("a bus used through this is a publisher") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "user/UserModule.scala",
+        "package app.user\ntrait UserModule {\n  lazy val userBus: EventBus[UserEvent] = eventBusRuntime.topic[UserEvent](\"user_events\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "user/services/Pinger.scala",
+        "package app.user.services\nclass Pinger(bus: EventBus[UserEvent]) {\n  def ping = this.bus.publish(UserEvent.Ping)\n}"
+      )
+    )
+    assertEquals(EventExtractor.extract(files, Ownership.of(files)).value._1.map(_.publishers.map(_.enclosing)), List(List("Pinger")))
+  }
 }

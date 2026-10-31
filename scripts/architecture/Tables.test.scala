@@ -264,4 +264,12 @@ class TablesSuite extends munit.FunSuite {
     val rename = Fixtures.migration("V2__rename.sql", "alter table orders rename to shop_orders;")
     assertEquals(MigrationExtractor.extract(List(rename)).map(_.alters), List(List("orders", "shop_orders")))
   }
+
+  test("an escaped quote in an E'' string and a dot in a quoted name don't confuse the migration reader") {
+    val sql = Fixtures.migration(
+      "V1__init.sql",
+      "INSERT INTO notes VALUES (E'it\\'s; create table fake (id int);');\ncreate table \"Mixed.Case\" (id int);\ncreate table public.\"Odd.Name\" (id int);"
+    )
+    assertEquals(MigrationExtractor.extract(List(sql)).map(_.creates), List(List("mixed.case", "odd.name")))
+  }
 }

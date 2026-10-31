@@ -93,4 +93,8 @@ class CliSuite extends munit.FunSuite {
     assert(module.obj.contains("changedFiles"), module.obj.keySet)
     assert(module("head").obj.contains("files"), module("head").obj.keySet)
   }
+
+  test("the JSON ends with a newline, like the other outputs") {
+    assert(Cli.run(Options(clean, None, Output.Json, strict = false)).toOption.get.stdout.endsWith("}\n"))
+  }
 }

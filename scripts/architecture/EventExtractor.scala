@@ -188,11 +188,14 @@ object EventExtractor {
       case obj: Defn.Object => (obj: Tree) -> (obj.name.value, busesIn(obj.templ))
     }
     file.tree.collect {
-      case select @ Term.Select(Term.Name(name), Term.Name(method)) if busRole(method).isDefined =>
-        Trees
-          .ancestors(select)
-          .flatMap(ancestor => scopes.find(_._1 eq ancestor).map(_._2))
-          .collectFirst { case (enclosing, buses) if buses.contains(name) => (enclosing, buses(name)) }
+      case select @ Term.Select(receiver, Term.Name(method)) if busRole(method).isDefined =>
+        busName(receiver)
+          .flatMap(name =>
+            Trees
+              .ancestors(select)
+              .flatMap(ancestor => scopes.find(_._1 eq ancestor).map(_._2))
+              .collectFirst { case (enclosing, buses) if buses.contains(name) => (enclosing, buses(name)) }
+          )
           .map((enclosing, eventType) =>
             BusUse(
               eventType,
@@ -202,6 +205,12 @@ object EventExtractor {
             )
           )
     }.flatten
+  }
+
+  private def busName(receiver: Term): Option[String] = receiver match {
+    case Term.Name(name)                            => Some(name)
+    case Term.Select(_: Term.This, Term.Name(name)) => Some(name)
+    case _                                          => None
   }
 
   private def busesIn(template: Template): Map[String, String] =

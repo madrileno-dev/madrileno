@@ -89,11 +89,13 @@ object Html {
 
   private def summary(diff: DiffModel): String = {
     val warnings = if (diff.isDiff) diff.warnings.count(_.status == WarningStatus.New) else diff.warnings.size
-    val label    = if (diff.isDiff) "new warnings" else "warnings"
+    val label    = if (diff.isDiff) "new warning" else "warning"
     val shown    = GraphView.shown(diff).size
     val hidden   = if (diff.modules.size > shown) s" + ${diff.modules.size - shown} hidden under utils/" else ""
-    s"$shown modules$hidden · ${diff.tables.size} tables · ${diff.topics.size + diff.events.size} events · $warnings $label"
+    s"${count(shown, "module")}$hidden · ${count(diff.tables.size, "table")} · ${count(diff.topics.size + diff.events.size, "event")} · ${count(warnings, label)}"
   }
+
+  private def count(n: Int, noun: String): String = s"$n $noun${if (n == 1) "" else "s"}"
 
   private def statusClass(status: Status): String = status.toString.toLowerCase
 
@@ -347,6 +349,7 @@ body.changed-only [data-status="unchanged"] { display: none; }
   const where = loc => loc && loc.path ? `${loc.path}:${loc.line}` : '';
   const moduleOf = owner => owner && owner['$type'] === 'Module' ? owner.id : null;
   const latest = diff => diff.head || diff.base;
+  const count = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
   const section = (title, items) => {
     panel.appendChild(node('h3', title));
     if (items.length === 0) { panel.appendChild(node('p', 'none', 'muted')); return; }
@@ -370,9 +373,9 @@ body.changed-only [data-status="unchanged"] { display: none; }
     const state = diff.status !== 'Unchanged' ? diff.status.toLowerCase() : changedFiles.length ? 'code changed' : '';
     panel.appendChild(node('p', `${mod.traitName}${state ? ' · ' + state : ''}`, 'muted'));
     const m = mod.metrics;
-    panel.appendChild(node('p', `${m.linesOfCode} lines · ${m.components} components · ${m.tablesOwned} tables · ${m.eventsOwned} events`, 'muted'));
+    panel.appendChild(node('p', [count(m.linesOfCode, 'line'), count(m.components, 'component'), count(m.tablesOwned, 'table'), count(m.eventsOwned, 'event')].join(' · '), 'muted'));
     const coupling = data.metrics.coupling.find(c => c.id === id);
-    if (coupling) panel.appendChild(node('p', `used by ${coupling.dependents} modules · depends on ${coupling.dependencies} · instability ${coupling.instability.toFixed(2)}`, 'muted'));
+    if (coupling) panel.appendChild(node('p', `used by ${count(coupling.dependents, 'module')} · depends on ${coupling.dependencies} · instability ${coupling.instability.toFixed(2)}`, 'muted'));
     const providerOf = member => {
       const wiring = data.wirings.map(latest).find(w => w.consumer === id && w.member === member);
       if (!wiring) return 'nothing';

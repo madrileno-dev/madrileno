@@ -62,4 +62,16 @@ class ArchDiffSuite extends munit.FunSuite {
     assert(full.modules.forall(_.status == Status.Unchanged))
     assert(full.warnings.forall(_.status == WarningStatus.Existing))
   }
+
+  test("a provided member without a visible type is listed by its name alone") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src(
+          "user/UserModule.scala",
+          "package app.user\ntrait UserModule {\n  lazy val nightly = Task.recurring(\"nightly\", Schedule.RecurringWithFixedRate(1.day))(_ => IO.unit)\n}"
+        )
+      )
+    )
+    assertEquals(ArchDiff.full(model, "h").modules.flatMap(_.members.map(_.text)), List("nightly"))
+  }
 }

@@ -176,11 +176,15 @@ object ArchDiff {
   private def withCodeChange[A](node: NodeDiff[A], changedPaths: Set[String])(definedIn: A => Option[String]): NodeDiff[A] =
     node.copy(codeChanged = node.status == Status.Unchanged && node.head.flatMap(definedIn).exists(changedPathOf(_, changedPaths).isDefined))
 
+  def isUse(reference: Reference): Boolean = Layers.Internal(reference.layer) && reference.explainedBy.isEmpty
+
+  def referenceLabel(reference: Reference): String = if (isUse(reference)) s"${reference.layer}.${reference.symbol}" else reference.layer
+
   def edges(model: ArchModel): Set[Edge] = {
     val wirings = model.wirings.collect { case Wiring(member, consumer, Provider.FromModule(provider)) =>
       Edge(EdgeKind.Wiring, s"module:$consumer", s"module:$provider", member)
     }
-    val references = model.references.map(r => Edge(EdgeKind.Reference, s"module:${r.from}", s"module:${r.to}", r.layer))
+    val references = model.references.map(r => Edge(EdgeKind.Reference, s"module:${r.from}", s"module:${r.to}", referenceLabel(r)))
     val tableUses  = model.tables.flatMap(t => moduleIds(t.users).map(id => Edge(EdgeKind.TableUse, s"module:$id", s"table:${t.name}", "")))
     val topics     = model.topics.flatMap { t =>
       moduleIds(t.publishers).map(id => Edge(EdgeKind.Publishes, s"module:$id", s"topic:${t.name}", "")) ++
@@ -316,12 +320,14 @@ object ArchDiff {
 
   private def memberEntries(module: Option[Module]): List[MemberDiff] =
     module.toList.flatMap { m =>
-      m.consumes.map(c => MemberDiff(MemberSection.Consumes, c.name, s"${c.name}: ${c.tpe}", Status.Unchanged, c.loc)) ++
-        m.provides.map(p => MemberDiff(MemberSection.Provides, p.name, s"${p.name}: ${p.tpe}", Status.Unchanged, p.loc)) ++
+      m.consumes.map(c => MemberDiff(MemberSection.Consumes, c.name, memberText(c), Status.Unchanged, c.loc)) ++
+        m.provides.map(p => MemberDiff(MemberSection.Provides, p.name, memberText(p), Status.Unchanged, p.loc)) ++
         m.contributions.map(c =>
           MemberDiff(MemberSection.Contributes, c.registry.toString, s"${c.registry}: ${c.items.mkString(", ")}", Status.Unchanged, c.loc)
         )
     }
+
+  private def memberText(member: Member): String = if (member.tpe.isEmpty) member.name else s"${member.name}: ${member.tpe}"
 
   private def edgeDiffs(base: Set[Edge], head: Set[Edge]): List[EdgeDiff] =
     (base ++ head).toList

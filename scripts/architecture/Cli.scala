@@ -77,7 +77,7 @@ object Cli {
         .map(error => s"cannot write $path: ${error.getMessage}")
         .map(_ => Outcome("", Some(path), Nil))
     case Output.Mermaid => Right(Outcome(if (diff.isDiff) Mermaid.render(diff) else Mermaid.renderFull(diff), None, Nil))
-    case Output.Json    => Right(Outcome(upickle.default.write(diff, indent = 2), None, Nil))
+    case Output.Json    => Right(Outcome(upickle.default.write(diff, indent = 2) + "\n", None, Nil))
   }
 
   private def strictFailures(diff: DiffModel): List[String] = {

@@ -60,16 +60,22 @@ object ReferenceExtractor {
     rootPackage: String,
     topPackages: Set[String]
   ): List[RawReference] =
-    file.tree.collect { case importStat: Import => importStat.importers }.flatten.flatMap { importer =>
-      val ref = importer.ref.syntax
-      Packages
-        .relative(rootPackage, ref)
-        .orElse(Option.when(file.opensRoot && topPackages(ref.split('.').head))(ref.replace('.', '/')))
-        .toList
-        .flatMap { path =>
-          importer.importees.flatMap(symbolOf).map(RawReference(from, path, _, Trees.loc(file, importer)))
-        }
-    }
+    file.tree
+      .collect {
+        case importStat: Import => importStat.importers
+        case exportStat: Export => exportStat.importers
+      }
+      .flatten
+      .flatMap { importer =>
+        val ref = importer.ref.syntax
+        Packages
+          .relative(rootPackage, ref)
+          .orElse(Option.when(file.opensRoot && topPackages(ref.split('.').head))(ref.replace('.', '/')))
+          .toList
+          .flatMap { path =>
+            importer.importees.flatMap(symbolOf).map(RawReference(from, path, _, Trees.loc(file, importer)))
+          }
+      }
 
   private def qualified(
     file: ParsedFile,
@@ -89,8 +95,8 @@ object ReferenceExtractor {
   private def outermostQualified(tree: Tree, rootPackage: String): Boolean =
     tree.syntax.startsWith(s"$rootPackage.") && !tree.parent.exists(parent => enclosesQualified(parent, tree, rootPackage)) &&
       !Trees.ancestors(tree).exists {
-        case _: Import => true
-        case _         => false
+        case _: Import | _: Export => true
+        case _                     => false
       }
 
   private def enclosesQualified(

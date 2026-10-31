@@ -184,4 +184,15 @@ class TasksSuite extends munit.FunSuite {
     assertEquals(result.value, Nil)
     assertEquals(result.warnings, Nil)
   }
+
+  test("an interpolated task name keeps the text it has in the source") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "probe/ProberInstance.scala",
+        "package app.probe\nclass ProberInstance(instance: Instance) {\n" +
+          "  val asap = Task.recurring(name = s\"prober/${instance.name}/asap\", schedule = Schedule.RecurringWithFixedDelay(1.second))(_ => IO.unit)\n}"
+      )
+    )
+    assertEquals(TaskExtractor.extract(files, Ownership.of(files)).value.map(_.name), List("s\"prober/${instance.name}/asap\""))
+  }
 }

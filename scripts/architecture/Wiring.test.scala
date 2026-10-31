@@ -139,4 +139,16 @@ class WiringSuite extends munit.FunSuite {
     assertEquals(wiring.value, List(Wiring("auditClock", "cellar", Provider.FromModule("clock"))))
     assertEquals(wiring.warnings, Nil)
   }
+
+  test("an export clause is a reference, like an import") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),
+      Fixtures.src("shop/domain/Api.scala", "package app.shop.domain\nobject Api {\n  export app.user.services.UserEvent\n}")
+    )
+    assertEquals(
+      ReferenceExtractor.extract(files, Ownership.of(files), "app").map(r => (r.from, r.to, r.layer, r.symbol)),
+      List(("shop", "user", "services", "UserEvent"))
+    )
+  }
 }

@@ -75,7 +75,7 @@ object GraphView {
       ),
       diff.references
     )
-    if (collapse && nodes.size + components.size > MaxNodes) Graph(nodes, edges, collapsed = true)
+    if (collapse && components.nonEmpty && nodes.size + components.size > MaxNodes) Graph(nodes, edges, collapsed = true)
     else Graph(nodes ++ components, edges, collapsed = false)
   }
 
@@ -143,14 +143,14 @@ object GraphView {
       .toList
       .sortBy { case ((from, to, status), _) => (from, to, status.ordinal) }
       .map { case ((from, to, status), group) =>
-        val between = referencesOf(references, from, to, status)
+        val labels  = group.filter(_.edge.kind == EdgeKind.Reference).map(_.edge.label).toSet
+        val between = referencesOf(references, from, to, status).filter(r => labels(ArchDiff.referenceLabel(r)))
         GEdge(
           from,
           to,
           labelOf(group, between),
           status,
-          group.exists(e => e.edge.kind == EdgeKind.Reference && e.edge.label == "repositories") &&
-            between.exists(r => r.layer == "repositories" && r.explainedBy.isEmpty),
+          between.exists(r => ArchDiff.isUse(r) && r.layer == "repositories"),
           group.forall(_.edge.kind == EdgeKind.Event)
         )
       }
@@ -171,11 +171,14 @@ object GraphView {
       .filter(e => e.edge.kind == EdgeKind.Subscribes && e.edge.label.nonEmpty && s"module:${e.edge.label}" != e.edge.to)
       .map(e => s"as ${e.edge.label}")
       .distinct
-    val layers  = labels(EdgeKind.Reference).toSet
-    val inGroup = references.filter(r => layers(r.layer))
-    val imports = inGroup.filterNot(r => Layers.Internal(r.layer)).map(_.layer).distinct.sorted
-    val uses    = inGroup
-      .filter(r => Layers.Internal(r.layer) && r.explainedBy.isEmpty)
+    val wired   = labels(EdgeKind.Wiring).nonEmpty
+    val imports = references
+      .filter(r => !ArchDiff.isUse(r) && (!Layers.Internal(r.layer) || r.explainedBy.contains(Explanation.Event) || !wired))
+      .map(_.layer)
+      .distinct
+      .sorted
+    val uses = references
+      .filter(ArchDiff.isUse)
       .map(r => if (r.symbol == "*" || r.symbol == "given") s"${r.layer}.${r.symbol}" else r.symbol)
       .distinct
       .sorted
@@ -184,7 +187,7 @@ object GraphView {
       else names.mkString(", ")
     val events = labels(EdgeKind.Event).sorted
     List(
-      Option.when(labels(EdgeKind.Wiring).nonEmpty)(s"wires ${labels(EdgeKind.Wiring).mkString(", ")}"),
+      Option.when(wired)(s"wires ${labels(EdgeKind.Wiring).mkString(", ")}"),
       Option.when(imports.nonEmpty)(s"imports ${imports.mkString(", ")}"),
       Option.when(uses.nonEmpty)(s"uses ${named(uses)}"),
       Option.when(events.nonEmpty)(s"event ${named(events)}")

@@ -199,7 +199,7 @@ The checks:
 Draws a map of the project's architecture from its source:
 - modules, what each one consumes and provides, and the routes, tasks, outbox subscriptions and mail previews it contributes
 - the services, repositories, routers and gateways each module wires
-- references between modules
+- references between modules, from imports, exports and fully qualified names
 - event-bus topics and outbox events, with their publishers and subscribers
 - tables, with the module that owns each one, the modules that use it and, in the JSON and a diff, its columns. A `Table` object can also extend a class that extends `Table`.
 - migrations, with the tables each one creates, alters or drops
@@ -239,8 +239,8 @@ Without `--diff`, the Mermaid output is the whole map with the current metrics a
 
 Arrows between modules are labelled with the kind of dependency:
 - **`wires`** lists the cake members one module takes from the other, such as `wires userRepository`.
-- **`imports`** lists the other module's packages it imports types from: `domain`, or `module` for its root package.
-- **`uses`** names types from the other module's `services`, `repositories`, `routers` or `gateways` that wiring doesn't explain, such as `uses PriceCalculator` for a helper object taken from another module's `services`.
+- **`imports`** lists the other module's packages it imports types from: `domain`, or `module` for its root package. An event type names its package too, such as `imports services`, and so does a wired type on an arrow that doesn't wire it, which happens in a diff when only the import is new.
+- **`uses`** names types from the other module's `services`, `repositories`, `routers` or `gateways` that wiring doesn't explain, such as `uses PriceCalculator` for a helper object taken from another module's `services`. In a diff, a type newly used next to ones the arrow already uses gets an arrow of its own, like a newly wired member.
 
 Several things count as explained:
 - a wired member's type, its supertypes, and the types in their public method signatures, such as a result type a wired service returns

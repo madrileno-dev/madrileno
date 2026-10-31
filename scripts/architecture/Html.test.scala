@@ -162,6 +162,6 @@ class HtmlSuite extends munit.FunSuite {
       Fixtures.src("utils/events/outbox/OutboxModule.scala", "package app.utils.events.outbox\ntrait OutboxModule")
     )
     val out = Html.render(ArchDiff.full(Extractor.extract(project), "h"))
-    assert(out.contains("1 modules + 1 hidden under utils/ · 0 tables"), out.take(3000))
+    assert(out.contains("1 module + 1 hidden under utils/ · 0 tables · 0 events · 0 warnings"), out.take(3000))
   }
 }

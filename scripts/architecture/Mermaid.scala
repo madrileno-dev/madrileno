@@ -60,14 +60,15 @@ object Mermaid {
   }
 
   def renderFull(diff: DiffModel): String = {
-    val detailed = GraphView.full(diff, Level.Components)
-    val graph    = if (detailed.nodes.size > GraphView.MaxNodes) GraphView.full(diff, Level.Modules) else detailed
-    val shown    =
+    val detailed  = GraphView.full(diff, Level.Components)
+    val collapsed = detailed.nodes.size > GraphView.MaxNodes && detailed.nodes.exists(_.kind == NodeKind.Component)
+    val graph     = if (collapsed) GraphView.full(diff, Level.Modules) else detailed
+    val shown     =
       tooLarge(graph).fold(s"```mermaid\n${diagram(graph)}```\n")(intro =>
         s"$intro\n\n- **Modules (${diff.modules.size}):** ${diff.modules.map(_.id).mkString(", ")}\n"
       )
     val note =
-      if (graph ne detailed)
+      if (collapsed)
         s"\n_Services, repositories, routers and gateways are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
       else ""
     val metrics =

@@ -10,7 +10,8 @@ object MigrationExtractor {
   private val Drop     = s"""(?i)\\bdrop\\s+table\\s+(?:if\\s+exists\\s+)?+($Name(?:\\s*,\\s*$Name)*)""".r
   private val Rename   = s"""(?i)\\balter\\s+table\\s+(?:if\\s+exists\\s+)?+(?:only\\s+)?+($Name)\\s+rename\\s+to\\s+($Name)""".r
   private val Version  = """V(\d+(?:[._]\d+)*)__.*""".r
-  private val Comments = """(?s)'(?:[^']|'')*'|--[^\n]*|/\*.*?\*/""".r
+  private val Comments = """(?s)((?<![A-Za-z0-9_])[Ee]'(?:[^'\\]|\\.|'')*'|'(?:[^']|'')*')|--[^\n]*|/\*.*?\*/""".r
+  private val Part     = """"([^"]+)"|([A-Za-z0-9_$]+)""".r
 
   def extract(files: List[SourceFile]): List[Migration] =
     files.map { file =>
@@ -72,16 +73,14 @@ object MigrationExtractor {
     ordered.map(_._2) ++ files.filterNot(file => versioned.exists(_._2 eq file))
   }
 
-  def tableName(name: String): String = name.trim.split('.').last.stripPrefix("\"").stripSuffix("\"").toLowerCase
+  def tableName(name: String): String =
+    Part.findAllMatchIn(name).toList.lastOption.map(part => Option(part.group(1)).getOrElse(part.group(2))).getOrElse(name.trim).toLowerCase
 
   private def withoutComments(sql: String): String =
-    Comments.replaceAllIn(sql, found => Regex.quoteReplacement(if (found.matched.startsWith("'")) found.matched else blank(found.matched)))
+    Comments.replaceAllIn(sql, found => Regex.quoteReplacement(if (found.group(1) != null) found.matched else blank(found.matched)))
 
   private def withoutLiterals(sql: String): String =
-    Comments.replaceAllIn(
-      sql,
-      found => Regex.quoteReplacement(if (found.matched.startsWith("'")) s"''${blank(found.matched)}" else blank(found.matched))
-    )
+    Comments.replaceAllIn(sql, found => Regex.quoteReplacement(if (found.group(1) != null) s"''${blank(found.matched)}" else blank(found.matched)))
 
   private def blank(text: String): String = " " + text.filter(_ == '\n')
 

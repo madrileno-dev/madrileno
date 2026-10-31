@@ -121,7 +121,7 @@ object TaskExtractor {
     case _                                                         => None
   }
 
-  private def nameOf(term: Term): String = Trees.stringLiteral(term).getOrElse(Trees.collapse(term.syntax, 80))
+  private def nameOf(term: Term): String = Trees.stringLiteral(term).getOrElse(Trees.collapse(term.pos.text, 80))
 
   private def scheduleOf(term: Term): String = term match {
     case Term.Apply.After_4_6_0(fun, args) if lastName(fun).contains("Cron") =>
