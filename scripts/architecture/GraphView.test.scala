@@ -66,7 +66,11 @@ class GraphViewSuite extends munit.FunSuite {
     assertEquals(keys(Level.Everything), List("module:shop", "table:orders", "component:shop:ShopRepository"))
   }
 
-  private def eventsProject(shopSubscribes: Boolean) = Fixtures.project(
+  private def eventsProject(
+    shopSubscribes: Boolean,
+    shopWires: String = "",
+    userService: String = ""
+  ) = Fixtures.project(
     Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
     Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
     Fixtures.src(
@@ -75,7 +79,7 @@ class GraphViewSuite extends munit.FunSuite {
     ),
     Fixtures.src(
       "user/services/UserService.scala",
-      "package app.user.services\nclass UserService(outbox: Outbox) {\n  def d(id: Id) = outbox.publishTransactionally(UserDeleted(id))\n}"
+      "package app.user.services\nclass UserService(outbox: Outbox) {\n  def d(id: Id) = outbox.publishTransactionally(UserDeleted(id))\n" + userService + "}"
     ),
     Fixtures.src(
       "shop/ShopModule.scala",
@@ -83,7 +87,7 @@ class GraphViewSuite extends munit.FunSuite {
         (if (shopSubscribes)
            "  override abstract def outboxSubscriptions = super.outboxSubscriptions :+ OutboxSubscription[UserDeleted](\"shop\")(h)\n"
          else "") +
-        "}"
+        shopWires + "}"
     ),
     Fixtures.src(
       "shop/services/ShopService.scala",
@@ -108,6 +112,18 @@ class GraphViewSuite extends munit.FunSuite {
       GraphView.changes(diff, Level.Modules, collapse = false).edges.map(e => (e.from, e.to, e.status, e.event)),
       List(("module:user", "module:shop", Status.Added, true))
     )
+  }
+
+  test("an unchanged arrow between an event box and a module that changed only its code is drawn") {
+    val diff = ArchDiff.compare(
+      Extractor.extract(eventsProject(shopSubscribes = true)),
+      Extractor.extract(eventsProject(shopSubscribes = true, shopWires = "  lazy val extra: Extra = ???\n", userService = "  def x = 1\n")),
+      "b",
+      "h"
+    )
+    val graph = GraphView.changes(diff, Level.Everything, collapse = false)
+    assertEquals(graph.nodes.find(_.key == "module:user").map(_.codeChanged), Some(true))
+    assert(graph.edges.exists(e => e.from == "module:user" && e.to == "event:user-deleted.v1"), graph.edges.map(e => e.from -> e.to).toString)
   }
 
   test("the modules level shows modules and the dependencies between them") {

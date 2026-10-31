@@ -42,7 +42,7 @@ object Mermaid {
         case None =>
           val note =
             if (graph.collapsed)
-              s"\n_Services, repositories, routers and gateways are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
+              s"\n_The classes modules wire are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
             else ""
           s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\n${diagram(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
       }
@@ -69,7 +69,7 @@ object Mermaid {
       )
     val note =
       if (collapsed)
-        s"\n_Services, repositories, routers and gateways are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
+        s"\n_The classes modules wire are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
       else ""
     val metrics =
       s"\n**Architecture metrics:** ${ArchMetrics.rows.map(row => s"${row.name.toLowerCase} ${row.format(row.value(diff.metrics.head))}").mkString(", ")}.\n"

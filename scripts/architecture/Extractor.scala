@@ -7,7 +7,7 @@ object Extractor {
     val ownership  = Ownership.of(files)
     val modules    = ModuleExtractor.extract(files, ownership)
     val wiring     = WiringExtractor.extract(modules.value, files, ownership)
-    val events     = EventExtractor.extract(files, ownership)
+    val events     = EventExtractor.extract(files, ownership, input.rootPackage)
     val eventTypes = events.value._1.map(_.eventType).toSet ++ events.value._2.map(_.typeName).toSet
     val references = ExplainedReferences.mark(
       ReferenceExtractor.extract(files, ownership, input.rootPackage),

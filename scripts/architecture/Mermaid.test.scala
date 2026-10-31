@@ -68,6 +68,20 @@ class MermaidSuite extends munit.FunSuite {
     assertEquals(graph.edges.map(e => e.from -> e.to).toSet, Set("module:hub" -> "module:a", "module:hub" -> "module:b"))
   }
 
+  test("an unchanged arrow between two modules is left out when one of them changed only its code") {
+    def model(extra: String, helper: String) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AModule with BModule with HubModule"),
+        Fixtures.src("a/AModule.scala", s"package app.a\nimport app.b.domain.X\ntrait AModule {\n$helper\n}"),
+        Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule"),
+        Fixtures.src("hub/HubModule.scala", s"package app.hub\nimport app.a.domain.Y\nimport app.b.domain.Z\ntrait HubModule {\n$extra\n}")
+      )
+    )
+    val graph = GraphView.changes(ArchDiff.compare(model("", ""), model("  lazy val extra: Extra = ???", "  private def helper = 1"), "b", "h"))
+    assertEquals(graph.nodes.find(_.key == "module:a").map(_.codeChanged), Some(true))
+    assertEquals(graph.edges.map(e => e.from -> e.to).toSet, Set("module:hub" -> "module:a", "module:hub" -> "module:b"))
+  }
+
   test("every status marker is glued to its label with a non-breaking space") {
     assert(Mermaid.nodeLine(GNode("module:a", "a", NodeKind.Module, None, Status.Changed)).contains("~#160;a"))
     assert(Mermaid.nodeLine(GNode("module:a", "a", NodeKind.Module, None, Status.Removed)).contains("−#160;a"))

@@ -60,6 +60,7 @@ object GraphView {
     }.toSet
     val codeOnly   = top.filter(_.codeChanged).map(_.key).toSet
     val included   = changed ++ touched ++ neighbours ++ codeOnly
+    val shared     = top.filter(_.kind != NodeKind.Module).map(_.key).toSet
     val nodes      = top.filter(node => included(node.key))
     val visible    = top.map(_.key).toSet
     val components =
@@ -71,7 +72,8 @@ object GraphView {
     val edges = mergedEdges(
       graphEdges.filter(e =>
         visible(e.edge.from) && visible(e.edge.to) && included(e.edge.from) && included(e.edge.to) &&
-          (e.status != Status.Unchanged || changed(e.edge.from) || changed(e.edge.to))
+          (e.status != Status.Unchanged || changed(e.edge.from) || changed(e.edge.to) ||
+            (codeOnly(e.edge.from) && shared(e.edge.to)) || (codeOnly(e.edge.to) && shared(e.edge.from)))
       ),
       diff.references
     )

@@ -20,7 +20,7 @@ class EventsSuite extends munit.FunSuite {
       "package app.shop.routers\nclass ShopRouter(eventBus: EventBus[ShopEvent]) {\n  def ws = eventBus.subscribeAwait\n}"
     )
   )
-  private val result           = EventExtractor.extract(files, Ownership.of(files))
+  private val result           = EventExtractor.extract(files, Ownership.of(files), "app")
   private val (topics, events) = result.value
 
   test("outbox event with publisher and subscriber") {
@@ -47,7 +47,10 @@ class EventsSuite extends munit.FunSuite {
         "package app.shop\ntrait ShopModule {\n  lazy val bus = eventBusRuntime.topic[OrderEvent](Topics.Orders, maxQueued = 8)\n}"
       )
     )
-    assertEquals(EventExtractor.extract(files, Ownership.of(files)).unclassified.map(_.key), List("topic-name:shop/ShopModule.scala:OrderEvent"))
+    assertEquals(
+      EventExtractor.extract(files, Ownership.of(files), "app").unclassified.map(_.key),
+      List("topic-name:shop/ShopModule.scala:OrderEvent")
+    )
   }
 
   test("a topic name two declarations share is one topic with the uses of both, and a warning") {
@@ -63,7 +66,7 @@ class EventsSuite extends munit.FunSuite {
       Fixtures.src("a/services/APublisher.scala", "package app.a.services\nclass APublisher(bus: EventBus[AEvent]) {\n  def p = bus.publish\n}"),
       Fixtures.src("b/routers/BRouter.scala", "package app.b.routers\nclass BRouter(bus: EventBus[BEvent]) {\n  def s = bus.subscribe\n}")
     )
-    val result = EventExtractor.extract(files, Ownership.of(files))
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
     assertEquals(
       result.value._1.map(t => (t.name, t.eventType, t.owner, t.publishers.map(_.enclosing), t.subscribers.map(_.enclosing))),
       List(("shared", "AEvent", Owner.Module("a"), List("APublisher"), List("BRouter")))
@@ -91,7 +94,7 @@ class EventsSuite extends munit.FunSuite {
         "package app.b.services\nclass BService(outbox: Outbox) {\n  def p(id: Id) = outbox.publishTransactionally(BEvent(id))\n}"
       )
     )
-    val result = EventExtractor.extract(files, Ownership.of(files))
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
     assertEquals(
       result.value._2.map(e => (e.eventType, e.typeName, e.owner, e.publishers.map(_.enclosing))),
       List(("shared.v1", "AEvent", Owner.Module("a"), List("BService")))
@@ -110,7 +113,7 @@ class EventsSuite extends munit.FunSuite {
         "package app.a.domain\nfinal case class Created(id: Id)\nobject Created {\n  given DomainEventDescriptor[Created] = DomainEventDescriptor[Created](\"a-created.v1\", \"a\", _.id)\n}"
       )
     )
-    assertEquals(EventExtractor.extract(files, Ownership.of(files)).value._2.map(_.eventType), List("a-created.v1"))
+    assertEquals(EventExtractor.extract(files, Ownership.of(files), "app").value._2.map(_.eventType), List("a-created.v1"))
   }
 
   test("a topic named by a named argument, and topic and event warnings that can't share a key") {
@@ -126,7 +129,7 @@ class EventsSuite extends munit.FunSuite {
       ),
       Fixtures.src("a/AModuleSubscriptions.scala", "package app.a\nobject Subs {\n  val s = OutboxSubscription[Same](\"a\")(h)\n}")
     )
-    val result = EventExtractor.extract(files, Ownership.of(files))
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
     assertEquals(result.value._1.map(_.name), List("same"))
     assertEquals(result.warnings.map(_.key).sorted, List("no-publisher:event:same", "no-publisher:topic:same"))
   }
@@ -147,7 +150,7 @@ class EventsSuite extends munit.FunSuite {
         "package app.user.routers\nclass UserRouter(bus: EventBus[UserEvent]) {\n  def ws = bus.subscribe\n}"
       )
     )
-    val result = EventExtractor.extract(files, Ownership.of(files))
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
     assertEquals(
       result.value._1.map(t => (t.publishers.map(_.enclosing), t.subscribers.map(_.enclosing))),
       List((List("UserModule", "Pinger"), List("UserRouter")))
@@ -167,7 +170,7 @@ class EventsSuite extends munit.FunSuite {
         "package app.user.services\nclass UserService(outbox: Outbox) {\n  def d(ev: Ev) = outbox.publishTransactionally[UserDeleted](ev)\n}"
       )
     )
-    val result = EventExtractor.extract(files, Ownership.of(files))
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
     assertEquals(result.value._2.map(_.publishers.map(_.enclosing)), List(List("UserService")))
     assertEquals(result.unclassified, Nil)
   }
@@ -180,7 +183,7 @@ class EventsSuite extends munit.FunSuite {
       ),
       Fixtures.src("a/routers/ARouter.scala", "package app.a.routers\nclass ARouter(bus: EventBus[Notice]) {\n  def s = bus.subscribe\n}")
     )
-    val result = EventExtractor.extract(files, Ownership.of(files))
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
     assertEquals(result.value._1.map(t => (t.name, t.publishers, t.subscribers)), List(("notices_a", Nil, Nil), ("notices_b", Nil, Nil)))
     assertEquals(
       result.unclassified.map(u => u.key -> u.description),
@@ -204,7 +207,7 @@ class EventsSuite extends munit.FunSuite {
         "package app.user\nobject Subs {\n  val s = OutboxSubscription[UserDeleted](Consumers.Billing)(h)\n}"
       )
     )
-    val result = EventExtractor.extract(files, Ownership.of(files))
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
     assertEquals(result.value._2, Nil)
     assertEquals(
       result.unclassified.map(u => u.key -> u.description),
@@ -222,7 +225,7 @@ class EventsSuite extends munit.FunSuite {
           "  lazy val starter = Lifecycle(shopBus.publish(ShopEvent.Started))\n}"
       )
     )
-    assertEquals(EventExtractor.extract(files, Ownership.of(files)).value._1.map(_.publishers.map(_.enclosing)), List(List("ShopModule")))
+    assertEquals(EventExtractor.extract(files, Ownership.of(files), "app").value._1.map(_.publishers.map(_.enclosing)), List(List("ShopModule")))
   }
 
   test("a bus used through this is a publisher") {
@@ -236,7 +239,7 @@ class EventsSuite extends munit.FunSuite {
         "package app.user.services\nclass Pinger(bus: EventBus[UserEvent]) {\n  def ping = this.bus.publish(UserEvent.Ping)\n}"
       )
     )
-    assertEquals(EventExtractor.extract(files, Ownership.of(files)).value._1.map(_.publishers.map(_.enclosing)), List(List("Pinger")))
+    assertEquals(EventExtractor.extract(files, Ownership.of(files), "app").value._1.map(_.publishers.map(_.enclosing)), List(List("Pinger")))
   }
 
   test("a bus used through another object, or declared by a parent, is found by its name when one bus type has that name") {
@@ -254,7 +257,7 @@ class EventsSuite extends munit.FunSuite {
         "package app.user.services\nclass Listener extends UserModule {\n  def run = userBus.subscribe(handle)\n}"
       )
     )
-    val topic = EventExtractor.extract(files, Ownership.of(files)).value._1.head
+    val topic = EventExtractor.extract(files, Ownership.of(files), "app").value._1.head
     assertEquals((topic.publishers.map(_.enclosing), topic.subscribers.map(_.enclosing)), (List("Notifier"), List("Listener")))
   }
 
@@ -273,7 +276,7 @@ class EventsSuite extends munit.FunSuite {
         "package app.shop.services\nclass Feed(deps: Deps) {\n  def a = deps.bus.publish(ShopEvent.Opened)\n  def b = deps.topic.publish(Tick)\n}"
       )
     )
-    val result = EventExtractor.extract(files, Ownership.of(files))
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
     assertEquals(result.value._1.map(_.publishers), List(Nil, Nil))
     assertEquals(result.unclassified, Nil)
   }
@@ -301,7 +304,7 @@ class EventsSuite extends munit.FunSuite {
       )
     )
     assertEquals(
-      EventExtractor.extract(files, Ownership.of(files)).value._1.map(t => t.name -> t.publishers.map(_.enclosing)),
+      EventExtractor.extract(files, Ownership.of(files), "app").value._1.map(t => t.name -> t.publishers.map(_.enclosing)),
       List("audit_events" -> List("AuditFanout"), "shop_events" -> Nil)
     )
   }
@@ -313,7 +316,7 @@ class EventsSuite extends munit.FunSuite {
         "package app.utils.events\nfinal class Relay[E](bus: EventBus[E]) {\n  def send(e: E) = bus.publish(e)\n}\nobject Fan {\n  def all[A](bus: EventBus[A], a: A) = bus.publish(a)\n}"
       )
     )
-    val result = EventExtractor.extract(files, Ownership.of(files))
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
     assertEquals((result.value._1, result.unclassified), (Nil, Nil))
   }
 
@@ -333,7 +336,7 @@ class EventsSuite extends munit.FunSuite {
           "  def c(id: Id) = outbox.publishTransactionally(UserDeleted(id))\n  def d(id: Id) = outbox.publishTransactionally(UserDeleted(id))\n}"
       )
     )
-    val (topics, events) = EventExtractor.extract(files, Ownership.of(files)).value
+    val (topics, events) = EventExtractor.extract(files, Ownership.of(files), "app").value
     assertEquals(
       (topics.map(_.publishers.map(_.enclosing)), events.map(_.publishers.map(_.enclosing))),
       (List(List("UserService")), List(List("UserService")))
@@ -351,7 +354,7 @@ class EventsSuite extends munit.FunSuite {
         "package app.shop.services\nval orderBus: EventBus[OrderEvent] = ???\ndef announce = orderBus.publish(OrderEvent.Placed)"
       )
     )
-    assertEquals(EventExtractor.extract(files, Ownership.of(files)).value._1.map(_.publishers.map(_.enclosing)), List(List("Announcer")))
+    assertEquals(EventExtractor.extract(files, Ownership.of(files), "app").value._1.map(_.publishers.map(_.enclosing)), List(List("Announcer")))
   }
 
   test("a bus bound by a typed pattern is known by that type") {
@@ -370,8 +373,76 @@ class EventsSuite extends munit.FunSuite {
       )
     )
     assertEquals(
-      EventExtractor.extract(files, Ownership.of(files)).value._1.map(t => t.name -> t.publishers.map(_.enclosing)),
+      EventExtractor.extract(files, Ownership.of(files), "app").value._1.map(t => t.name -> t.publishers.map(_.enclosing)),
       List("shop_events" -> Nil, "user_events" -> List("Pinger"))
     )
+  }
+
+  test("an event published by its nested type, its enum's case or an explicit type argument matches its descriptor") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "user/UserModule.scala",
+        "package app.user\ntrait UserModule {\n  override abstract def outboxSubscriptions = super.outboxSubscriptions :+ OutboxSubscription[UserEvent.Deleted](\"audit\")(h)\n}"
+      ),
+      Fixtures.src(
+        "user/domain/UserEvent.scala",
+        "package app.user.domain\nsealed trait UserEvent\nobject UserEvent {\n  final case class Deleted(id: Id) extends UserEvent\n  given DomainEventDescriptor[UserEvent.Deleted] = DomainEventDescriptor(\"user-deleted.v1\", \"user\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "user/domain/ShopEvent.scala",
+        "package app.user.domain\nenum ShopEvent {\n  case Opened(id: Id)\n}\nobject ShopEvent {\n  given DomainEventDescriptor[ShopEvent] = DomainEventDescriptor(\"shop.v1\", \"user\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "user/services/UserService.scala",
+        "package app.user.services\nclass UserService(outbox: Outbox) {\n  def d(id: Id) = outbox.publishTransactionally(UserEvent.Deleted(id))\n  def o(id: Id) = outbox.publishTransactionally(ShopEvent.Opened(id))\n}"
+      ),
+      Fixtures.src(
+        "user/services/AuditService.scala",
+        "package app.user.services\nclass AuditService(outbox: Outbox) {\n  def d(ev: UserEvent.Deleted) = outbox.publishTransactionally[UserEvent.Deleted](ev)\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
+    assertEquals(
+      result.value._2.map(e => (e.eventType, e.publishers.map(_.enclosing).sorted)),
+      List("shop.v1" -> List("UserService"), "user-deleted.v1" -> List("AuditService", "UserService"))
+    )
+    assertEquals(result.warnings, Nil)
+    assertEquals(result.unclassified, Nil)
+  }
+
+  test("a payload type two modules both name links a bus by the module the file imports it from, else by the file's own module") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "a/AModule.scala",
+        "package app.a\nimport app.a.domain.Event\ntrait AModule {\n  lazy val bus: EventBus[Event] = eventBusRuntime.topic[Event](\"a_events\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "b/BModule.scala",
+        "package app.b\nimport app.b.domain.Event\ntrait BModule {\n  lazy val bus: EventBus[Event] = eventBusRuntime.topic[Event](\"b_events\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src("c/CModule.scala", "package app.c\ntrait CModule"),
+      Fixtures.src("a/domain/Event.scala", "package app.a.domain\nfinal case class Event(id: Id)"),
+      Fixtures.src("b/domain/Event.scala", "package app.b.domain\nfinal case class Event(id: Id)"),
+      Fixtures.src(
+        "a/services/APublisher.scala",
+        "package app.a.services\nimport app.a.domain.Event\nclass APublisher(bus: EventBus[Event]) {\n  def p = bus.publish\n}"
+      ),
+      Fixtures.src(
+        "b/services/BPublisher.scala",
+        "package app.b.services\nimport app.b.domain.*\nclass BPublisher(bus: EventBus[Event]) {\n  def p = bus.publish\n}"
+      ),
+      Fixtures.src(
+        "b/routers/ARouter.scala",
+        "package app.b.routers\nimport app.a.domain.Event\nclass ARouter(bus: EventBus[Event]) {\n  def s = bus.subscribe\n}"
+      ),
+      Fixtures.src("b/domain/BHandler.scala", "package app.b.domain\nclass BHandler(bus: EventBus[Event]) {\n  def s = bus.subscribe\n}"),
+      Fixtures.src("c/services/CListener.scala", "package app.c.services\nclass CListener(bus: EventBus[Event]) {\n  def s = bus.subscribe\n}")
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
+    assertEquals(
+      result.value._1.map(t => (t.name, t.publishers.map(_.enclosing), t.subscribers.map(_.enclosing))),
+      List(("a_events", List("APublisher"), List("ARouter")), ("b_events", List("BPublisher"), List("BHandler")))
+    )
+    assertEquals(result.unclassified.map(_.key), List("bus-ambiguous:c/services/CListener.scala:Event"))
   }
 }

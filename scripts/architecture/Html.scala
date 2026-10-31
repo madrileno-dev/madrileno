@@ -36,7 +36,7 @@ object Html {
       """<section id="modules"><h2>Modules</h2>""",
       """<div class="graph-controls"><span class="muted">Show</span>""" +
         """<label><input type="radio" name="level" value="modules" checked> modules</label>""" +
-        """<label><input type="radio" name="level" value="components"> with services, repositories, routers and gateways</label>""" +
+        """<label><input type="radio" name="level" value="components"> with the classes they wire</label>""" +
         """<label><input type="radio" name="level" value="everything"> with tables and events</label>""" +
         """<button type="button" id="show-all" hidden>Show all modules</button>""" +
         """<span class="zoom"><button type="button" data-zoom="out" aria-label="Zoom out">−</button><button type="button" data-zoom="fit">Fit</button><button type="button" data-zoom="in" aria-label="Zoom in">+</button></span></div>""",
