@@ -31,10 +31,13 @@ object Mermaid {
   private val Credit: String = "\n<sub>Mapped by Madrileño's <code>scripts/architecture.scala</code></sub>\n"
 
   def render(diff: DiffModel): String = {
-    val graph  = GraphView.changes(diff)
-    val footer = footerOf(diff)
-    if (graph.nodes.forall(_.status == Status.Unchanged) && graph.edges.forall(_.status == Status.Unchanged))
+    val graph     = GraphView.changes(diff)
+    val outside   = undrawn(diff, graph)
+    val footer    = section("Outside the modules", outside) + footerOf(diff)
+    val unchanged = graph.nodes.forall(_.status == Status.Unchanged) && graph.edges.forall(_.status == Status.Unchanged)
+    if (unchanged && outside.isEmpty)
       s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n${if (metricsMoved(diff)) metricsSection(diff) else ""}$footer$Credit"
+    else if (unchanged) s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n${metricsSection(diff)}$footer$Credit"
     else
       tooLarge(graph) match {
         case Some(intro) =>
@@ -217,6 +220,15 @@ object Mermaid {
     }
     section("Code changed", code ++ outside ++ payloads ++ tables) + section("Migrations", migrations) +
       section("Tasks", tasks) + section("New warnings", warnings) + section("New unclassified", unclassified)
+  }
+
+  private def undrawn(diff: DiffModel, graph: Graph): List[String] = {
+    val drawn                                                               = graph.nodes.map(_.key).toSet
+    def lines[A](kind: String, nodes: List[NodeDiff[A]])(owner: A => Owner) =
+      nodes.filter(n => n.status != Status.Unchanged && !drawn(s"$kind:${n.key}")).flatMap { n =>
+        n.head.orElse(n.base).map(item => s"- ${n.status.toString.toLowerCase} $kind `${n.key}` in ${owner(item).label}")
+      }
+    lines("table", diff.tables)(_.owner) ++ lines("topic", diff.topics)(_.owner) ++ lines("event", diff.events)(_.owner)
   }
 
   private def listed(paths: List[String]): String = {

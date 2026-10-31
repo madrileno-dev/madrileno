@@ -331,4 +331,26 @@ class MermaidSuite extends munit.FunSuite {
     assert(!Mermaid.render(ArchDiff.compare(empty, head, "b", "h")).contains("are hidden"))
     assert(!Mermaid.renderFull(ArchDiff.full(head, "h")).contains("are hidden"))
   }
+
+  test("a table that only code outside the modules owns and uses is listed under the diagram, not left out") {
+    def project(audit: Boolean) = Extractor.extract(
+      Fixtures.projectWithMigrations(
+        List(
+          Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+          Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule")
+        ) ++ Option
+          .when(audit)(
+            Fixtures.src(
+              "utils/db/AuditLog.scala",
+              "package app.utils.db\nobject AuditTable extends Table[AuditRow](\"audit\")\nclass AuditLog { def f = AuditTable }"
+            )
+          )
+          .toList,
+        Fixtures.migration("V1__audit.sql", "create table audit (id uuid primary key);") :: Nil
+      )
+    )
+    val text = Mermaid.render(ArchDiff.compare(project(audit = false), project(audit = true), "b", "h"))
+    assert(!text.contains("No architecture changes"), text)
+    assert(text.contains("**Outside the modules**\n\n- added table `audit` in platform (utils/db)"), text)
+  }
 }
