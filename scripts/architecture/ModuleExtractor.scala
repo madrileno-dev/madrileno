@@ -97,7 +97,9 @@ object ModuleExtractor {
   private def instantiated(rhs: Term): Option[String] = rhs match {
     case Term.ApplyType.After_4_6_0(Term.Name("wire"), targs) => targs.values.headOption.map(Trees.typeName)
     case Term.New(init)                                       => Some(Trees.typeName(init.tpe))
-    case _                                                    => None
+    case Term.Apply.After_4_6_0(Term.ApplyType.After_4_6_0(Term.Select(_, Term.Name("topic")), targs), _) if targs.values.size == 1 =>
+      Some(s"EventBus[${targs.values.head.syntax}]")
+    case _ => None
   }
 
   private def contribution(file: ParsedFile, stat: Stat): Option[Contribution] = stat match {

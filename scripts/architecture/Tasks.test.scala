@@ -170,14 +170,16 @@ class TasksSuite extends munit.FunSuite {
     assertEquals(diff.modules.map(m => m.id -> m.status), List("shop" -> Status.Changed))
     assertEquals(after.warnings.map(_.message), List("task dup is declared in shop (2 times)"))
   }
-  test("a helper that builds recurring tasks from its own parameter is not a task") {
+  test("a helper that builds tasks from its own parameter is not a task") {
     val files = Fixtures.parsed(
       Fixtures.src("billing/BillingModule.scala", "package app.billing\ntrait BillingModule"),
       Fixtures.src(
         "billing/services/Jobs.scala",
         "package app.billing.services\nobject Jobs {\n" +
           "  def nightly(name: String)(run: IO[Unit]) = Task.recurring(name, Schedule.Cron(CronExpression.unsafeParse(\"0 0 3 * * ?\")))(_ => run)\n" +
-          "  def hourly(name: String)(run: IO[Unit]) = Task.recurring(name, Schedule.Cron(CronExpression.unsafeParse(\"0 0 * * * ?\")))(_ => run)\n}"
+          "  def hourly(name: String)(run: IO[Unit]) = Task.recurring(name, Schedule.Cron(CronExpression.unsafeParse(\"0 0 * * * ?\")))(_ => run)\n" +
+          "  def custom(label: String) = Task.custom(TaskDescriptor[Unit](label))(_ => IO.unit)\n" +
+          "  def once(label: String) = OneTimeTask(descriptor = TaskDescriptor[Unit](taskName = label), run = _ => IO.unit)\n}"
       )
     )
     val result = TaskExtractor.extract(files, Ownership.of(files))
@@ -231,7 +233,7 @@ class TasksSuite extends munit.FunSuite {
         "package app.shop.services\nobject Names {\n  val name = \"unrelated-constant\"\n  val PingName = \"ping\"\n}"
       )
     )
-    assertEquals(TaskExtractor.extract(files, Ownership.of(files)).value.map(_.name), List("Other.name", "PingName", "label", "settings.name"))
+    assertEquals(TaskExtractor.extract(files, Ownership.of(files)).value.map(_.name), List("Other.name", "PingName", "settings.name"))
   }
 
   test("two tasks whose names the map doesn't know are not duplicates") {

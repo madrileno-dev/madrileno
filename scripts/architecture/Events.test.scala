@@ -340,6 +340,20 @@ class EventsSuite extends munit.FunSuite {
     )
   }
 
+  test("a bus declared at the top level of a file is known by its type") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        "package app.shop\ntrait ShopModule {\n  lazy val bus: EventBus[OrderEvent] = eventBusRuntime.topic[OrderEvent](\"orders\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "shop/services/Announcer.scala",
+        "package app.shop.services\nval orderBus: EventBus[OrderEvent] = ???\ndef announce = orderBus.publish(OrderEvent.Placed)"
+      )
+    )
+    assertEquals(EventExtractor.extract(files, Ownership.of(files)).value._1.map(_.publishers.map(_.enclosing)), List(List("Announcer")))
+  }
+
   test("a bus bound by a typed pattern is known by that type") {
     val files = Fixtures.parsed(
       Fixtures.src(

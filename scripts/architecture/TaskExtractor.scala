@@ -92,6 +92,7 @@ object TaskExtractor {
     knownName: Term => Option[String]
   ): Option[Either[Unclassified, Definition]] =
     taskNameOf(descriptor) match {
+      case Some(name) if isParameter(name) => None
       case Some(name)                      => Some(Right(definition(file, ownership, call, name, knownName, kind, None)))
       case None if isParameter(descriptor) => None
       case None                            =>

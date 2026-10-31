@@ -304,6 +304,15 @@ class TablesSuite extends munit.FunSuite {
     assertEquals(migration.summary(identity), "creates audit, alters x, indexes bid, writes user, offer, session, cache, tmp")
   }
 
+  test("merge into and copy from are writes") {
+    val sql = Fixtures.migration(
+      "V8__load.sql",
+      "merge into only offer as o using staged s on o.id = s.id when matched then update set price = s.price;\n" +
+        "copy bid (id, amount) from stdin;\ncopy (select * from audit) to stdout;\ncopy session to stdout;"
+    )
+    assertEquals(MigrationExtractor.extract(List(sql)).map(_.writes), List(List("offer", "bid")))
+  }
+
   test("migrations are listed in version order") {
     val migrations = List("R__views.sql", "V10__c.sql", "V2__b.sql", "V1_1__a.sql", "V1__init.sql").map(Fixtures.migration(_, "select 1;"))
     assertEquals(MigrationExtractor.extract(migrations).map(_.path), List("V1__init.sql", "V1_1__a.sql", "V2__b.sql", "V10__c.sql", "R__views.sql"))

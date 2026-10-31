@@ -130,6 +130,19 @@ class ModuleExtractorSuite extends munit.FunSuite {
     assertEquals(WiringExtractor.extract(result.value, files, ownership).warnings, Nil)
   }
 
+  test("a bus built by topic[T] without a type annotation is provided as an EventBus[T]") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        "package app.shop\ntrait ShopModule {\n  lazy val bus = eventBusRuntime.topic[OrderEvent](\"orders\", maxQueued = 8)\n}"
+      )
+    )
+    assertEquals(
+      ModuleExtractor.extract(files, Ownership.of(files)).value.flatMap(_.provides.map(m => m.name -> m.tpe)),
+      List("bus" -> "EventBus[OrderEvent]")
+    )
+  }
+
   test("a module trait that extends another module trait mixes that module in") {
     val files = Fixtures.parsed(
       Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AdminModule"),

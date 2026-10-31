@@ -15,7 +15,9 @@ object MigrationExtractor {
     s"""(?i)\\binsert\\s+into\\s+($Name)""",
     s"""(?i)\\bupdate\\s+(?:only\\s+)?($Name)(?:\\s+(?:as\\s+)?[A-Za-z_][A-Za-z0-9_]*)?\\s+set\\b""",
     s"""(?i)\\bdelete\\s+from\\s+(?:only\\s+)?($Name)""",
-    s"""(?i)\\btruncate\\s+(?:table\\s+)?(?:only\\s+)?($Name(?:\\s*,\\s*$Name)*)"""
+    s"""(?i)\\btruncate\\s+(?:table\\s+)?(?:only\\s+)?($Name(?:\\s*,\\s*$Name)*)""",
+    s"""(?i)\\bmerge\\s+into\\s+(?:only\\s+)?($Name)""",
+    s"""(?i)\\bcopy\\s+($Name)(?:\\s*\\([^)]*\\))?\\s+from\\b"""
   ).map(_.r)
   private val Version  = """V(\d+(?:[._]\d+)*)__.*""".r
   private val Comments = """(?s)((?<![A-Za-z0-9_])[Ee]'(?:[^'\\]|\\.|'')*'|'(?:[^']|'')*')|--[^\n]*|/\*.*?\*/""".r

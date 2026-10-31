@@ -17,7 +17,7 @@ object EventExtractor {
     val declared = files.flatMap(topicsIn(_, ownership))
     val topics   = declared.collect { case Right(topic) => topic }
     val busTypes = files
-      .flatMap(_.tree.collect { case scope @ (_: Defn.Class | _: Defn.Trait | _: Defn.Object) => bindings(scope) })
+      .flatMap(_.tree.collect { case scope @ (_: Defn.Class | _: Defn.Trait | _: Defn.Object | _: Pkg) => bindings(scope) })
       .flatMap(_.collect { case (name, Some(eventType)) => name -> eventType })
       .groupMap(_._1)(_._2)
       .view
@@ -220,6 +220,7 @@ object EventExtractor {
       case cls: Defn.Class  => params(cls.ctor.paramClauses.flatMap(_.values).toList) ++ declarations(Trees.members(cls.templ), generic)
       case t: Defn.Trait    => declarations(Trees.members(t.templ), generic)
       case obj: Defn.Object => declarations(Trees.members(obj.templ), generic)
+      case pkg: Pkg         => declarations(pkg.body.stats, generic)
       case d: Defn.Def      => params(d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values))
       case f: Term.Function => params(f.paramClause.values)
       case b: Term.Block    => declarations(b.stats, generic)
