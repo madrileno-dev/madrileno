@@ -22,14 +22,14 @@ object MigrationExtractor {
   private val Part     = """"([^"]+)"|([A-Za-z0-9_$]+)""".r
 
   def extract(files: List[SourceFile]): List[Migration] =
-    files.map { file =>
+    inVersionOrder(files)(_.packagePath).map { file =>
       val sql     = withoutLiterals(file.content)
       val creates = names(Create, sql)
       Migration(
         file.packagePath,
         Trees.hash(normalized(withoutComments(file.content))),
         creates,
-        (names(Alter, sql) ++ Rename.findAllMatchIn(sql).map(m => tableName(m.group(2)))).distinct,
+        (names(Alter, sql) ++ Rename.findAllMatchIn(sql).map(m => tableName(m.group(2)))).distinct.filterNot(creates.contains),
         names(Drop, sql),
         names(Index, sql).filterNot(creates.contains),
         Writes.flatMap(_.findAllMatchIn(sql)).sortBy(_.start).flatMap(_.group(1).split(',').map(tableName)).distinct.filterNot(creates.contains)
@@ -43,7 +43,7 @@ object MigrationExtractor {
   }
 
   def existing(files: List[SourceFile]): List[MigrationTable] =
-    inVersionOrder(files).flatMap(statementsIn).foldLeft(List.empty[MigrationTable]) {
+    inVersionOrder(files)(_.packagePath).flatMap(statementsIn).foldLeft(List.empty[MigrationTable]) {
       case (tables, Statement.Created(table))    => tables :+ table
       case (tables, Statement.Dropped(names))    => tables.filterNot(table => names.contains(table.name))
       case (tables, Statement.Renamed(from, to)) => tables.map(table => if (table.name == from) to else table)
@@ -66,17 +66,17 @@ object MigrationExtractor {
     offset: Int
   ): Loc = Loc(file.projectPath, sql.take(offset).count(_ == '\n') + 1)
 
-  private def inVersionOrder(files: List[SourceFile]): List[SourceFile] = {
-    val versioned = files.flatMap(file =>
-      file.packagePath.split('/').last match {
-        case Version(version) => Some(version.split("[._]").map(BigInt(_)).toList -> file)
-        case _                => None
-      }
-    )
-    val ordered = versioned.sortWith { case ((a, _), (b, _)) =>
+  def inVersionOrder[A](items: List[A])(path: A => String): List[A] = {
+    val versions = items.map(item => versionOf(path(item)) -> item)
+    val ordered  = versions.collect { case (Some(version), item) => version -> item }.sortWith { case ((a, _), (b, _)) =>
       a.zipAll(b, BigInt(-1), BigInt(-1)).find((x, y) => x != y).exists((x, y) => x < y)
     }
-    ordered.map(_._2) ++ files.filterNot(file => versioned.exists(_._2 eq file))
+    ordered.map(_._2) ++ versions.collect { case (None, item) => item }
+  }
+
+  private def versionOf(path: String): Option[List[BigInt]] = path.split('/').last match {
+    case Version(version) => Some(version.split("[._]").map(BigInt(_)).toList)
+    case _                => None
   }
 
   def tableName(name: String): String =

@@ -117,7 +117,7 @@ object ArchDiff {
     }
     val changedOutside = changedDigests(base.outsideModules, head.outsideModules)
     val changedPaths   = (modules.flatMap(_.changedFiles) ++ changedOutside).toSet
-    val migrations     = nodes(base.migrations, head.migrations)(_.path)(_.digest)
+    val migrations     = MigrationExtractor.inVersionOrder(nodes(base.migrations, head.migrations)(_.path)(_.digest))(_.key)
     val migrated       = migrations.filter(_.status != Status.Unchanged).flatMap(m => (m.base.toList ++ m.head.toList).flatMap(_.tables)).toSet
     DiffModel(
       isDiff = true,

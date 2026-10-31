@@ -202,7 +202,7 @@ Draws a map of the project's architecture from its source:
 - references between modules, from imports, exports and fully qualified names
 - event-bus topics and outbox events, with their publishers and subscribers
 - tables, with the module that owns each one, the modules that use it and, in the JSON and a diff, its columns. A `Table` object can also extend a class that extends `Table`.
-- migrations, with the tables each one creates, alters, drops, indexes or writes to
+- migrations in version order, with the tables each one creates, alters, drops, indexes or writes to
 - scheduled tasks: one-time, recurring with their cron or interval, and custom, with the code that schedules them
 - warnings where the code drifts from the template's conventions
 
@@ -220,13 +220,13 @@ It reads source only: no compile, no running app, no database. It works on a bra
 
 `--out` names the HTML file, so it can't be combined with `--mermaid` or `--json`, which print to the terminal.
 
-`--diff <ref>` compares the merge-base of `<ref>` and `HEAD` (what a GitHub pull request compares against) with the working tree, uncommitted and untracked files included. The base revision is read from a temporary copy; the working tree, index and branches are left alone. Modules and files are matched by their path below the project's package, so a diff across `init-project`'s rename still lines up. Tables are matched by their SQL name, topics, events and tasks by their name, and migrations by their file.
+`--diff <ref>` compares the merge-base of `<ref>` and `HEAD` (what a GitHub pull request compares against) with the working tree, uncommitted and untracked files included. The base revision is read from a temporary copy; the working tree, index and branches are left alone. Modules and files are matched by their path below the project's package, so a diff across `init-project`'s rename still lines up. Tables are matched by their SQL name, topics and events by their name, tasks by their module and name, and migrations by their file.
 
 The HTML is one file. It has:
 - the metrics
 - a module diagram at three levels of detail: modules only, with their services, repositories, routers and gateways, or with tables and events too. Zoom buttons scale it, and it starts fitted to the page. At the first two levels, an event between modules is a dotted arrow from the module that publishes it to each module that subscribes, labelled with the event; with tables and events, the event is a box of its own instead. An event published and consumed inside one module gets no arrow. Modules under `utils/`, the platform the template ships, stay off the diagram and the module list unless a diff changes them or a dependency on them, together with the tables and events only they touch; the header counts the hidden ones, and the events, tables and warnings sections still list them.
 - a list of the modules. Clicking a module there or in the diagram shows its details and focuses the diagram on it. The focused diagram has the module and the modules it depends on or that depend on it. With tables and events shown, it also has the modules on the other side of its tables and events. Clicking the focused module again, or **Show all modules**, goes back to the whole map.
-- the events, tasks and tables views. A task's name is the string it's given, also through a `val` holding a string, looked up in the same file first; a name the code computes, like the outbox's per-consumer delivery tasks, is shown as the expression that computes it. "Scheduled from" lists the classes that call the task's `instance(…)`. When two modules hold a task under the same name, a call goes to the one in its own module, and to neither when that doesn't settle it. Recurring tasks have none, since the scheduler registers them at startup.
+- the events, tasks and tables views. A task's name is the string it's given, also through a `val` holding a string, either `TaskName` declared in the same file or `Names.TaskName` declared in `object Names`; a name the code computes, like the outbox's per-consumer delivery tasks, is shown as the expression that computes it. "Scheduled from" lists the classes that call the task's `instance(…)`. When two modules hold a task under the same name, a call goes to the one in its own module, and to neither when that doesn't settle it. Recurring tasks have none, since the scheduler registers them at startup.
 - the migrations
 - in a diff, the files whose code changed in `main/` and in platform packages without a module, which no module box shows
 - the warnings

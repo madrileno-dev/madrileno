@@ -7,6 +7,7 @@ object TaskExtractor {
 
   private final case class Constant(
     path: String,
+    obj: Option[String],
     name: String,
     value: String)
 
@@ -43,9 +44,12 @@ object TaskExtractor {
   }
 
   private def constantsIn(file: ParsedFile): List[Constant] =
-    file.tree.collect { case d: Defn.Val => (Trees.patNames(d.pats), d.rhs) }.collect { case (List(name), Lit.String(value)) =>
-      Constant(file.source.projectPath, name, value)
+    file.tree.collect { case d: Defn.Val => (d, Trees.patNames(d.pats), d.rhs) }.collect { case (d, List(name), Lit.String(value)) =>
+      Constant(file.source.projectPath, objectOf(d), name, value)
     }
+
+  private def objectOf(d: Defn.Val): Option[String] =
+    Trees.ancestors(d).collectFirst { case o: Defn.Object => o }.filter(o => Trees.members(o.templ).exists(_ eq d)).map(_.name.value)
 
   private def definitionsIn(
     file: ParsedFile,
@@ -54,7 +58,7 @@ object TaskExtractor {
   ): List[Either[Unclassified, Definition]] =
     file.tree.collect {
       case call @ Term.Apply.After_4_6_0(fun, args) if taskMethod(fun).contains("recurring") =>
-        Trees.argument(args.values, "name", 0).filterNot(isParameter(_, call)).map { name =>
+        Trees.argument(args.values, "name", 0).filterNot(isParameter).map { name =>
           Right(definition(file, ownership, call, nameOf(name), TaskKind.Recurring, Trees.argument(args.values, "schedule", 1).map(scheduleOf)))
         }
       case call @ Term.Apply.After_4_6_0(fun, args) if taskMethod(fun).exists(Set("oneTime", "custom")) =>
@@ -82,9 +86,9 @@ object TaskExtractor {
     nameOf: Term => String
   ): Option[Either[Unclassified, Definition]] =
     descriptorName(descriptor, nameOf) match {
-      case Some(name)                            => Some(Right(definition(file, ownership, call, name, kind, None)))
-      case None if isParameter(descriptor, call) => None
-      case None                                  =>
+      case Some(name)                      => Some(Right(definition(file, ownership, call, name, kind, None)))
+      case None if isParameter(descriptor) => None
+      case None                            =>
         val enclosing = Trees.enclosingName(call)
         Some(
           Left(
@@ -97,9 +101,9 @@ object TaskExtractor {
         )
     }
 
-  private def isParameter(term: Term, call: Term): Boolean = term match {
+  private def isParameter(term: Term): Boolean = term match {
     case Term.Name(name) =>
-      Trees.ancestors(call).exists {
+      Trees.ancestors(term).exists {
         case d: Defn.Def      => d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).exists(_.name.value == name)
         case c: Defn.Class    => c.ctor.paramClauses.flatMap(_.values).exists(_.name.value == name)
         case f: Term.Function => f.paramClause.values.exists(_.name.value == name)
@@ -138,13 +142,26 @@ object TaskExtractor {
   }
 
   private def nameOf(file: ParsedFile, constants: List[Constant])(term: Term): String =
-    Trees
-      .stringLiteral(term)
-      .orElse(lastName(term).flatMap { name =>
-        val candidates = constants.filter(_.name == name)
-        List(candidates.filter(_.path == file.source.projectPath), candidates).map(_.map(_.value).distinct).collectFirst { case List(only) => only }
-      })
-      .getOrElse(Trees.collapse(term.pos.text, 80))
+    Trees.stringLiteral(term).orElse(constantOf(file, constants, term)).getOrElse(Trees.collapse(term.pos.text, 80))
+
+  private def constantOf(
+    file: ParsedFile,
+    constants: List[Constant],
+    term: Term
+  ): Option[String] = {
+    val candidates = term match {
+      case Term.Name(name) if !isParameter(term) => constants.filter(c => c.name == name && c.path == file.source.projectPath)
+      case Term.Select(qualifier, Term.Name(name)) if !isParameter(root(qualifier)) =>
+        constants.filter(c => c.name == name && c.obj.exists(lastName(qualifier).contains))
+      case _ => Nil
+    }
+    List(candidates.filter(_.path == file.source.projectPath), candidates).map(_.map(_.value).distinct).collectFirst { case List(only) => only }
+  }
+
+  private def root(term: Term): Term = term match {
+    case Term.Select(qualifier, _) => root(qualifier)
+    case other                     => other
+  }
 
   private def scheduleOf(term: Term): String = term match {
     case Term.Apply.After_4_6_0(fun, args) if lastName(fun).contains("Cron") =>

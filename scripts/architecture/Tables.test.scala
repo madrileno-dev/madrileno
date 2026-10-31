@@ -275,10 +275,10 @@ class TablesSuite extends munit.FunSuite {
     assertEquals(MigrationExtractor.extract(List(sql)).map(_.creates), List(List("mixed.case", "odd.name")))
   }
 
-  test("index and data statements are listed as indexes and writes, leaving out the tables the migration creates") {
+  test("alter, index and data statements leave out the tables the migration creates") {
     val sql = Fixtures.migration(
       "V7__backfill.sql",
-      "create table audit(id int);\ncreate index on audit (id);\ncreate unique index concurrently if not exists bid_amount on public.bid (amount);\n" +
+      "create table audit(id int);\nalter table audit add column note text;\ncreate index on audit (id);\ncreate unique index concurrently if not exists bid_amount on public.bid (amount);\n" +
         "insert into \"user\"(id) values (1);\nupdate offer o set price = 1;\ndelete from only session where true;\ntruncate table cache, tmp;\n" +
         "alter table x add constraint fk foreign key (a) references y(b) on update cascade on delete set null;"
     )
@@ -288,5 +288,10 @@ class TablesSuite extends munit.FunSuite {
       (List("audit"), List("x"), List("bid"), List("user", "offer", "session", "cache", "tmp"))
     )
     assertEquals(migration.summary(identity), "creates audit, alters x, indexes bid, writes user, offer, session, cache, tmp")
+  }
+
+  test("migrations are listed in version order") {
+    val migrations = List("R__views.sql", "V10__c.sql", "V2__b.sql", "V1_1__a.sql", "V1__init.sql").map(Fixtures.migration(_, "select 1;"))
+    assertEquals(MigrationExtractor.extract(migrations).map(_.path), List("V1__init.sql", "V1_1__a.sql", "V2__b.sql", "V10__c.sql", "R__views.sql"))
   }
 }

@@ -213,4 +213,24 @@ class TasksSuite extends munit.FunSuite {
     )
     assertEquals(TaskExtractor.extract(files, Ownership.of(files)).value.map(_.name), List("Shared", "auth-cleanup", "purge"))
   }
+
+  test("a task name is a constant's value only through its object or its own file, and never through a parameter") {
+    val files = Fixtures.parsed(
+      Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),
+      Fixtures.src(
+        "shop/services/Runner.scala",
+        "package app.shop.services\nclass Runner(settings: Settings) {\n" +
+          "  val run = Task.recurring(settings.name, Schedule.RecurringWithFixedRate(1.hour))(_ => IO.unit)\n" +
+          "  val ping = Task.recurring(PingName, Schedule.RecurringWithFixedRate(1.hour))(_ => IO.unit)\n" +
+          "  val nightly = Task.oneTime(TaskDescriptor[Unit](Other.name))(_ => IO.unit)\n" +
+          "  def custom(label: String) = Task.custom(TaskDescriptor[Unit](label))(_ => IO.unit)\n}\n" +
+          "object Runner {\n  val label = \"runner-label\"\n}"
+      ),
+      Fixtures.src(
+        "shop/services/Names.scala",
+        "package app.shop.services\nobject Names {\n  val name = \"unrelated-constant\"\n  val PingName = \"ping\"\n}"
+      )
+    )
+    assertEquals(TaskExtractor.extract(files, Ownership.of(files)).value.map(_.name), List("Other.name", "PingName", "label", "settings.name"))
+  }
 }

@@ -172,6 +172,19 @@ class CodeChangesSuite extends munit.FunSuite {
     assert(Html.render(diff).contains("""<tr data-status="touched" class="touched"><td>account</td>"""))
   }
 
+  test("a diff lists migrations in version order") {
+    val v1   = Fixtures.migration("V1__init.sql", "create table account (id uuid primary key);")
+    val v2   = Fixtures.migration("V2__email.sql", "alter table account add column email text;")
+    val v10  = Fixtures.migration("V10__name.sql", "alter table account add column name text;")
+    val diff = ArchDiff.compare(
+      Extractor.extract(withAccounts(idOnly, List(v1, v2))),
+      Extractor.extract(withAccounts(idOnly, List(v1, v10, v2))),
+      "main",
+      "working tree"
+    )
+    assertEquals(diff.migrations.map(_.key), List("V1__init.sql", "V2__email.sql", "V10__name.sql"))
+  }
+
   test("added and changed migrations are listed, and the tables they touch get the dotted outline") {
     val v1     = Fixtures.migration("V1__init.sql", "create table account (id uuid primary key);")
     val edited = Fixtures.migration("V1__init.sql", "create table account (id uuid primary key, created_at timestamptz);")
