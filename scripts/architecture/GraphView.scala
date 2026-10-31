@@ -54,13 +54,14 @@ object GraphView {
     val top        = topLevel(diff).filter(node => atLevel(node.key))
     val graphEdges = diff.edges.filter(e => atLevel(e.edge.from) && atLevel(e.edge.to) && GraphView.atLevel(level)(e))
     val changed    = top.filter(_.status != Status.Unchanged).map(_.key).toSet
+    val codeOnly   = top.filter(_.codeChanged).map(_.key).toSet
+    val shared     = top.filter(_.kind != NodeKind.Module).map(_.key).toSet
+    val central    = changed ++ (codeOnly & shared)
     val touched    = graphEdges.filter(_.status != Status.Unchanged).flatMap(e => List(e.edge.from, e.edge.to)).toSet
     val neighbours = graphEdges.flatMap { e =>
-      List(e.edge.from -> e.edge.to, e.edge.to -> e.edge.from).collect { case (node, other) if changed(node) => other }
+      List(e.edge.from -> e.edge.to, e.edge.to -> e.edge.from).collect { case (node, other) if central(node) => other }
     }.toSet
-    val codeOnly   = top.filter(_.codeChanged).map(_.key).toSet
     val included   = changed ++ touched ++ neighbours ++ codeOnly
-    val shared     = top.filter(_.kind != NodeKind.Module).map(_.key).toSet
     val nodes      = top.filter(node => included(node.key))
     val visible    = top.map(_.key).toSet
     val components =
@@ -72,7 +73,7 @@ object GraphView {
     val edges = mergedEdges(
       graphEdges.filter(e =>
         visible(e.edge.from) && visible(e.edge.to) && included(e.edge.from) && included(e.edge.to) &&
-          (e.status != Status.Unchanged || changed(e.edge.from) || changed(e.edge.to) ||
+          (e.status != Status.Unchanged || central(e.edge.from) || central(e.edge.to) ||
             (codeOnly(e.edge.from) && shared(e.edge.to)) || (codeOnly(e.edge.to) && shared(e.edge.from)))
       ),
       diff.references

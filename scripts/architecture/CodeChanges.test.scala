@@ -302,4 +302,38 @@ class CodeChangesSuite extends munit.FunSuite {
       assertEquals(diff.tables.map(t => t.key -> t.codeChanged), List("account" -> true), added.packagePath)
     }
   }
+
+  test("a package that becomes a module, or stops being one, doesn't list its untouched files as changed code") {
+    val sku   = Fixtures.src("shop/domain/Sku.scala", "package app.shop.domain\nfinal case class Sku(id: String)")
+    val plain = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AuthModule"),
+        Fixtures.src("auth/AuthModule.scala", "package app.auth\ntrait AuthModule"),
+        sku
+      )
+    )
+    val module = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AuthModule"),
+        Fixtures.src("auth/AuthModule.scala", "package app.auth\ntrait AuthModule"),
+        sku,
+        Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule")
+      )
+    )
+    assertEquals(ArchDiff.compare(plain, module, "b", "h").changedOutside, Nil)
+    assertEquals(ArchDiff.compare(module, plain, "b", "h").changedOutside, Nil)
+  }
+
+  test("reordering a component's constructor parameters changes its code, not its architecture") {
+    def shop(params: String) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ShopModule"),
+        Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule {\n  lazy val orderService: OrderService = wire[OrderService]\n}"),
+        Fixtures.src("shop/services/OrderService.scala", s"package app.shop.services\nclass OrderService($params)")
+      )
+    )
+    val diff = ArchDiff.compare(shop("a: Clock, b: Payments"), shop("b: Payments, a: Clock"), "b", "h")
+    assertEquals(diff.modules.map(m => (m.id, m.status)), List("shop" -> Status.Unchanged))
+    assertEquals(diff.modules.flatMap(_.components.map(c => (c.name, c.status, c.codeChanged))), List(("OrderService", Status.Unchanged, true)))
+  }
 }

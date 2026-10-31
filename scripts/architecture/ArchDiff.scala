@@ -115,7 +115,7 @@ object ArchDiff {
           changedFiles(before, after)
         )
     }
-    val changedOutside = changedDigests(base.outsideModules, head.outsideModules)
+    val changedOutside = outsideChanges(base, head)
     val changedPaths   = (modules.flatMap(_.changedFiles) ++ changedOutside).toSet
     val migrations     = MigrationExtractor.inVersionOrder(nodes(base.migrations, head.migrations)(_.path)(_.digest))(_.key)
     val migrated       = migrations.filter(_.status != Status.Unchanged).flatMap(m => (m.base.toList ++ m.head.toList).flatMap(_.tables)).toSet
@@ -272,6 +272,12 @@ object ArchDiff {
     case _                  => Nil
   }
 
+  private def outsideChanges(base: ArchModel, head: ArchModel): List[String] = {
+    val was = (base.outsideModules ++ base.modules.flatMap(_.files)).map(f => f.path -> f.digest).toMap
+    val is  = (head.outsideModules ++ head.modules.flatMap(_.files)).map(f => f.path -> f.digest).toMap
+    (base.outsideModules ++ head.outsideModules).map(_.path).distinct.filter(path => was.get(path) != is.get(path)).sorted
+  }
+
   private def changedDigests(base: List[FileDigest], head: List[FileDigest]): List[String] = {
     val was = base.map(f => f.path -> f.digest).toMap
     val is  = head.map(f => f.path -> f.digest).toMap
@@ -289,7 +295,7 @@ object ArchDiff {
         b,
         a
       ) =>
-        val componentStatus = status(b, a)(c => (c.kind, c.dependencies))
+        val componentStatus = status(b, a)(c => (c.kind, c.dependencies.sorted))
         val fileChanged     = a.exists(component => changedFiles.contains(component.file))
         ComponentDiff(name, componentStatus, b, a, codeChanged = componentStatus == Status.Unchanged && fileChanged)
     }
@@ -301,7 +307,7 @@ object ArchDiff {
       module.consumes.map(m => (m.name, m.tpe)).toSet,
       module.provides.map(m => (m.name, m.tpe)).toSet,
       module.contributions.map(c => (c.registry, c.items)).toSet,
-      module.components.map(c => (c.name, c.kind, c.dependencies)).toSet,
+      module.components.map(c => (c.name, c.kind, c.dependencies.sorted)).toSet,
       model.tables.filter(_.owner == owner).map(_.name).toSet,
       model.topics.filter(_.owner == owner).map(_.name).toSet,
       model.outboxEvents.filter(_.owner == owner).map(_.eventType).toSet,

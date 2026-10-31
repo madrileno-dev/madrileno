@@ -206,4 +206,27 @@ class GraphViewSuite extends munit.FunSuite {
     )
     assertEquals(GraphView.full(diff, Level.Everything).nodes.map(_.key), List("module:shop"))
   }
+
+  test("a table that only a migration changed brings in the modules that own and use it, with their arrows") {
+    val files = List(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ShopModule"),
+      Fixtures
+        .src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule {\n  lazy val shopRepository: ShopRepository = wire[ShopRepository]\n}"),
+      Fixtures.src(
+        "shop/repositories/ShopRepository.scala",
+        "package app.shop.repositories\nobject OrderTable extends Table[OrderRow](\"orders\")\nclass ShopRepository { def f = OrderTable }"
+      )
+    )
+    val v1   = Fixtures.migration("V1__orders.sql", "create table orders (id uuid primary key);")
+    val v2   = Fixtures.migration("V2__email.sql", "alter table orders add column email text;")
+    val diff = ArchDiff.compare(
+      Extractor.extract(Fixtures.projectWithMigrations(files, List(v1))),
+      Extractor.extract(Fixtures.projectWithMigrations(files, List(v1, v2))),
+      "b",
+      "h"
+    )
+    val graph = GraphView.changes(diff, Level.Everything, collapse = false)
+    assertEquals(graph.nodes.filter(_.parent.isEmpty).map(n => n.key -> n.codeChanged), List("module:shop" -> false, "table:orders" -> true))
+    assertEquals(graph.edges.map(e => e.from -> e.to), List("module:shop" -> "table:orders"))
+  }
 }
