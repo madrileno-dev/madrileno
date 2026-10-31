@@ -5,7 +5,8 @@ import scala.meta.{Member as _, *}
 object ModuleExtractor {
   private val ItemLength = 80
 
-  private val ListOperators                                                           = Set(":+", "+:", "++", "::")
+  private val ListOperators = Set(":+", "+:", "++", "::")
+
   def extract(files: List[ParsedFile], ownership: Ownership): Extracted[List[Module]] = {
     val mixedIn = applicationLoaderParents(files)
     val results = files.flatMap { file =>

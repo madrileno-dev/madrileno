@@ -473,12 +473,19 @@ object EventExtractor {
     case select: Term.Select                                            => typesSelectedBy(select)
     case Term.New(init)                                                 => List(init.tpe.syntax, Trees.typeName(init.tpe)).distinct
     case Term.Ascribe(_, tpe)                                           => List(tpe.syntax, Trees.typeName(tpe)).distinct
+    case Term.Block(List(only: Term))                                   => eventTypesOf(only)
     case _                                                              => Nil
   }
 
-  private def typesSelectedBy(select: Term.Select): List[String] = select match {
-    case Term.Select(Term.Name(outer), Term.Name(inner)) if isTypeName(outer) => if (isTypeName(inner)) List(s"$outer.$inner", outer) else List(outer)
-    case _                                                                    => Nil
+  private def typesSelectedBy(select: Term.Select): List[String] = {
+    val types = segments(select).dropWhile(!isTypeName(_)).reverse.dropWhile(!isTypeName(_)).reverse
+    types.indices.reverse.map(i => types.take(i + 1).mkString(".")).toList
+  }
+
+  private def segments(term: Term): List[String] = term match {
+    case Term.Name(name)                         => List(name)
+    case Term.Select(qualifier, Term.Name(name)) => segments(qualifier) :+ name
+    case _                                       => Nil
   }
 
   private def isTypeName(name: String): Boolean = name.headOption.exists(_.isUpper)

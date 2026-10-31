@@ -119,4 +119,27 @@ class ExtractorSuite extends munit.FunSuite {
     assertEquals(model.references.map(r => r.symbol -> r.explainedBy), List("UserEvent" -> Some(Explanation.Event)))
     assertEquals(ArchMetrics.of(model).cakeBypasses, 0)
   }
+
+  test("an unclassified item found twice is listed and counted once") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+        Fixtures.src(
+          "user/services/UserService.scala",
+          "package app.user.services\nclass UserService(outbox: Outbox) {\n  def a(ev: Any) = outbox.publishTransactionally(ev)\n  def b(ev: Any) = outbox.publishTransactionally(ev)\n}"
+        )
+      )
+    )
+    assertEquals(model.unclassified.map(_.key), List("outbox-publish:user/services/UserService.scala:UserService:ev"))
+    assertEquals(ArchMetrics.of(model).drift, 1)
+  }
+
+  test("a file in the root package belongs to the platform, labelled as the root package") {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src("Seeds.scala", "package app\nobject Seeds")
+    )
+    assertEquals(Ownership.of(files).ownerOf("").label, "platform (root package)")
+  }
 }

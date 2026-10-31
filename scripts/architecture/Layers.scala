@@ -18,6 +18,7 @@ object Layers {
 extension (owner: Owner) {
   def label: String = owner match {
     case Owner.Module(id)      => id
+    case Owner.Platform("")    => "platform (root package)"
     case Owner.Platform(id)    => s"platform ($id)"
     case Owner.CompositionRoot => "main"
   }

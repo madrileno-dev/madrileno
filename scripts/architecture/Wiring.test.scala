@@ -151,4 +151,17 @@ class WiringSuite extends munit.FunSuite {
       List(("shop", "user", "services", "UserEvent"))
     )
   }
+
+  test("a platform trait that a module extends provides its members to the other modules") {
+    val files = Fixtures.parsed(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AModule with BModule"),
+      Fixtures.src("a/AModule.scala", "package app.a\ntrait AModule extends ClockProvider"),
+      Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule {\n  def clock: Clock\n}"),
+      Fixtures.src("utils/clock/ClockProvider.scala", "package app.utils.clock\ntrait ClockProvider {\n  def clock: Clock = Clock.system\n}")
+    )
+    val ownership = Ownership.of(files)
+    val wiring    = WiringExtractor.extract(ModuleExtractor.extract(files, ownership).value, files, ownership)
+    assertEquals(wiring.value, List(Wiring("clock", "b", Provider.FromPlatform)))
+    assertEquals(wiring.warnings, Nil)
+  }
 }

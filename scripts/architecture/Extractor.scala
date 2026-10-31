@@ -35,10 +35,12 @@ object Extractor {
       outboxEvents = outboxEvents,
       tasks = tasks.value,
       tables = tableDecls,
-      warnings =
-        (modules.warnings ++ wiring.warnings ++ cycles ++ events.warnings ++ tables.warnings ++ tasks.warnings).sortBy(w => (w.kind.ordinal, w.key)),
+      warnings = (modules.warnings ++ wiring.warnings ++ cycles ++ events.warnings ++ tables.warnings ++ tasks.warnings)
+        .distinctBy(_.key)
+        .sortBy(w => (w.kind.ordinal, w.key)),
       unclassified =
         (parsed.unclassified ++ modules.unclassified ++ wiring.unclassified ++ events.unclassified ++ tables.unclassified ++ tasks.unclassified)
+          .distinctBy(_.key)
           .sortBy(_.key),
       migrations = MigrationExtractor.extract(input.migrations),
       outsideModules = digestsOf(files, ownership, input.rootPackage) {

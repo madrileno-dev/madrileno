@@ -37,7 +37,8 @@ object WiringExtractor {
   private final case class Definition(parents: List[String], names: List[String])
 
   private def providedByComposition(files: List[ParsedFile], ownership: Ownership): Set[String] = {
-    val definitions = files
+    val moduleTraits = files.flatMap(Ownership.moduleTraits).map(t => t.name.value -> Definition(Trees.parentNames(t.templ), Nil))
+    val platform     = files
       .filter(file =>
         ownership.ownerOf(file.pkg) match {
           case Owner.Module(_) => false
@@ -49,8 +50,8 @@ object WiringExtractor {
         case d: Defn.Trait  => d.name.value -> Definition(Trees.parentNames(d.templ), memberNames(d.templ))
         case d: Defn.Object => d.name.value -> Definition(Trees.parentNames(d.templ), memberNames(d.templ))
       })
-      .toMap
-    val reachable = Trees.closure(Set("ApplicationLoader").filter(definitions.contains), definitions.view.mapValues(_.parents).toMap)
+    val definitions = (moduleTraits ++ platform).toMap
+    val reachable   = Trees.closure(Set("ApplicationLoader").filter(definitions.contains), definitions.view.mapValues(_.parents).toMap)
     reachable.flatMap(name => definitions(name).names)
   }
 

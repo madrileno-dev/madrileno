@@ -593,4 +593,25 @@ class EventsSuite extends munit.FunSuite {
     assertEquals(result.value._2.map(_.publishers.map(_.enclosing)), List(List("UserService", "AuditService")))
     assertEquals(result.unclassified, Nil)
   }
+
+  test("an event built by its fully qualified name or inside a block has a visible type") {
+    val files = Fixtures.parsed(
+      Fixtures.src("audit/AuditModule.scala", "package app.audit\ntrait AuditModule"),
+      Fixtures.src(
+        "audit/domain/Stored.scala",
+        "package app.audit.domain\nfinal case class Stored(id: Id)\nobject Stored {\n  given DomainEventDescriptor[Stored] = DomainEventDescriptor(\"stored.v1\", \"audit\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "audit/services/AuditService.scala",
+        "package app.audit.services\nclass AuditService(outbox: Outbox) {\n  def s(id: Id) = outbox.publishTransactionally(app.audit.domain.Stored(id))\n}"
+      ),
+      Fixtures.src(
+        "audit/services/Recorder.scala",
+        "package app.audit.services\nclass Recorder(outbox: Outbox) {\n  def s(id: Id) = outbox.publishTransactionally {\n    Stored(id)\n  }\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
+    assertEquals(result.value._2.map(_.publishers.map(_.enclosing)), List(List("AuditService", "Recorder")))
+    assertEquals(result.unclassified, Nil)
+  }
 }
