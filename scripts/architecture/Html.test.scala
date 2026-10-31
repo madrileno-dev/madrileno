@@ -118,7 +118,7 @@ class HtmlSuite extends munit.FunSuite {
   test("the page embeds one Mermaid diagram per detail level, plus the changes in a diff") {
     val diagrams = """<script type="application/json" id="arch-diagrams">(.*?)</script>""".r.findFirstMatchIn(page).get.group(1)
     val parsed   = ujson.read(diagrams)
-    assertEquals(parsed.obj.keySet.toSet, Set("modules", "components", "everything", "changed", "ids", "focus"))
+    assertEquals(parsed.obj.keySet.toSet, Set("modules", "components", "everything", "changed", "empty", "ids", "focus"))
     assertEquals(parsed("focus")("order").obj.keySet.toSet, Set("modules", "components", "everything"))
     assert(parsed("focus")("order")("modules").str.contains("module_order"))
     assert(parsed("modules").str.contains("flowchart LR"))
@@ -210,7 +210,37 @@ class HtmlSuite extends munit.FunSuite {
       ujson.read("""<script type="application/json" id="arch-diagrams">(.*?)</script>""".r.findFirstMatchIn(page).get.group(1))
     val outside = diagramsOf(Html.render(ArchDiff.compare(project(audit = false), project(audit = true), "b", "h")))
     assertEquals(outside("changed")("everything").str, "")
-    assert(outside("nothing").str.contains("outside the modules"), outside.toString)
-    assert(!diagramsOf(Html.render(ArchDiff.compare(project(audit = false), project(audit = false), "b", "h"))).obj.contains("nothing"))
+    assert(outside("empty")("everything").str.contains("outside the modules"), outside.toString)
+    assertEquals(
+      diagramsOf(Html.render(ArchDiff.compare(project(audit = false), project(audit = false), "b", "h")))("empty")("modules").str,
+      "No architecture changes."
+    )
+  }
+
+  test("a level with nothing to draw says so when a more detailed level has the changes") {
+    val files = List(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ShopModule"),
+      Fixtures
+        .src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule {\n  lazy val shopRepository: ShopRepository = wire[ShopRepository]\n}"),
+      Fixtures.src(
+        "shop/repositories/ShopRepository.scala",
+        "package app.shop.repositories\nobject OrderTable extends Table[OrderRow](\"orders\")\nclass ShopRepository { def f = OrderTable }"
+      )
+    )
+    val v1   = Fixtures.migration("V1__orders.sql", "create table orders (id uuid primary key);")
+    val v2   = Fixtures.migration("V2__email.sql", "alter table orders add column email text;")
+    val page = Html.render(
+      ArchDiff.compare(
+        Extractor.extract(Fixtures.projectWithMigrations(files, List(v1))),
+        Extractor.extract(Fixtures.projectWithMigrations(files, List(v1, v2))),
+        "b",
+        "h"
+      )
+    )
+    val diagrams = ujson.read("""<script type="application/json" id="arch-diagrams">(.*?)</script>""".r.findFirstMatchIn(page).get.group(1))
+    assertEquals(diagrams("changed")("modules").str, "")
+    assert(diagrams("changed")("everything").str.contains("table_orders"))
+    assert(diagrams("empty")("modules").str.contains("with tables and events"), diagrams("empty").toString)
+    assert(page.contains("diagrams.empty[levelName()]"))
   }
 }

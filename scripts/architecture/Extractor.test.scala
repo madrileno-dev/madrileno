@@ -142,4 +142,25 @@ class ExtractorSuite extends munit.FunSuite {
     )
     assertEquals(Ownership.of(files).ownerOf("").label, "platform (root package)")
   }
+
+  test("a type a wired class exposes through a public val is explained by the wiring") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends FlagModule with ShopModule"),
+        Fixtures.src("flag/FlagModule.scala", "package app.flag\ntrait FlagModule {\n  lazy val flagService: FlagService = wire[FlagService]\n}"),
+        Fixtures.src(
+          "flag/services/FlagService.scala",
+          "package app.flag.services\nfinal case class FlagConfig(on: Boolean)\nclass FlagService {\n  val config: FlagConfig = FlagConfig(true)\n}"
+        ),
+        Fixtures.src(
+          "shop/ShopModule.scala",
+          "package app.shop\nimport app.flag.services.{FlagConfig, FlagService}\ntrait ShopModule {\n  lazy val flagService: FlagService\n}"
+        )
+      )
+    )
+    assertEquals(
+      model.references.map(r => r.symbol -> r.explainedBy).sortBy(_._1),
+      List("FlagConfig" -> Some(Explanation.Wiring), "FlagService" -> Some(Explanation.Wiring))
+    )
+  }
 }

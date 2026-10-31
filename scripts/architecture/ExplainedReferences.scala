@@ -66,6 +66,8 @@ object ExplainedReferences {
     Trees.members(template).flatMap {
       case d: Defn.Def if isPublic(d.mods) => typeNames(d.paramClauseGroups.flatMap(_.paramClauses.flatMap(_.values.flatMap(_.decltpe))) ++ d.decltpe)
       case d: Decl.Def if isPublic(d.mods) => typeNames(d.paramClauseGroups.flatMap(_.paramClauses.flatMap(_.values.flatMap(_.decltpe))) :+ d.decltpe)
+      case d: Defn.Val if isPublic(d.mods) => typeNames(d.decltpe.toList)
+      case d: Decl.Val if isPublic(d.mods) => typeNames(List(d.decltpe))
       case _                               => Nil
     }
 

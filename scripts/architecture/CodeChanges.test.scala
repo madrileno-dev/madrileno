@@ -349,4 +349,18 @@ class CodeChangesSuite extends munit.FunSuite {
     )
     assertEquals(ArchDiff.compare(project(withModule = false, "id: String"), project(withModule = true, "id: Long"), "b", "h").changedOutside, Nil)
   }
+
+  test("a file that moves between modules unchanged isn't changed code") {
+    def project(legacyModule: Boolean) = Extractor.extract(
+      Fixtures.project(
+        List(
+          Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+          Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+          Fixtures.src("user/legacy/Thing.scala", "package app.user.legacy\nclass Thing")
+        ) ++ Option.when(legacyModule)(Fixtures.src("user/legacy/LegacyModule.scala", "package app.user.legacy\ntrait LegacyModule")).toList*
+      )
+    )
+    val diff = ArchDiff.compare(project(legacyModule = true), project(legacyModule = false), "b", "h")
+    assertEquals(diff.modules.map(m => (m.id, m.changedFiles)), List("user" -> Nil, "user/legacy" -> Nil))
+  }
 }

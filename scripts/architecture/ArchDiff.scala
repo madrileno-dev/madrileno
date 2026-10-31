@@ -99,23 +99,25 @@ object ArchDiff {
     baseLabel: String,
     headLabel: String
   ): DiffModel = {
-    val modules = keyed(base.modules, head.modules)(_.id).map {
+    val (was, is) = (digests(base), digests(head))
+    val modules   = keyed(base.modules, head.modules)(_.id).map {
       (
         id,
         before,
         after
       ) =>
+        val changed = changedFiles(before, after, was, is)
         ModuleDiff(
           id,
           status(before.map(moduleFacts(_, base)), after.map(moduleFacts(_, head)))(identity),
           before,
           after,
-          components(before, after, changedFiles(before, after)),
+          components(before, after, changed),
           members(before, after),
-          changedFiles(before, after)
+          changed
         )
     }
-    val changedOutside = outsideChanges(base, head)
+    val changedOutside = outsideChanges(base, head, was, is)
     val changedPaths   = (modules.flatMap(_.changedFiles) ++ changedOutside).toSet
     val migrations     = MigrationExtractor.inVersionOrder(nodes(base.migrations, head.migrations)(_.path)(_.digest))(_.key)
     val migrated       = migrations.filter(_.status != Status.Unchanged).flatMap(m => (m.base.toList ++ m.head.toList).flatMap(_.tables)).toSet
@@ -267,24 +269,29 @@ object ArchDiff {
       ) => NodeDiff(k, status(before, after)(facts), before, after)
     )
 
-  private def changedFiles(before: Option[Module], after: Option[Module]): List[String] = (before, after) match {
-    case (Some(b), Some(a)) => changedDigests(b.files, a.files)
+  private def digests(model: ArchModel): Map[String, String] =
+    (model.outsideModules ++ model.modules.flatMap(_.files)).map(f => f.path -> f.digest).toMap
+
+  private def changedFiles(
+    before: Option[Module],
+    after: Option[Module],
+    was: Map[String, String],
+    is: Map[String, String]
+  ): List[String] = (before, after) match {
+    case (Some(b), Some(a)) => (b.files ++ a.files).map(_.path).distinct.filter(path => was.get(path) != is.get(path)).sorted
     case _                  => Nil
   }
 
-  private def outsideChanges(base: ArchModel, head: ArchModel): List[String] = {
-    val was       = (base.outsideModules ++ base.modules.flatMap(_.files)).map(f => f.path -> f.digest).toMap
-    val is        = (head.outsideModules ++ head.modules.flatMap(_.files)).map(f => f.path -> f.digest).toMap
+  private def outsideChanges(
+    base: ArchModel,
+    head: ArchModel,
+    was: Map[String, String],
+    is: Map[String, String]
+  ): List[String] = {
     val inModules = head.modules.flatMap(_.files).map(_.path).toSet
     (base.outsideModules.map(_.path).filterNot(inModules) ++ head.outsideModules.map(_.path)).distinct
       .filter(path => was.get(path) != is.get(path))
       .sorted
-  }
-
-  private def changedDigests(base: List[FileDigest], head: List[FileDigest]): List[String] = {
-    val was = base.map(f => f.path -> f.digest).toMap
-    val is  = head.map(f => f.path -> f.digest).toMap
-    (was.keySet ++ is.keySet).filter(path => was.get(path) != is.get(path)).toList.sorted
   }
 
   private def components(
