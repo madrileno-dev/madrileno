@@ -277,4 +277,43 @@ class EventsSuite extends munit.FunSuite {
     assertEquals(result.value._1.map(_.publishers), List(Nil, Nil))
     assertEquals(result.unclassified, Nil)
   }
+
+  test("a bus passed as a parameter or bound locally is known by its own type, not by another bus's name") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        "package app.shop\ntrait ShopModule {\n  lazy val bus: EventBus[ShopEvent] = eventBusRuntime.topic[ShopEvent](\"shop_events\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "audit/AuditModule.scala",
+        "package app.audit\ntrait AuditModule {\n  lazy val auditBus: EventBus[AuditEvent] = eventBusRuntime.topic[AuditEvent](\"audit_events\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "audit/services/AuditFanout.scala",
+        """package app.audit.services
+          |object AuditFanout {
+          |  def send(bus: EventBus[AuditEvent], e: AuditEvent) = bus.publish(e)
+          |  def each(buses: List[Bus]) = buses.foreach(bus => bus.publish(Tick))
+          |  def loop = for { bus <- open } yield bus.publish(Tick)
+          |  def local = { val bus = open; bus.publish(Tick) }
+          |  def matched(x: Any) = x match { case bus: Bus => bus.publish(Tick) }
+          |}""".stripMargin
+      )
+    )
+    assertEquals(
+      EventExtractor.extract(files, Ownership.of(files)).value._1.map(t => t.name -> t.publishers.map(_.enclosing)),
+      List("audit_events" -> List("AuditFanout"), "shop_events" -> Nil)
+    )
+  }
+
+  test("a bus typed by a type parameter is generic plumbing, neither a use nor unclassified") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "utils/events/Relay.scala",
+        "package app.utils.events\nfinal class Relay[E](bus: EventBus[E]) {\n  def send(e: E) = bus.publish(e)\n}\nobject Fan {\n  def all[A](bus: EventBus[A], a: A) = bus.publish(a)\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files))
+    assertEquals((result.value._1, result.unclassified), (Nil, Nil))
+  }
 }

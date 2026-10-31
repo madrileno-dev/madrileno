@@ -197,7 +197,7 @@ The checks:
 ## `architecture.scala`
 
 Draws a map of the project's architecture from its source:
-- modules, what each one consumes and provides, and the routes, tasks, outbox subscriptions and mail previews it contributes
+- modules, which are the traits named `*Module` outside `main/` (a sealed one is a type, not a module), with what each one consumes and provides and the routes, tasks, outbox subscriptions and mail previews it contributes
 - the services, repositories, routers and gateways each module wires
 - references between modules, from imports, exports and fully qualified names
 - event-bus topics and outbox events, with their publishers and subscribers
@@ -294,7 +294,7 @@ The map reads source, not compiled code, so some things can't be resolved:
 - a `publishTransactionally(event)` whose argument doesn't show its type
 - an outbox event published or subscribed to without a `DomainEventDescriptor`
 - an `EventBus[T]` used where no topic has the type `T`, or where several topics do, so the bus could be any of them
-- a `wire[X]` whose class isn't in the module
+- a `wire[X]` whose class isn't in the module, naming the module the class is in when the map finds it
 - a topic or `Table` whose name isn't a string literal, including a name a `Table` subclass passes on in a way the map can't follow
 - an `OutboxSubscription` whose consumer, or a `DomainEventDescriptor` whose event type, isn't a string literal
 - a task built from a descriptor that isn't a `TaskDescriptor(…)` call, such as one held in a `val`
@@ -311,7 +311,7 @@ Instead of guessing, the map lists these under **Unclassified**, each with its l
 - **Doesn't read the SQL in Scala code.** A repository's queries don't count as using a table; only references to its `Table` object do.
 - **Doesn't analyse tests.**
 - **Reads only the project's package directory.** A file elsewhere under `src/main/scala` isn't read.
-- **Doesn't resolve types.** A wildcard import counts as a reference to the package, not to each symbol in it. A bus reached through another object or declared by a parent class, such as `deps.bus.publish(…)`, is matched by its name, so it's found only when the buses with that name all have one type.
+- **Doesn't resolve types.** A wildcard import counts as a reference to the package, not to each symbol in it. A bus reached through another object, such as `deps.bus.publish(…)`, or inherited from a parent class is matched by its name, so it's found only when the buses that classes declare with that name all have one type. A bus passed as a parameter is known by the parameter's type, and one typed by a type parameter, like `EventBus[E]` in a generic helper, isn't a use.
 
 ## Template-internal CI workflows
 

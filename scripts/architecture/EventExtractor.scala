@@ -7,11 +7,6 @@ object EventExtractor {
     case Publishes, Subscribes
   }
 
-  private final case class BusScope(
-    tree: Tree,
-    name: String,
-    buses: Map[String, String])
-
   private final case class BusUse(
     eventType: String,
     role: Role,
@@ -19,11 +14,16 @@ object EventExtractor {
     packagePath: String)
 
   def extract(files: List[ParsedFile], ownership: Ownership): Extracted[(List[BusTopic], List[OutboxEvent])] = {
-    val declared    = files.flatMap(topicsIn(_, ownership))
-    val topics      = declared.collect { case Right(topic) => topic }
-    val scopes      = files.map(file => file -> busScopes(file))
-    val busTypes    = scopes.flatMap(_._2.flatMap(_.buses)).groupMap(_._1)(_._2).view.mapValues(_.distinct).toMap
-    val busUses     = scopes.flatMap((file, fileScopes) => busUsesIn(file, fileScopes, busTypes, ownership))
+    val declared = files.flatMap(topicsIn(_, ownership))
+    val topics   = declared.collect { case Right(topic) => topic }
+    val busTypes = files
+      .flatMap(_.tree.collect { case scope @ (_: Defn.Class | _: Defn.Trait | _: Defn.Object) => bindings(scope) })
+      .flatMap(_.collect { case (name, Some(eventType)) => name -> eventType })
+      .groupMap(_._1)(_._2)
+      .view
+      .mapValues(_.distinct)
+      .toMap
+    val busUses     = files.flatMap(busUsesIn(_, busTypes, ownership))
     val found       = files.flatMap(descriptorsIn(_, ownership))
     val descriptors = found.collect { case Right(event) => event }
     val unnamed     = found.collect { case Left(event) => event }
@@ -184,54 +184,73 @@ object EventExtractor {
           )
     }
 
-  private def busScopes(file: ParsedFile): List[BusScope] =
-    file.tree.collect {
-      case cls: Defn.Class =>
-        BusScope(
-          cls,
-          cls.name.value,
-          cls.ctor.paramClauses.flatMap(_.values).flatMap(p => busOf(p.name.value, p.decltpe)).toMap ++ busesIn(cls.templ)
-        )
-      case t: Defn.Trait    => BusScope(t, t.name.value, busesIn(t.templ))
-      case obj: Defn.Object => BusScope(obj, obj.name.value, busesIn(obj.templ))
-    }
-
   private def busUsesIn(
     file: ParsedFile,
-    scopes: List[BusScope],
     busTypes: Map[String, List[String]],
     ownership: Ownership
   ): List[BusUse] =
     file.tree.collect { case select @ Term.Select(receiver, Term.Name(BusRole(role))) =>
-      val around                 = Trees.ancestors(select).flatMap(ancestor => scopes.find(_.tree eq ancestor))
-      def declared(name: String) = around.collectFirst { case scope if scope.buses.contains(name) => scope.name -> scope.buses(name) }
-      def unique(name: String)   = busTypes.get(name).collect { case List(eventType) => Trees.enclosingName(select) -> eventType }
-      val resolved               = receiver match {
-        case Term.Name(name)                            => declared(name).orElse(unique(name))
-        case Term.Select(_: Term.This, Term.Name(name)) => declared(name).orElse(unique(name))
+      def declared(name: String) = Trees.ancestors(select).view.flatMap(bindings(_).get(name)).headOption
+      def unique(name: String)   = busTypes.get(name).collect { case List(eventType) => eventType }
+      val eventType              = receiver match {
+        case Term.Name(name)                            => declared(name).getOrElse(unique(name))
+        case Term.Select(_: Term.This, Term.Name(name)) => declared(name).getOrElse(unique(name))
         case Term.Select(_, Term.Name(name))            => unique(name)
         case _                                          => None
       }
-      resolved.map((enclosing, eventType) =>
-        BusUse(eventType, role, Site(ownership.ownerOf(file.pkg), enclosing, Trees.loc(file, select)), file.source.packagePath)
-      )
+      eventType.map(BusUse(_, role, Site(ownership.ownerOf(file.pkg), Trees.enclosingName(select), Trees.loc(file, select)), file.source.packagePath))
     }.flatten
 
-  private def busesIn(template: Template): Map[String, String] =
-    Trees
-      .members(template)
-      .flatMap {
-        case d: Defn.Val => Trees.patNames(d.pats).flatMap(name => busOf(name, d.decltpe).orElse(topicTypeOf(d.rhs).map(name -> _)))
-        case d: Decl.Val => Trees.patNames(d.pats).flatMap(busOf(_, Some(d.decltpe)))
-        case d: Defn.Def => busOf(d.name.value, d.decltpe)
-        case d: Decl.Def => busOf(d.name.value, Some(d.decltpe))
-        case _           => Nil
-      }
-      .toMap
-
-  private def busOf(name: String, tpe: Option[Type]): Option[(String, String)] = tpe.collect {
-    case Type.Apply.After_4_6_0(Type.Name("EventBus"), targs) if targs.values.size == 1 => name -> targs.values.head.syntax
+  private def bindings(tree: Tree): Map[String, Option[String]] = {
+    val generic                          = typeParams(tree)
+    def params(values: List[Term.Param]) = values.map(p => p.name.value -> busType(p.decltpe, generic)).toMap
+    tree match {
+      case cls: Defn.Class  => params(cls.ctor.paramClauses.flatMap(_.values).toList) ++ declarations(Trees.members(cls.templ), generic)
+      case t: Defn.Trait    => declarations(Trees.members(t.templ), generic)
+      case obj: Defn.Object => declarations(Trees.members(obj.templ), generic)
+      case d: Defn.Def      => params(d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values))
+      case f: Term.Function => params(f.paramClause.values)
+      case b: Term.Block    => declarations(b.stats, generic)
+      case f @ (_: Term.For | _: Term.ForYield) =>
+        f.collect {
+          case e: Enumerator.Generator     => e.pat
+          case e: Enumerator.CaseGenerator => e.pat
+          case e: Enumerator.Val           => e.pat
+        }.flatMap(patternNames)
+          .toMap
+      case c: Case => patternNames(c.pat).toMap
+      case _       => Map.empty
+    }
   }
+
+  private def declarations(stats: List[Stat], generic: Set[String]): Map[String, Option[String]] =
+    stats.flatMap {
+      case d: Defn.Val => Trees.patNames(d.pats).map(_ -> busType(d.decltpe, generic).orElse(topicTypeOf(d.rhs)))
+      case d: Decl.Val => Trees.patNames(d.pats).map(_ -> busType(Some(d.decltpe), generic))
+      case d: Defn.Def => List(d.name.value -> busType(d.decltpe, generic))
+      case d: Decl.Def => List(d.name.value -> busType(Some(d.decltpe), generic))
+      case _           => Nil
+    }.toMap
+
+  private def patternNames(pat: Pat): List[(String, Option[String])] = pat.collect { case Pat.Var(name) => name.value -> None }
+
+  private def typeParams(tree: Tree): Set[String] =
+    (tree :: Trees.ancestors(tree))
+      .flatMap {
+        case c: Defn.Class => c.tparamClause.values
+        case t: Defn.Trait => t.tparamClause.values
+        case d: Defn.Def   => d.paramClauseGroups.flatMap(_.tparamClause.values)
+        case _             => Nil
+      }
+      .map(_.name.value)
+      .toSet
+
+  private def busType(tpe: Option[Type], generic: Set[String]): Option[String] =
+    tpe
+      .collect {
+        case Type.Apply.After_4_6_0(Type.Name("EventBus"), targs) if targs.values.size == 1 => targs.values.head.syntax
+      }
+      .filterNot(generic)
 
   private def topicTypeOf(rhs: Term): Option[String] = rhs match {
     case Term.Apply.After_4_6_0(Term.ApplyType.After_4_6_0(Term.Select(_, Term.Name("topic")), targs), _) if targs.values.size == 1 =>

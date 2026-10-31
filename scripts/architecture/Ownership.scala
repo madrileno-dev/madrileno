@@ -18,7 +18,7 @@ object Ownership {
 
   def moduleTraits(file: ParsedFile): List[Defn.Trait] =
     if (isCompositionRoot(file.pkg)) Nil
-    else Trees.topLevel(file.tree).collect { case t: Defn.Trait if t.name.value.endsWith("Module") => t }
+    else Trees.topLevel(file.tree).collect { case t: Defn.Trait if t.name.value.endsWith("Module") && !Trees.isSealed(t.mods) => t }
 
   private def isCompositionRoot(pkg: String): Boolean = pkg == "main" || pkg.startsWith("main/")
 }

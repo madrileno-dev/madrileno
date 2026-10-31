@@ -163,4 +163,35 @@ class ModuleExtractorSuite extends munit.FunSuite {
     )
     assertEquals(ModuleExtractor.extract(files, Ownership.of(files)).value.flatMap(_.components.map(_.dependencies)), List(List("Repo")))
   }
+
+  test("a sealed *Module trait is a type, not a module") {
+    val files = Fixtures.parsed(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ContentModule"),
+      Fixtures.src("content/ContentModule.scala", "package app.content\ntrait ContentModule"),
+      Fixtures.src(
+        "content/domain/LessonModule.scala",
+        "package app.content.domain\nsealed trait LessonModule\nfinal case class VideoModule(url: String) extends LessonModule"
+      )
+    )
+    val result = ModuleExtractor.extract(files, Ownership.of(files))
+    assertEquals((result.value.map(_.id), result.warnings), (List("content"), Nil))
+  }
+
+  test("a wire of another module's class names the module the class is in") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "probe/ProbeModule.scala",
+        "package app.probe\ntrait ProbeModule {\n  lazy val core = wire[DispatchCore]\n  lazy val gone = wire[Missing]\n}"
+      ),
+      Fixtures.src("dispatch/DispatchModule.scala", "package app.dispatch\ntrait DispatchModule"),
+      Fixtures.src("dispatch/services/DispatchCore.scala", "package app.dispatch.services\nclass DispatchCore")
+    )
+    assertEquals(
+      ModuleExtractor.extract(files, Ownership.of(files)).unclassified.map(_.description),
+      List(
+        "wire[DispatchCore] in ProbeModule builds a class of module dispatch, not of module probe",
+        "wire[Missing] in ProbeModule has no class Missing in module probe"
+      )
+    )
+  }
 }

@@ -55,7 +55,7 @@ object ModuleExtractor {
     val id         = file.pkg
     val stats      = Trees.members(defn.templ)
     val ownFiles   = files.filter(f => ownership.ownerOf(f.pkg) == Owner.Module(id))
-    val components = stats.flatMap(componentOf(file, defn, id, ownFiles, _))
+    val components = stats.flatMap(componentOf(file, defn, id, ownFiles, elsewhere(files, ownership), _))
     val resolved   = components.collect { case Right(component) => component }
     Extracted(
       Module(
@@ -143,6 +143,7 @@ object ModuleExtractor {
     defn: Defn.Trait,
     moduleId: String,
     ownFiles: List[ParsedFile],
+    ownerOfClass: String => Option[Owner],
     stat: Stat
   ): Option[Either[Unclassified, Component]] = stat match {
     case d: Defn.Val =>
@@ -152,7 +153,13 @@ object ModuleExtractor {
             component(name, ownFiles).toRight(
               Unclassified(
                 s"component:$moduleId:$name",
-                s"wire[$name] in ${defn.name.value} has no class $name in module $moduleId",
+                ownerOfClass(name) match {
+                  case Some(Owner.Module(other)) if other != moduleId =>
+                    s"wire[$name] in ${defn.name.value} builds a class of module $other, not of module $moduleId"
+                  case Some(owner @ (Owner.Platform(_) | Owner.CompositionRoot)) =>
+                    s"wire[$name] in ${defn.name.value} builds a class of ${owner.label}, not of module $moduleId"
+                  case _ => s"wire[$name] in ${defn.name.value} has no class $name in module $moduleId"
+                },
                 Trees.loc(file, d)
               )
             )
@@ -164,6 +171,9 @@ object ModuleExtractor {
       }
     case _ => None
   }
+
+  private def elsewhere(files: List[ParsedFile], ownership: Ownership)(name: String): Option[Owner] =
+    files.find(_.tree.collect { case cls: Defn.Class if cls.name.value == name => cls }.nonEmpty).map(file => ownership.ownerOf(file.pkg))
 
   private def component(name: String, ownFiles: List[ParsedFile]): Option[Component] =
     ownFiles.view.flatMap { file =>

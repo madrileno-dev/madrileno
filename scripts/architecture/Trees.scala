@@ -43,6 +43,11 @@ object Trees {
     case _              => false
   }
 
+  def isSealed(mods: List[Mod]): Boolean = mods.exists {
+    case _: Mod.Sealed => true
+    case _             => false
+  }
+
   def isOverride(mods: List[Mod]): Boolean = mods.exists {
     case _: Mod.Override => true
     case _               => false
