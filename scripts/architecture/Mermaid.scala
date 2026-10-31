@@ -222,7 +222,7 @@ object Mermaid {
       section("Tasks", tasks) + section("New warnings", warnings) + section("New unclassified", unclassified)
   }
 
-  private def undrawn(diff: DiffModel, graph: Graph): List[String] = {
+  def undrawn(diff: DiffModel, graph: Graph): List[String] = {
     val drawn                                                               = graph.nodes.map(_.key).toSet
     def lines[A](kind: String, nodes: List[NodeDiff[A]])(owner: A => Owner) =
       nodes.filter(n => n.status != Status.Unchanged && !drawn(s"$kind:${n.key}")).flatMap { n =>

@@ -189,4 +189,28 @@ class HtmlSuite extends munit.FunSuite {
   test("a consumed member's provider is the current one when the providing module changed") {
     assert(page.contains("wirings.find(w => w.status !== 'Removed') || wirings[0]"), page)
   }
+
+  test("with nothing to draw but changes outside the modules, the changes view points to the sections below") {
+    def project(audit: Boolean) = Extractor.extract(
+      Fixtures.project(
+        List(
+          Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+          Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule")
+        ) ++ Option
+          .when(audit)(
+            Fixtures.src(
+              "utils/db/AuditLog.scala",
+              "package app.utils.db\nobject AuditTable extends Table[AuditRow](\"audit\")\nclass AuditLog { def f = AuditTable }"
+            )
+          )
+          .toList*
+      )
+    )
+    def diagramsOf(page: String) =
+      ujson.read("""<script type="application/json" id="arch-diagrams">(.*?)</script>""".r.findFirstMatchIn(page).get.group(1))
+    val outside = diagramsOf(Html.render(ArchDiff.compare(project(audit = false), project(audit = true), "b", "h")))
+    assertEquals(outside("changed")("everything").str, "")
+    assert(outside("nothing").str.contains("outside the modules"), outside.toString)
+    assert(!diagramsOf(Html.render(ArchDiff.compare(project(audit = false), project(audit = false), "b", "h"))).obj.contains("nothing"))
+  }
 }

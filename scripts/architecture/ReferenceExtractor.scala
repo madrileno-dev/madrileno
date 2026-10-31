@@ -117,5 +117,4 @@ object ReferenceExtractor {
     case _: Importee.GivenAll     => Some("given")
     case _                        => None
   }
-
 }

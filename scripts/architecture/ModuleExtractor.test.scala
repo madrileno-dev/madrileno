@@ -257,4 +257,20 @@ class ModuleExtractorSuite extends munit.FunSuite {
     val shop = ModuleExtractor.extract(files, Ownership.of(files)).value.head
     assertEquals((shop.components.map(_.name), shop.metrics.components), (List("ShopService"), 1))
   }
+
+  test("a new of another module's class names the module the class is in, and a new of a platform or unknown class is left alone") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "probe/ProbeModule.scala",
+        "package app.probe\ntrait ProbeModule {\n  lazy val core = new DispatchCore(x)\n  lazy val client = new HttpClient(y)\n  lazy val lock = new Semaphore(1)\n}"
+      ),
+      Fixtures.src("dispatch/DispatchModule.scala", "package app.dispatch\ntrait DispatchModule"),
+      Fixtures.src("dispatch/services/DispatchCore.scala", "package app.dispatch.services\nclass DispatchCore(x: X)"),
+      Fixtures.src("utils/http/HttpClient.scala", "package app.utils.http\nclass HttpClient(y: Y)")
+    )
+    assertEquals(
+      ModuleExtractor.extract(files, Ownership.of(files)).unclassified.map(_.description),
+      List("new DispatchCore in ProbeModule builds a class of module dispatch, not of module probe")
+    )
+  }
 }

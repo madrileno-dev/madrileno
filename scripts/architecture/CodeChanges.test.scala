@@ -336,4 +336,17 @@ class CodeChangesSuite extends munit.FunSuite {
     assertEquals(diff.modules.map(m => (m.id, m.status)), List("shop" -> Status.Unchanged))
     assertEquals(diff.modules.flatMap(_.components.map(c => (c.name, c.status, c.codeChanged))), List(("OrderService", Status.Unchanged, true)))
   }
+
+  test("a changed file that moves into a new module belongs to that module, not to the platform") {
+    def project(withModule: Boolean, sku: String) = Extractor.extract(
+      Fixtures.project(
+        List(
+          Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AuthModule"),
+          Fixtures.src("auth/AuthModule.scala", "package app.auth\ntrait AuthModule"),
+          Fixtures.src("shop/domain/Sku.scala", s"package app.shop.domain\nfinal case class Sku($sku)")
+        ) ++ Option.when(withModule)(Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule")).toList*
+      )
+    )
+    assertEquals(ArchDiff.compare(project(withModule = false, "id: String"), project(withModule = true, "id: Long"), "b", "h").changedOutside, Nil)
+  }
 }

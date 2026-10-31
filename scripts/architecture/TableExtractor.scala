@@ -172,5 +172,4 @@ object TableExtractor {
     case obj: Defn.Object => obj.name eq name
     case _                => false
   }
-
 }

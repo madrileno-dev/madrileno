@@ -273,9 +273,12 @@ object ArchDiff {
   }
 
   private def outsideChanges(base: ArchModel, head: ArchModel): List[String] = {
-    val was = (base.outsideModules ++ base.modules.flatMap(_.files)).map(f => f.path -> f.digest).toMap
-    val is  = (head.outsideModules ++ head.modules.flatMap(_.files)).map(f => f.path -> f.digest).toMap
-    (base.outsideModules ++ head.outsideModules).map(_.path).distinct.filter(path => was.get(path) != is.get(path)).sorted
+    val was       = (base.outsideModules ++ base.modules.flatMap(_.files)).map(f => f.path -> f.digest).toMap
+    val is        = (head.outsideModules ++ head.modules.flatMap(_.files)).map(f => f.path -> f.digest).toMap
+    val inModules = head.modules.flatMap(_.files).map(_.path).toSet
+    (base.outsideModules.map(_.path).filterNot(inModules) ++ head.outsideModules.map(_.path)).distinct
+      .filter(path => was.get(path) != is.get(path))
+      .sorted
   }
 
   private def changedDigests(base: List[FileDigest], head: List[FileDigest]): List[String] = {

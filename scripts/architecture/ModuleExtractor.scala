@@ -170,7 +170,20 @@ object ModuleExtractor {
               )
             )
           }
-        case Term.New(init)                             => component(Trees.typeName(init.tpe), ownFiles).map(Right(_))
+        case Term.New(init) =>
+          val name = Trees.typeName(init.tpe)
+          component(name, ownFiles)
+            .map(Right(_))
+            .orElse(ownerOfClass(name).collect {
+              case Owner.Module(other) if other != moduleId =>
+                Left(
+                  Unclassified(
+                    s"component:$moduleId:$name",
+                    s"new $name in ${defn.name.value} builds a class of module $other, not of module $moduleId",
+                    Trees.loc(file, d)
+                  )
+                )
+            })
         case Term.Apply.After_4_6_0(Term.Name(name), _) =>
           component(name, ownFiles).filter(_.kind != ComponentKind.Other).map(Right(_))
         case _ => None
@@ -209,5 +222,4 @@ object ModuleExtractor {
       .groupMapReduce(_._1)(_._2)(_ ++ _)
     Trees.closure(Set("ApplicationLoader").filter(parents.contains), parents).flatMap(parents)
   }
-
 }

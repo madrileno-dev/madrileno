@@ -50,9 +50,9 @@ object GraphView {
     level: Level = Level.Everything,
     collapse: Boolean = true
   ): Graph = {
-    val atLevel    = (key: String) => level == Level.Everything || key.startsWith("module:")
-    val top        = topLevel(diff).filter(node => atLevel(node.key))
-    val graphEdges = diff.edges.filter(e => atLevel(e.edge.from) && atLevel(e.edge.to) && GraphView.atLevel(level)(e))
+    val inLevel    = (key: String) => level == Level.Everything || key.startsWith("module:")
+    val top        = topLevel(diff).filter(node => inLevel(node.key))
+    val graphEdges = diff.edges.filter(e => inLevel(e.edge.from) && inLevel(e.edge.to) && atLevel(level)(e))
     val changed    = top.filter(_.status != Status.Unchanged).map(_.key).toSet
     val codeOnly   = top.filter(_.codeChanged).map(_.key).toSet
     val shared     = top.filter(_.kind != NodeKind.Module).map(_.key).toSet

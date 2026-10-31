@@ -222,7 +222,7 @@ It reads source only: no compile, no running app, no database. It works on a bra
 
 In the JSON, module ids, a module's `files` and `changedFiles`, a component's `file`, `changedOutside` and the `definedIn` of topics and events are paths below the project's package directory, and migrations are paths below `src/main/resources/db/migration`. Every `loc.path` is a path from the project directory.
 
-`--diff <ref>` compares the merge-base of `<ref>` and `HEAD` (what a GitHub pull request compares against) with the working tree, uncommitted and untracked files included. The base revision is read from a temporary copy; the working tree, index and branches are left alone. Modules and files are matched by their path below the project's package, so a diff across `init-project`'s rename still lines up. Tables are matched by their SQL name, topics and events by their name, tasks by their module and name, and migrations by their file.
+`--diff <ref>` compares the merge-base of `<ref>` and `HEAD` (what a GitHub pull request compares against) with the working tree, uncommitted and untracked files included. The base revision is read from a temporary copy; the working tree, index and branches are left alone. Modules and files are matched by their path below the project's package, so a diff across `init-project`'s rename still lines up. Tables are matched by their SQL name, topics and events by their name, tasks by their module and name, and migrations by their file. It needs the history back to the merge-base, so in CI check out with full history, such as `fetch-depth: 0` for `actions/checkout`.
 
 The HTML is one file. It has:
 - the metrics
@@ -296,7 +296,7 @@ The map reads source, not compiled code, so some things can't be resolved:
 - a `publishTransactionally(event)` whose argument doesn't show its type
 - an outbox event published or subscribed to without a `DomainEventDescriptor`, or whose type name descriptors in several modules share. Of several, the map picks the one declared by the module the file imports the type from, or, without such an import, by the file's own module.
 - an `EventBus[T]` used where no topic has the type `T`, or where several topics do and the bus could be any of them. Of several, the map picks the one topic declared by the module the file imports `T` from, by name or with a wildcard, or, without such an import, by the file's own module.
-- a `wire[X]` whose class isn't in the module, naming the module the class is in when the map finds it
+- a `wire[X]` whose class isn't in the module, naming the module the class is in when the map finds it, and a `new X(…)` of another module's class
 - a topic or `Table` whose name isn't a string literal, including a name a `Table` subclass passes on in a way the map can't follow
 - an `OutboxSubscription` whose consumer, or a `DomainEventDescriptor` whose event type, isn't a string literal
 - a `given DomainEventDescriptor[…]` that isn't built by a `DomainEventDescriptor(…)` call
