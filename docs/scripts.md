@@ -294,11 +294,12 @@ git worktree remove /tmp/arch-at
 
 The map reads source, not compiled code, so some things can't be resolved:
 - a `publishTransactionally(event)` whose argument doesn't show its type
-- an outbox event published or subscribed to without a `DomainEventDescriptor`
+- an outbox event published or subscribed to without a `DomainEventDescriptor`, or whose type name descriptors in several modules share. Of several, the map picks the one declared by the module the file imports the type from, or, without such an import, by the file's own module.
 - an `EventBus[T]` used where no topic has the type `T`, or where several topics do and the bus could be any of them. Of several, the map picks the one topic declared by the module the file imports `T` from, by name or with a wildcard, or, without such an import, by the file's own module.
 - a `wire[X]` whose class isn't in the module, naming the module the class is in when the map finds it
 - a topic or `Table` whose name isn't a string literal, including a name a `Table` subclass passes on in a way the map can't follow
 - an `OutboxSubscription` whose consumer, or a `DomainEventDescriptor` whose event type, isn't a string literal
+- a `given DomainEventDescriptor[…]` that isn't built by a `DomainEventDescriptor(…)` call
 - a task built from a descriptor that isn't a `TaskDescriptor(…)` call, such as one held in a `val`
 - a second `*Module` trait in a package that already has one, when they aren't both mixed into `ApplicationLoader`; only the mixed-in trait is mapped. When both are mixed in, they're mapped as one module.
 - a file whose package is outside the project's root package

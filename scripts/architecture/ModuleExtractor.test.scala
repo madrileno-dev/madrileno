@@ -56,6 +56,19 @@ class ModuleExtractorSuite extends munit.FunSuite {
     )
   }
 
+  test("contributions combined by any operator keep their operands") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        "package app.shop\ntrait ShopModule {\n  override abstract def route(auth: AuthContext): Route =\n    super.route(auth) <+> shopRouter.authedRoutes(auth) <+> adminRouter.authedRoutes(auth)\n}"
+      )
+    )
+    assertEquals(
+      ModuleExtractor.extract(files, Ownership.of(files)).value.flatMap(_.contributions.map(c => c.registry -> c.items)),
+      List(Registry.AuthRoutes -> List("shopRouter.authedRoutes(auth)", "adminRouter.authedRoutes(auth)"))
+    )
+  }
+
   test("components with kinds and constructor dependencies") {
     assertEquals(
       user.components.map(c => (c.name, c.kind, c.dependencies)),

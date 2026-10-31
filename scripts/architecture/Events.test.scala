@@ -473,4 +473,78 @@ class EventsSuite extends munit.FunSuite {
     )
     assertEquals(result.unclassified, Nil)
   }
+
+  test("payload types two modules both name link an outbox event by the module the file imports the type from, else by its own module") {
+    val files = Fixtures.parsed(
+      Fixtures.src("order/OrderModule.scala", "package app.order\ntrait OrderModule"),
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src(
+        "order/domain/OrderEvents.scala",
+        "package app.order.domain\nobject OrderEvents {\n  final case class Created(id: Id)\n  given DomainEventDescriptor[Created] = DomainEventDescriptor(\"order-created.v1\", \"order\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "user/domain/UserEvents.scala",
+        "package app.user.domain\nobject UserEvents {\n  final case class Created(id: Id)\n  given DomainEventDescriptor[Created] = DomainEventDescriptor(\"user-created.v1\", \"user\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "order/services/OrderService.scala",
+        "package app.order.services\nimport app.order.domain.OrderEvents.*\nclass OrderService(outbox: Outbox) {\n  def c(id: Id) = outbox.publishTransactionally(Created(id))\n}"
+      ),
+      Fixtures.src(
+        "user/services/UserService.scala",
+        "package app.user.services\nimport app.user.domain.UserEvents\nclass UserService(outbox: Outbox) {\n  def c(id: Id) = outbox.publishTransactionally(UserEvents.Created(id))\n}"
+      ),
+      Fixtures.src(
+        "billing/BillingModule.scala",
+        "package app.billing\nimport app.user.domain.UserEvents.Created\ntrait BillingModule {\n  override abstract def outboxSubscriptions = super.outboxSubscriptions :+ OutboxSubscription[Created](\"billing\")(h)\n}"
+      ),
+      Fixtures.src(
+        "c/CModule.scala",
+        "package app.c\ntrait CModule {\n  override abstract def outboxSubscriptions = super.outboxSubscriptions :+ OutboxSubscription[Created](\"c\")(h)\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
+    assertEquals(
+      result.value._2.map(e => (e.eventType, e.publishers.map(_.enclosing), e.subscribers.map(_.consumer))),
+      List(("order-created.v1", List("OrderService"), Nil), ("user-created.v1", List("UserService"), List("billing")))
+    )
+    assertEquals(
+      result.unclassified.map(u => u.key -> u.description),
+      List("outbox-event-ambiguous:c/CModule.scala:Created" -> "Created in CModule could be event order-created.v1 or user-created.v1")
+    )
+  }
+
+  test(
+    "a subscription through an imported withDelivery and a descriptor built with apply are found, and a descriptor built otherwise is unclassified"
+  ) {
+    val files = Fixtures.parsed(
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src(
+        "user/domain/UserDeleted.scala",
+        "package app.user.domain\nfinal case class UserDeleted(id: Id)\nobject UserDeleted {\n  given DomainEventDescriptor[UserDeleted] = DomainEventDescriptor.apply(\"user-deleted.v1\", \"user\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "user/domain/UserRenamed.scala",
+        "package app.user.domain\nfinal case class UserRenamed(id: Id)\nobject UserRenamed {\n  given DomainEventDescriptor[UserRenamed] = Descriptors.of(\"user-renamed.v1\")\n}"
+      ),
+      Fixtures.src(
+        "user/services/UserService.scala",
+        "package app.user.services\nclass UserService(outbox: Outbox) {\n  def d(id: Id) = outbox.publishTransactionally(UserDeleted(id))\n  def r(id: Id) = outbox.publishTransactionally(UserRenamed(id))\n}"
+      ),
+      Fixtures.src(
+        "billing/BillingModule.scala",
+        "package app.billing\nimport app.utils.events.outbox.OutboxSubscription.withDelivery\ntrait BillingModule {\n  override abstract def outboxSubscriptions = super.outboxSubscriptions :+ withDelivery[UserDeleted](\"billing\")(h)\n}"
+      ),
+      Fixtures.src(
+        "utils/events/outbox/OutboxSubscription.scala",
+        "package app.utils.events.outbox\nobject OutboxSubscription {\n  def apply[A](consumer: String)(handler: A => R)(using DomainEventDescriptor[A]) = withDelivery[A](consumer)((a, _) => handler(a))\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
+    assertEquals(
+      result.value._2.map(e => (e.eventType, e.publishers.map(_.enclosing), e.subscribers.map(_.consumer))),
+      List(("user-deleted.v1", List("UserService"), List("billing")))
+    )
+    assertEquals(result.unclassified.map(_.key), List("outbox-event-descriptor:user/domain/UserRenamed.scala:UserRenamed"))
+  }
 }

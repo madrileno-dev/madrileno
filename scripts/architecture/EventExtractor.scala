@@ -14,27 +14,39 @@ object EventExtractor {
     packagePath: String,
     typeOwner: Option[Owner])
 
+  private final case class EventUse(
+    candidates: List[String],
+    packagePath: String,
+    typeOwner: Option[Owner])
+
+  private final case class Declared(
+    typeName: String,
+    owner: Owner,
+    eventType: Option[String])
+
   def extract(
     files: List[ParsedFile],
     ownership: Ownership,
     rootPackage: String
   ): Extracted[(List[BusTopic], List[OutboxEvent])] = {
-    val types    = typeDefinitions(files, ownership)
-    val declared = files.flatMap(topicsIn(_, ownership))
-    val topics   = declared.collect { case Right(topic) => topic }
-    val busTypes = files
+    val types      = typeDefinitions(files, ownership)
+    val scopes     = definitionScopes(files)
+    val typeOwners = files.map(file => file -> typeOwnerIn(file, scopes, ownership, rootPackage)).toMap
+    val declared   = files.flatMap(topicsIn(_, ownership))
+    val topics     = declared.collect { case Right(topic) => topic }
+    val busTypes   = files
       .flatMap(_.tree.collect { case scope @ (_: Defn.Class | _: Defn.Trait | _: Defn.Object | _: Pkg) => bindings(scope) })
       .flatMap(_.collect { case (name, Some(eventType)) => name -> eventType })
       .groupMap(_._1)(_._2)
       .view
       .mapValues(_.distinct)
       .toMap
-    val busUses     = files.flatMap(file => busUsesIn(file, busTypes, ownership, typeOwnerIn(file, types, ownership, rootPackage)))
+    val busUses     = files.flatMap(file => busUsesIn(file, busTypes, ownership, typeOwners(file)))
     val found       = files.flatMap(descriptorsIn(_, ownership))
     val descriptors = found.collect { case Right(event) => event }
     val unnamed     = found.collect { case Left(event) => event }
-    val publishes   = files.flatMap(publishesIn(_, ownership))
-    val subscribed  = files.flatMap(subscribesIn(_, ownership))
+    val publishes   = files.flatMap(file => publishesIn(file, ownership, typeOwners(file)))
+    val subscribed  = files.flatMap(file => subscribesIn(file, ownership, typeOwners(file)))
     val subscribes  = subscribed.collect { case Right(subscription) => subscription }
 
     val namesByType = topics.groupMap(_.eventType)(_.name).view.mapValues(_.distinct.sorted).toMap
@@ -78,38 +90,44 @@ object EventExtractor {
       )
       .distinctBy(_.key)
 
-    val knownTypes = (descriptors.map(_.typeName) ++ unnamed.map(_.typeName)).toSet
+    val declaredTypes =
+      descriptors.map(d => Declared(d.typeName, d.owner, Some(d.eventType))) ++ unnamed.map(u => Declared(u.typeName, u.owner, None))
 
-    def described(candidates: List[String]): String =
-      candidates
-        .find(knownTypes)
-        .orElse(
-          candidates.view
-            .flatMap(candidate =>
-              knownTypes.filter(simpleName(_) == simpleName(candidate)).toList match {
-                case List(known) => Some(known)
-                case _           => None
-              }
-            )
-            .headOption
-        )
-        .getOrElse(candidates.head)
+    def eventTypeOf(use: EventUse, site: Site): Either[Unclassified, Option[String]] = {
+      def matching(same: (String, String) => Boolean) =
+        use.candidates.view.map(candidate => declaredTypes.filter(d => same(d.typeName, candidate))).find(_.nonEmpty)
+      val typeName = use.candidates.head
+      matching(_ == _).orElse(matching(simpleName(_) == simpleName(_))) match {
+        case None =>
+          Left(Unclassified(s"outbox-event-unknown:$typeName", s"$typeName is published or subscribed but has no DomainEventDescriptor", site.loc))
+        case Some(found) =>
+          val eventTypes = found.map(_.eventType).distinct
+          (eventTypes, found.filter(d => use.typeOwner.contains(d.owner)).map(_.eventType).distinct) match {
+            case (List(eventType), _) => Right(eventType)
+            case (_, List(eventType)) => Right(eventType)
+            case _                    =>
+              Left(
+                Unclassified(
+                  s"outbox-event-ambiguous:${use.packagePath}:$typeName",
+                  s"$typeName in ${site.enclosing} could be event ${eventTypes.flatten.sorted.mkString(" or ")}",
+                  site.loc
+                )
+              )
+          }
+      }
+    }
 
-    val resolvedPublishes  = publishes.collect { case Right((candidates, site)) => described(candidates) -> site }
-    val resolvedSubscribes = subscribes.map((typeName, subscriber) => described(List(typeName)) -> subscriber)
-    val linkedEvents       = descriptors.map { event =>
+    val publishedTypes  = publishes.collect { case Right((use, site)) => eventTypeOf(use, site) -> site }
+    val subscribedTypes = subscribes.map((use, subscriber) => eventTypeOf(use, subscriber.site) -> subscriber)
+    val linkedEvents    = descriptors.map { event =>
       event.copy(
-        publishers = resolvedPublishes.filter(_._1 == event.typeName).map(_._2).distinctBy(perClass),
-        subscribers = resolvedSubscribes.filter(_._1 == event.typeName).map(_._2).distinctBy(s => (s.consumer, perClass(s.site)))
+        publishers = publishedTypes.collect { case (Right(Some(eventType)), site) if eventType == event.eventType => site }.distinctBy(perClass),
+        subscribers = subscribedTypes
+          .collect { case (Right(Some(eventType)), subscriber) if eventType == event.eventType => subscriber }
+          .distinctBy(s => (s.consumer, perClass(s.site)))
       )
     }
-    val unknownTypes =
-      (resolvedPublishes.map((typeName, site) => typeName -> site.loc) ++ resolvedSubscribes.map((typeName, sub) => typeName -> sub.site.loc))
-        .filterNot((typeName, _) => knownTypes(typeName))
-        .map((typeName, loc) =>
-          Unclassified(s"outbox-event-unknown:$typeName", s"$typeName is published or subscribed but has no DomainEventDescriptor", loc)
-        )
-        .distinctBy(_.key)
+    val unresolved = (publishedTypes.map(_._1) ++ subscribedTypes.map(_._1)).collect { case Left(item) => item }.distinctBy(_.key)
 
     val topicsByName = byDeclaration(linkedTopics)(_.name)(_.loc)
     val mergedTopics =
@@ -174,7 +192,7 @@ object EventExtractor {
       warnings,
       declared.collect { case Left(item) => item } ++ busWithoutTopic ++ ambiguousBus ++ publishes.collect { case Left(item) =>
         item
-      } ++ unknownTypes ++
+      } ++ unresolved ++
         unnamed.map(_.item) ++ subscribed.collect { case Left(item) => item }
     )
   }
@@ -183,7 +201,6 @@ object EventExtractor {
     name: String,
     path: String,
     file: String,
-    pkg: String,
     owner: Owner)
 
   private def typeDefinitions(files: List[ParsedFile], ownership: Ownership): List[TypeDefinition] =
@@ -194,7 +211,7 @@ object EventExtractor {
           case d: Defn.Trait => d.name.value
           case d: Defn.Enum  => d.name.value
         }
-        .map(TypeDefinition(_, file.source.projectPath, file.source.packagePath, file.pkg, ownership.ownerOf(file.pkg)))
+        .map(TypeDefinition(_, file.source.projectPath, file.source.packagePath, ownership.ownerOf(file.pkg)))
     }
 
   private def fileOf(
@@ -230,9 +247,24 @@ object EventExtractor {
           )
     }
 
+  private def definitionScopes(files: List[ParsedFile]): Set[(String, String)] =
+    files.flatMap { file =>
+      file.tree
+        .collect {
+          case d: Defn.Class  => d -> d.name.value
+          case d: Defn.Trait  => d -> d.name.value
+          case d: Defn.Enum   => d -> d.name.value
+          case d: Defn.Object => d -> d.name.value
+        }
+        .map { (defn, name) =>
+          val objects = Trees.ancestors(defn).collect { case o: Defn.Object => o.name.value }.reverse
+          (file.pkg :: objects).filter(_.nonEmpty).mkString("/") -> name
+        }
+    }.toSet
+
   private def typeOwnerIn(
     file: ParsedFile,
-    types: List[TypeDefinition],
+    scopes: Set[(String, String)],
     ownership: Ownership,
     rootPackage: String
   ): String => Option[Owner] = {
@@ -240,10 +272,10 @@ object EventExtractor {
       Packages.relative(rootPackage, importer.ref.syntax).toList.flatMap(path => importer.importees.map(path -> _))
     }
     eventType => {
-      val name      = eventType.takeWhile(_ != '[')
+      val name      = eventType.takeWhile(_ != '[').split('.').head
       val explicit  = imported.collect { case (path, Importee.Name(symbol)) if symbol.value == name => ownership.ownerOf(path) }
       val wildcards = imported.collect {
-        case (path, _: Importee.Wildcard) if types.exists(t => t.pkg == path && t.name == name) => ownership.ownerOf(path)
+        case (path, _: Importee.Wildcard) if scopes(path -> name) => ownership.ownerOf(path)
       }.distinct
       explicit.headOption.orElse(wildcards match {
         case Nil         => Some(ownership.ownerOf(file.pkg))
@@ -350,7 +382,10 @@ object EventExtractor {
     }
   }
 
-  private final case class UnnamedEvent(typeName: String, item: Unclassified)
+  private final case class UnnamedEvent(
+    typeName: String,
+    owner: Owner,
+    item: Unclassified)
 
   private def descriptorsIn(file: ParsedFile, ownership: Ownership): List[Either[UnnamedEvent, OutboxEvent]] =
     file.tree.collect {
@@ -365,6 +400,7 @@ object EventExtractor {
                 .toRight(
                   UnnamedEvent(
                     typeName,
+                    ownership.ownerOf(file.pkg),
                     Unclassified(
                       s"outbox-event-name:${file.source.packagePath}:$typeName",
                       s"DomainEventDescriptor[$typeName] in ${Trees.enclosingName(file, alias)} has the event type ${eventType.syntax}, not a string literal",
@@ -373,22 +409,42 @@ object EventExtractor {
                   )
                 )
             }
+          case (Type.Apply.After_4_6_0(_, targs), body) =>
+            val typeName = targs.values.head.syntax
+            Some(
+              Left(
+                UnnamedEvent(
+                  typeName,
+                  ownership.ownerOf(file.pkg),
+                  Unclassified(
+                    s"outbox-event-descriptor:${file.source.packagePath}:$typeName",
+                    s"DomainEventDescriptor[$typeName] in ${Trees.enclosingName(file, alias)} is built by ${Trees.collapse(body.syntax, 80)}, not by a DomainEventDescriptor(…) call",
+                    Trees.loc(file, alias)
+                  )
+                )
+              )
+            )
           case _ => None
         }
     }.flatten
 
   private def isDescriptor(fun: Term): Boolean = fun match {
-    case Term.ApplyType.After_4_6_0(inner, _) => isDescriptor(inner)
-    case other                                => other.syntax.endsWith("DomainEventDescriptor")
+    case Term.ApplyType.After_4_6_0(inner, _)   => isDescriptor(inner)
+    case Term.Select(inner, Term.Name("apply")) => isDescriptor(inner)
+    case other                                  => other.syntax.endsWith("DomainEventDescriptor")
   }
 
-  private def publishesIn(file: ParsedFile, ownership: Ownership): List[Either[Unclassified, (List[String], Site)]] =
+  private def publishesIn(
+    file: ParsedFile,
+    ownership: Ownership,
+    typeOwner: String => Option[Owner]
+  ): List[Either[Unclassified, (EventUse, Site)]] =
     file.tree.collect {
       case call @ Term.Apply.After_4_6_0(fun, args) if publishedTypes(fun).isDefined && args.values.size == 1 =>
         val site       = Site(ownership.ownerOf(file.pkg), Trees.enclosingName(file, call), Trees.loc(file, call))
         val candidates = publishedTypes(fun).filter(_.nonEmpty).getOrElse(eventTypesOf(args.values.head))
         Option
-          .when(candidates.nonEmpty)(candidates -> site)
+          .when(candidates.nonEmpty)(EventUse(candidates, file.source.packagePath, typeOwner(candidates.head)) -> site)
           .toRight(
             Unclassified(
               s"outbox-publish:${file.source.packagePath}:${site.enclosing}:${Trees.collapse(args.values.head.syntax, 80)}",
@@ -419,16 +475,20 @@ object EventExtractor {
 
   private def isTypeName(name: String): Boolean = name.headOption.exists(_.isUpper)
 
-  private def subscribesIn(file: ParsedFile, ownership: Ownership): List[Either[Unclassified, (String, OutboxSubscriber)]] =
+  private def subscribesIn(
+    file: ParsedFile,
+    ownership: Ownership,
+    typeOwner: String => Option[Owner]
+  ): List[Either[Unclassified, (EventUse, OutboxSubscriber)]] =
     file.tree.collect {
       case call @ Term.Apply.After_4_6_0(Term.ApplyType.After_4_6_0(fun, targs), args)
-          if Set("OutboxSubscription", "OutboxSubscription.withDelivery").contains(fun.syntax) && targs.values.size == 1 =>
+          if isSubscription(fun) && targs.values.size == 1 && !typeParams(call).contains(targs.values.head.syntax) =>
         val typeName = targs.values.head.syntax
         val site     = Site(ownership.ownerOf(file.pkg), Trees.enclosingName(file, call), Trees.loc(file, call))
         Trees.argument(args.values, "consumer", 0).map { consumer =>
           Trees
             .stringLiteral(consumer)
-            .map(name => typeName -> OutboxSubscriber(name, site))
+            .map(name => EventUse(List(typeName), file.source.packagePath, typeOwner(typeName)) -> OutboxSubscriber(name, site))
             .toRight(
               Unclassified(
                 s"outbox-subscription:${file.source.packagePath}:$typeName",
@@ -438,4 +498,11 @@ object EventExtractor {
             )
         }
     }.flatten
+
+  private def isSubscription(fun: Term): Boolean = fun match {
+    case Term.Name("OutboxSubscription" | "withDelivery")                        => true
+    case Term.Select(_, Term.Name("OutboxSubscription"))                         => true
+    case Term.Select(Term.Name("OutboxSubscription"), Term.Name("withDelivery")) => true
+    case _                                                                       => false
+  }
 }
