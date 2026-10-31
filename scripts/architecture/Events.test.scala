@@ -238,4 +238,43 @@ class EventsSuite extends munit.FunSuite {
     )
     assertEquals(EventExtractor.extract(files, Ownership.of(files)).value._1.map(_.publishers.map(_.enclosing)), List(List("Pinger")))
   }
+
+  test("a bus used through another object, or declared by a parent, is found by its name when one bus type has that name") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "user/UserModule.scala",
+        "package app.user\ntrait UserModule {\n  lazy val userBus: EventBus[UserEvent] = eventBusRuntime.topic[UserEvent](\"user_events\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "user/services/Notifier.scala",
+        "package app.user.services\nclass Notifier(deps: Deps) {\n  def ping = deps.userBus.publish(UserEvent.Ping)\n}"
+      ),
+      Fixtures.src(
+        "user/services/Listener.scala",
+        "package app.user.services\nclass Listener extends UserModule {\n  def run = userBus.subscribe(handle)\n}"
+      )
+    )
+    val topic = EventExtractor.extract(files, Ownership.of(files)).value._1.head
+    assertEquals((topic.publishers.map(_.enclosing), topic.subscribers.map(_.enclosing)), (List("Notifier"), List("Listener")))
+  }
+
+  test("a selected bus whose name several bus types share, or no bus has, is not guessed") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "user/UserModule.scala",
+        "package app.user\ntrait UserModule {\n  lazy val bus: EventBus[UserEvent] = eventBusRuntime.topic[UserEvent](\"user_events\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        "package app.shop\ntrait ShopModule {\n  lazy val bus: EventBus[ShopEvent] = eventBusRuntime.topic[ShopEvent](\"shop_events\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "shop/services/Feed.scala",
+        "package app.shop.services\nclass Feed(deps: Deps) {\n  def a = deps.bus.publish(ShopEvent.Opened)\n  def b = deps.topic.publish(Tick)\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files))
+    assertEquals(result.value._1.map(_.publishers), List(Nil, Nil))
+    assertEquals(result.unclassified, Nil)
+  }
 }

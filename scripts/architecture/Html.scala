@@ -90,9 +90,12 @@ object Html {
   private def summary(diff: DiffModel): String = {
     val warnings = if (diff.isDiff) diff.warnings.count(_.status == WarningStatus.New) else diff.warnings.size
     val label    = if (diff.isDiff) "new warning" else "warning"
-    val shown    = GraphView.shown(diff).size
-    val hidden   = if (diff.modules.size > shown) s" + ${diff.modules.size - shown} hidden under utils/" else ""
-    s"${count(shown, "module")}$hidden · ${count(diff.tables.size, "table")} · ${count(diff.topics.size + diff.events.size, "event")} · ${count(warnings, label)}"
+    val modules  = diff.modules.count(_.status != Status.Removed)
+    val shown    = GraphView.shown(diff).count(_.status != Status.Removed)
+    val hidden   = if (modules > shown) s" + ${modules - shown} hidden under utils/" else ""
+    val tables   = diff.tables.count(_.status != Status.Removed)
+    val events   = diff.topics.count(_.status != Status.Removed) + diff.events.count(_.status != Status.Removed)
+    s"${count(shown, "module")}$hidden · ${count(tables, "table")} · ${count(events, "event")} · ${count(warnings, label)}"
   }
 
   private def count(n: Int, noun: String): String = s"$n $noun${if (n == 1) "" else "s"}"

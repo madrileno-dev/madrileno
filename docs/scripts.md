@@ -220,7 +220,7 @@ It reads source only: no compile, no running app, no database. It works on a bra
 
 `--out` names the HTML file, so it can't be combined with `--mermaid` or `--json`, which print to the terminal.
 
-`--diff <ref>` compares the merge-base of `<ref>` and `HEAD` (what a GitHub pull request compares against) with the working tree, uncommitted and untracked files included. The base revision is read from a temporary copy; the working tree, index and branches are left alone. Modules, tables and events are matched by their path below the project's package, so a diff across `init-project`'s rename still lines up.
+`--diff <ref>` compares the merge-base of `<ref>` and `HEAD` (what a GitHub pull request compares against) with the working tree, uncommitted and untracked files included. The base revision is read from a temporary copy; the working tree, index and branches are left alone. Modules and files are matched by their path below the project's package, so a diff across `init-project`'s rename still lines up. Tables are matched by their SQL name, topics, events and tasks by their name, and migrations by their file.
 
 The HTML is one file. It has:
 - the metrics
@@ -279,7 +279,7 @@ git worktree remove /tmp/arch-at
 
 - **Not mixed in:** a `*Module` trait that `ApplicationLoader` doesn't extend, either directly or through a trait outside the modules that groups them.
 - **Unprovided member:** a module consumes a member that nothing provides, neither another module, nor `main/`, nor the platform packages.
-- **Module cycle:** modules that depend on each other through imports or wired members. A type that platform code itself imports from a module, such as `AuthContext`, counts as platform and creates no dependency.
+- **Module cycle:** modules that depend on each other through imports or wired members. Importing another module's event type to subscribe to it counts too, since it's a compile-time dependency, even though the arrow isn't labelled `uses`. A type that platform code itself imports from a module, such as `AuthContext`, counts as platform and creates no dependency.
 - **Subscriber without publisher:** something subscribes to a topic or outbox event that nothing publishes. Publishing an event nobody subscribes to yet is fine.
 - **Cross-module table use:** a module references another module's `Table` object. Packages under `utils/` may use each other's tables, since the platform is built as one; a feature module using a `utils/` table still warns.
 - **Duplicate table:** `Table` objects in different modules declare the same table. The map shows the table once, owned by the module of the first declaration, with the users of every declaration.
@@ -310,7 +310,8 @@ Instead of guessing, the map lists these under **Unclassified**, each with its l
 
 - **Doesn't read the SQL in Scala code.** A repository's queries don't count as using a table; only references to its `Table` object do.
 - **Doesn't analyse tests.**
-- **Doesn't resolve types.** A wildcard import counts as a reference to the package, not to each symbol in it.
+- **Reads only the project's package directory.** A file elsewhere under `src/main/scala` isn't read.
+- **Doesn't resolve types.** A wildcard import counts as a reference to the package, not to each symbol in it. A bus reached through another object or declared by a parent class, such as `deps.bus.publish(…)`, is matched by its name, so it's found only when the buses with that name all have one type.
 
 ## Template-internal CI workflows
 

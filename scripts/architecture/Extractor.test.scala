@@ -19,6 +19,18 @@ class ExtractorSuite extends munit.FunSuite {
     assertEquals(model.warnings, Nil)
   }
 
+  test("a *Module trait in main/ belongs to the composition root, not to a module of its own") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with SeedModule"),
+        Fixtures.src("main/SeedModule.scala", "package app.main\ntrait SeedModule {\n  lazy val clock: Clock = Clock.system\n}"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule {\n  def clock: Clock\n}")
+      )
+    )
+    assertEquals(model.modules.map(_.id), List("user"))
+    assertEquals(model.warnings, Nil)
+  }
+
   test("references explained by wiring: the member's type, its supertypes, its public signatures and wildcards of their layer") {
     val model = Extractor.extract(
       Fixtures.project(

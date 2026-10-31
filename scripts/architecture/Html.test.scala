@@ -164,4 +164,25 @@ class HtmlSuite extends munit.FunSuite {
     val out = Html.render(ArchDiff.full(Extractor.extract(project), "h"))
     assert(out.contains("1 module + 1 hidden under utils/ · 0 tables · 0 events · 0 warnings"), out.take(3000))
   }
+  test("a diff's header counts what the branch has, not what it removed") {
+    def model(shop: Boolean) = Extractor.extract(
+      Fixtures.project(
+        List(
+          Fixtures.src(
+            "main/ApplicationLoader.scala",
+            s"package app.main\nclass ApplicationLoader extends UserModule${if (shop) " with ShopModule" else ""}"
+          ),
+          Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule")
+        ) ++ List(
+          Fixtures.src(
+            "shop/ShopModule.scala",
+            "package app.shop\ntrait ShopModule {\n  lazy val bus: EventBus[ShopEvent] = eventBusRuntime.topic[ShopEvent](\"shop_events\", maxQueued = 8)\n}"
+          ),
+          Fixtures.src("shop/repositories/R.scala", "package app.shop.repositories\nobject OrderTable extends Table[OrderRow](\"orders\")")
+        ).filter(_ => shop)*
+      )
+    )
+    val out = Html.render(ArchDiff.compare(model(true), model(false), "b", "h"))
+    assert(out.contains("1 module · 0 tables · 0 events · 0 new warnings"), out.take(3000))
+  }
 }

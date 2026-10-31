@@ -7,6 +7,11 @@ object EventExtractor {
     case Publishes, Subscribes
   }
 
+  private final case class BusScope(
+    tree: Tree,
+    name: String,
+    buses: Map[String, String])
+
   private final case class BusUse(
     eventType: String,
     role: Role,
@@ -16,7 +21,9 @@ object EventExtractor {
   def extract(files: List[ParsedFile], ownership: Ownership): Extracted[(List[BusTopic], List[OutboxEvent])] = {
     val declared    = files.flatMap(topicsIn(_, ownership))
     val topics      = declared.collect { case Right(topic) => topic }
-    val busUses     = files.flatMap(busUsesIn(_, ownership))
+    val scopes      = files.map(file => file -> busScopes(file))
+    val busTypes    = scopes.flatMap(_._2.flatMap(_.buses)).groupMap(_._1)(_._2).view.mapValues(_.distinct).toMap
+    val busUses     = scopes.flatMap((file, fileScopes) => busUsesIn(file, fileScopes, busTypes, ownership))
     val found       = files.flatMap(descriptorsIn(_, ownership))
     val descriptors = found.collect { case Right(event) => event }
     val unnamed     = found.collect { case Left(event) => event }
@@ -177,41 +184,38 @@ object EventExtractor {
           )
     }
 
-  private def busUsesIn(file: ParsedFile, ownership: Ownership): List[BusUse] = {
-    val scopes = file.tree.collect {
+  private def busScopes(file: ParsedFile): List[BusScope] =
+    file.tree.collect {
       case cls: Defn.Class =>
-        (cls: Tree) -> (
+        BusScope(
+          cls,
           cls.name.value,
           cls.ctor.paramClauses.flatMap(_.values).flatMap(p => busOf(p.name.value, p.decltpe)).toMap ++ busesIn(cls.templ)
         )
-      case t: Defn.Trait    => (t: Tree)   -> (t.name.value, busesIn(t.templ))
-      case obj: Defn.Object => (obj: Tree) -> (obj.name.value, busesIn(obj.templ))
+      case t: Defn.Trait    => BusScope(t, t.name.value, busesIn(t.templ))
+      case obj: Defn.Object => BusScope(obj, obj.name.value, busesIn(obj.templ))
     }
-    file.tree.collect {
-      case select @ Term.Select(receiver, Term.Name(method)) if busRole(method).isDefined =>
-        busName(receiver)
-          .flatMap(name =>
-            Trees
-              .ancestors(select)
-              .flatMap(ancestor => scopes.find(_._1 eq ancestor).map(_._2))
-              .collectFirst { case (enclosing, buses) if buses.contains(name) => (enclosing, buses(name)) }
-          )
-          .map((enclosing, eventType) =>
-            BusUse(
-              eventType,
-              busRole(method).getOrElse(Role.Subscribes),
-              Site(ownership.ownerOf(file.pkg), enclosing, Trees.loc(file, select)),
-              file.source.packagePath
-            )
-          )
-    }.flatten
-  }
 
-  private def busName(receiver: Term): Option[String] = receiver match {
-    case Term.Name(name)                            => Some(name)
-    case Term.Select(_: Term.This, Term.Name(name)) => Some(name)
-    case _                                          => None
-  }
+  private def busUsesIn(
+    file: ParsedFile,
+    scopes: List[BusScope],
+    busTypes: Map[String, List[String]],
+    ownership: Ownership
+  ): List[BusUse] =
+    file.tree.collect { case select @ Term.Select(receiver, Term.Name(BusRole(role))) =>
+      val around                 = Trees.ancestors(select).flatMap(ancestor => scopes.find(_.tree eq ancestor))
+      def declared(name: String) = around.collectFirst { case scope if scope.buses.contains(name) => scope.name -> scope.buses(name) }
+      def unique(name: String)   = busTypes.get(name).collect { case List(eventType) => Trees.enclosingName(select) -> eventType }
+      val resolved               = receiver match {
+        case Term.Name(name)                            => declared(name).orElse(unique(name))
+        case Term.Select(_: Term.This, Term.Name(name)) => declared(name).orElse(unique(name))
+        case Term.Select(_, Term.Name(name))            => unique(name)
+        case _                                          => None
+      }
+      resolved.map((enclosing, eventType) =>
+        BusUse(eventType, role, Site(ownership.ownerOf(file.pkg), enclosing, Trees.loc(file, select)), file.source.packagePath)
+      )
+    }.flatten
 
   private def busesIn(template: Template): Map[String, String] =
     Trees
@@ -235,10 +239,12 @@ object EventExtractor {
     case _ => None
   }
 
-  private def busRole(method: String): Option[Role] = method match {
-    case "publish"                      => Some(Role.Publishes)
-    case "subscribe" | "subscribeAwait" => Some(Role.Subscribes)
-    case _                              => None
+  private object BusRole {
+    def unapply(method: String): Option[Role] = method match {
+      case "publish"                      => Some(Role.Publishes)
+      case "subscribe" | "subscribeAwait" => Some(Role.Subscribes)
+      case _                              => None
+    }
   }
 
   private final case class UnnamedEvent(typeName: String, item: Unclassified)
