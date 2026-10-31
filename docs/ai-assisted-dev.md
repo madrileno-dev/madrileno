@@ -50,6 +50,15 @@ The committed `.mcp.json` already points at both:
 
 Claude Code reads it automatically and prompts once to approve project-scoped servers (run `claude mcp reset-project-choices` to redo the prompt). Start the servers, then ask Claude *"compile the project"* (Metals) or *"call `madrileno_overview`"* (madrileno) to confirm both are live.
 
+## Reviewing what the assistant built
+
+An assistant can hand over a large change faster than anyone can read it. Start the review from the architecture rather than the line diff. `./scripts/architecture.scala --diff main` writes an HTML map of what the branch changed:
+- new modules, services and repositories
+- new dependencies between modules
+- events and tables
+
+It also warns where the change drifts from the template's conventions. `AGENTS.md` tells the assistant to run the same check, as Mermaid (`--diff main --mermaid`), after changes that add or move modules, services, repositories, events or tables, and to fix the new warnings it lists. It also tells the assistant to paste that output into the PR description, so the picture is already there when you open the PR. See [scripts.md](scripts.md#architecturescala).
+
 ## How the assistant runs the app
 
 The assistant never runs a watch loop, `sbt run`, or a bare `sbt` shell: all of them block its shell until something kills them. It uses the one-shot tasks from [dev-workflow.md](dev-workflow.md#running-the-app-without-a-watch-loop) instead, under two rules:

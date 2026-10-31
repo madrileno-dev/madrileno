@@ -194,15 +194,135 @@ The checks:
 - Doesn't check OS-level prereqs (sbt installed, JDK version, etc.). Those would have failed earlier (you couldn't have run this script). If you want a full bootstrap check, that's a different scope.
 - Doesn't follow `S3_ENDPOINT` / `OTEL_EXPORTER_OTLP_*_ENDPOINT` from `.env`. The Silo / OpenObserve port checks use the host ports from `docker-compose.yml` (59000 / 55080). Doctor's scope is "is the local dev stack up", not "is whatever the app is configured to talk to up". If you've pointed the app at remote Silo / OpenObserve, the local doctor checks are still meaningful for the dev stack itself; if you've also customised the compose port mappings, doctor needs a matching tweak.
 
+## `architecture.scala`
+
+Draws a map of the project's architecture from its source:
+- modules, which are the traits named `*Module` outside `main/` (a sealed one is a type, not a module), with what each one consumes and provides and the routes, tasks, outbox subscriptions and mail previews it contributes
+- the services, repositories, routers and gateways each module wires
+- references between modules, from imports, exports and fully qualified names
+- event-bus topics and outbox events, with their publishers and subscribers
+- tables, with the module that owns each one, the modules that use it and, in the JSON and a diff, its columns. A `Table` object can also extend a class that extends `Table`.
+- migrations in version order, with the tables each one creates, alters, drops, indexes or writes to
+- scheduled tasks: one-time, recurring with their cron or interval, and custom, with the code that schedules them
+- warnings where the code drifts from the template's conventions
+
+It reads source only: no compile, no running app, no database. It works on a branch that doesn't compile and on any checkout you point it at.
+
+```bash
+./scripts/architecture.scala                          # the working tree → target/architecture/architecture.html
+./scripts/architecture.scala --diff main              # what changed since main → target/architecture/architecture-diff.html
+./scripts/architecture.scala --diff main --mermaid    # the same diff as Mermaid, for a PR description
+./scripts/architecture.scala --mermaid                # the whole map as Mermaid
+./scripts/architecture.scala --project ../other-app   # another checkout
+./scripts/architecture.scala --out /tmp/map.html      # write the HTML elsewhere
+./scripts/architecture.scala --json                   # print the model as JSON
+```
+
+`--out` names the HTML file, so it can't be combined with `--mermaid` or `--json`, which print to the terminal.
+
+`--diff <ref>` compares the merge-base of `<ref>` and `HEAD` (what a GitHub pull request compares against) with the working tree, uncommitted and untracked files included. The base revision is read from a temporary copy; the working tree, index and branches are left alone. Modules and files are matched by their path below the project's package, so a diff across `init-project`'s rename still lines up. Tables are matched by their SQL name, topics and events by their name, tasks by their module and name, and migrations by their file.
+
+The HTML is one file. It has:
+- the metrics
+- a module diagram at three levels of detail: modules only, with their services, repositories, routers and gateways, or with tables and events too. Zoom buttons scale it, and it starts fitted to the page. At the first two levels, an event between modules is a dotted arrow from the module that publishes it to each module that subscribes, labelled with the event; with tables and events, the event is a box of its own instead. An event published and consumed inside one module gets no arrow. Modules under `utils/`, the platform the template ships, stay off the diagram and the module list unless a diff changes them or a dependency on them, together with the tables and events only they touch; the header counts the hidden ones, and the events, tables and warnings sections still list them.
+- a list of the modules. Clicking a module there or in the diagram shows its details and focuses the diagram on it. The focused diagram has the module and the modules it depends on or that depend on it. With tables and events shown, it also has the modules on the other side of its tables and events. Clicking the focused module again, or **Show all modules**, goes back to the whole map.
+- the events, tasks and tables views. A task's name is the string it's given, also through a `val` holding a string, either `TaskName` declared in the same file or `Names.TaskName` declared in `object Names`; a name the code computes, like the outbox's per-consumer delivery tasks, is shown as the expression that computes it. "Scheduled from" lists the classes that call the task's `instance(…)`. When two modules hold a task under the same name, a call goes to the one in its own module, and to neither when that doesn't settle it. Recurring tasks have none, since the scheduler registers them at startup.
+- the migrations
+- in a diff, the files whose code changed in `main/` and in platform packages without a module, which no module box shows
+- the warnings
+
+The diagram is drawn by Mermaid, which the page loads from jsDelivr: a pinned version, checked against an integrity hash. Without network access the page says so in place of the diagram, and the rest of it still works.
+
+In a diff, added, removed and changed items are marked. A module whose code changed while its architecture didn't, say a method body rather than a dependency, gets a dotted outline and lists the changed files in its details. So does a service, repository, router or gateway whose file changed while its dependencies didn't, also inside a module that changed for another reason. An outbox event or bus topic whose payload type's file changed while its publishers and subscribers didn't gets it too, since its consumers depend on that payload; it is marked in the events table and listed under the Mermaid diagram. So is a table whose columns changed, meaning a `column` added, removed or given another codec, or that an added, changed or removed migration creates, alters, drops, indexes or writes to, with `insert`, `update`, `delete` or `truncate`. Comments and formatting don't count, in Scala or in SQL. Such a module joins the changes diagram without pulling in its neighbours. **Changed only** hides the rest and draws just the changes and their direct neighbours at the chosen level of detail. With tables and events, it has the boxes of the Mermaid output, plus any changed services, repositories, routers and gateways that the Mermaid output leaves out past 30 boxes.
+
+Without `--diff`, the Mermaid output is the whole map with the current metrics and warnings. It draws services, repositories, routers and gateways inside their modules while that stays within 30 boxes. With `--diff`, it shows only the changed modules, tables and events, plus their direct neighbours. Added, removed and changed services, repositories, routers and gateways are drawn inside their modules; past 30 boxes they're left out. Past 80 boxes, 300 arrows or 50,000 characters of diagram text, which is more than GitHub renders, the output is a list of what was added, removed and changed instead of a diagram. Modules whose code changed without an architecture change are listed under the diagram with their files, together with the changed files in `main/` and in the platform packages, and the tables whose columns or migrations changed. Then come the added, removed and changed migrations, the added, removed and changed tasks, such as a new cron job, the new warnings and the new unclassified items. When code is all that changed, the output says there are no architecture changes and still lists all of this.
+
+Arrows between modules are labelled with the kind of dependency:
+- **`wires`** lists the cake members one module takes from the other, such as `wires userRepository`.
+- **`imports`** lists the other module's packages it imports types from: `domain`, or `module` for its root package. An event type names its package too, such as `imports services`, and so does a wired type on an arrow that doesn't wire it, which happens in a diff when only the import is new.
+- **`uses`** names types from the other module's `services`, `repositories`, `routers` or `gateways` that wiring doesn't explain, such as `uses PriceCalculator` for a helper object taken from another module's `services`. In a diff, a type newly used next to ones the arrow already uses gets an arrow of its own, like a newly wired member.
+
+Several things count as explained:
+- a wired member's type, its supertypes, and the types in their public method signatures, such as a result type a wired service returns
+- a wildcard import of their package
+- event types, wherever they live, since events are how modules are meant to talk
+
+So `uses` marks a module reaching into another module's internals around the cake, which is worth a look in review. The arrow is thick when those internals include repositories. The template has none. In the details panel, each reference says whether wiring or an event explains it.
+
+### Metrics
+
+Six numbers summarise the architecture. For each one, lower is better. They move for different reasons:
+- **Propagation cost, largest cycle and stable-dependency violations** move only when the module structure or wiring changes.
+- **Size concentration** moves a little as code grows.
+- **Cake bypasses** move when an import reaches into another module's internals.
+- **Drift** moves with every new warning or unclassified item.
+
+The metrics:
+- **Propagation cost:** the share of other modules a change in one module can reach through dependencies. This is MacCormack, Rusnak and Baldwin's measure, without counting a module as reaching itself, so 0% means no ripple at all. Merging modules lowers it, because fewer modules leave fewer pairs to ripple between, so read it together with size concentration.
+- **Size concentration:** how much of the feature code sits in one module. It's the Herfindahl index of each feature module's share of the lines of code, counting only lines that hold code (comments and blank lines don't), with `utils/` left out: 100% when all the code is in one module, lower as it spreads out. Merging modules always raises it, so collapsing a project into a god module can't pass as an improvement.
+- **Largest cycle:** the number of modules in the biggest group that all depend on each other, or 0 when there are no cycles.
+- **Stable-dependency violations:** dependencies on a module that changes more easily than the one depending on it (Robert Martin's Stable Dependencies Principle). A module's instability is its outgoing dependencies divided by all its dependencies, in and out.
+- **Cake bypasses:** the number of `uses`, meaning types taken from another module's internals around the wiring.
+- **Drift:** warnings plus unclassified items.
+
+With `--diff`, the Mermaid output adds a table under the diagram with the base and branch values, each marked better, worse or the same. When nothing moved, it's a single line. The HTML page shows the same numbers in a metrics section, and the details panel gives each module's dependents, dependencies and instability.
+
+The metrics are also in the `--json` output, under `metrics`. To follow them over time, run the script at the commits you care about, for example in a temporary worktree:
+
+```bash
+git worktree add /tmp/arch-at abc1234
+./scripts/architecture.scala --project /tmp/arch-at --json | jq '.metrics.head'
+git worktree remove /tmp/arch-at
+```
+
+### Warnings
+
+- **Not mixed in:** a `*Module` trait that `ApplicationLoader` doesn't extend, either directly or through a trait that extends it, such as a trait outside the modules that groups them or another `*Module` trait.
+- **Unprovided member:** a module consumes a member that nothing provides, neither another module, nor `main/`, nor the platform packages.
+- **Module cycle:** modules that depend on each other through imports or wired members. Importing another module's event type to subscribe to it counts too, since it's a compile-time dependency, even though the arrow isn't labelled `uses`. A type that platform code itself imports from a module, such as `AuthContext`, counts as platform and creates no dependency. In a diff, a cycle is new only when its modules weren't all in one cycle before, so breaking part of a cycle doesn't raise a new warning.
+- **Subscriber without publisher:** something subscribes to a topic or outbox event that nothing publishes. Publishing an event nobody subscribes to yet is fine.
+- **Cross-module table use:** a module references another module's `Table` object. Packages under `utils/` may use each other's tables, since the platform is built as one; a feature module using a `utils/` table still warns.
+- **Duplicate table:** `Table` objects in different modules declare the same table. The map shows the table once, owned by the module of the first declaration, with the users of every declaration.
+- **Duplicate topic:** two `topic` calls use the same name, so their buses share one channel. The map shows the topic once, as the first declaration, with the publishers and subscribers of every declaration.
+- **Duplicate event:** two `DomainEventDescriptor`s use the same event type, so the outbox can hand one type's payload to the other type's subscribers. The map shows the event once, as the first declaration, with the publishers and subscribers of every declaration.
+- **Duplicate task:** two tasks use the same name, which the scheduler needs to be unique. The map lists each of them under its own module. Names the map shows as the expression that computes them aren't compared.
+- **Migration table without `Table`:** a migration creates a table that no `Table` object declares, and no later migration drops or renames it. Migrations are read in version order.
+
+### Unclassified
+
+The map reads source, not compiled code, so some things can't be resolved:
+- a `publishTransactionally(event)` whose argument doesn't show its type
+- an outbox event published or subscribed to without a `DomainEventDescriptor`
+- an `EventBus[T]` used where no topic has the type `T`, or where several topics do, so the bus could be any of them
+- a `wire[X]` whose class isn't in the module, naming the module the class is in when the map finds it
+- a topic or `Table` whose name isn't a string literal, including a name a `Table` subclass passes on in a way the map can't follow
+- an `OutboxSubscription` whose consumer, or a `DomainEventDescriptor` whose event type, isn't a string literal
+- a task built from a descriptor that isn't a `TaskDescriptor(…)` call, such as one held in a `val`
+- a second `*Module` trait in a package that already has one, when they aren't both mixed into `ApplicationLoader`; only the mixed-in trait is mapped. When both are mixed in, they're mapped as one module.
+- a file whose package is outside the project's root package
+- a file that doesn't parse
+
+Instead of guessing, the map lists these under **Unclassified**, each with its location.
+
+`--strict` exits 1 when there are warnings or unclassified items. With `--diff`, only new ones count. A directory without `src/main/scala` or without a `*Module` trait is an error, so `--strict` can't pass on the wrong directory. The template's CI runs it on the template and on a freshly initialised project.
+
+### What it doesn't do
+
+- **Doesn't read the SQL in Scala code.** A repository's queries don't count as using a table; only references to its `Table` object do.
+- **Doesn't analyse tests.**
+- **Reads only the project's package directory.** A file elsewhere under `src/main/scala` isn't read.
+- **Doesn't resolve types.** A wildcard import counts as a reference to the package, not to each symbol in it. A bus reached through another object, such as `deps.bus.publish(…)`, or inherited from a parent class is matched by its name, so it's found only when the buses that classes declare with that name all have one type. A bus passed as a parameter or matched by a typed pattern is known by its type, and one typed by a type parameter, like `EventBus[E]` in a generic helper, isn't a use. Neither is a bus held in an untyped local `val`, like `val bus = deps.bus`.
+
 ## Template-internal CI workflows
 
 The repo ships four GitHub Actions. `.github/workflows/scala.yml` is the project's own CI (format check, scalafix, compile, test) — kept on init like any other project file. The other three are **template-internal**: they validate template content and are deleted by `init-project.scala` (along with `scripts/check-links.scala`, which only the link-check workflow uses):
 
 - **`.github/workflows/link-check.yml`** — runs `scripts/check-links.scala` on PRs touching markdown. The script walks every `.md`, extracts `[text](target)` links, verifies internal targets exist (relative paths + `#anchor` heading slugs). Externals + `mailto:` / `tel:` are skipped. Code spans + fenced blocks are stripped first so Scala signatures inside code samples don't trip the regex.
-- **`.github/workflows/script-tests.yml`** — four jobs:
+- **`.github/workflows/script-tests.yml`** — five jobs:
   - `compile-scripts` — `scala-cli compile` every `scripts/*.scala`, catches dep/import drift in the scripts themselves
+  - `test-architecture` — runs the architecture map's unit tests, then `./scripts/architecture.scala --strict` on the template, which fails on any warning or unclassified item
   - `run-doctor` — smoke-runs `scripts/doctor.scala`, accepts exit `0` or `1` (CI has no dev stack so doctor's "checks failed" exit is expected; anything else is a real crash)
-  - `test-init-project` — `git clone`s the repo into a temp dir, runs `./scripts/init-project.scala wine-cellar`, asserts the rename / auction-drop / workflow-cleanup happened, then `sbt compile`s
+  - `test-init-project` — `git clone`s the repo into a temp dir, runs `./scripts/init-project.scala wine-cellar`, asserts the rename / auction-drop / workflow-cleanup happened, runs `./scripts/architecture.scala --strict` on the result, then `sbt compile`s
   - `test-scaffold-module` — same shape, runs `./scripts/scaffold-module.scala Wine wines`, asserts generated files exist + `WineModule` is wired into `ApplicationLoader`, then `sbt compile`s
 - **`.github/workflows/site-dispatch.yml`** — on a push to `main` touching `docs/**` or `README.md`, sends a `docs-updated` repository dispatch to `madrileno-dev/madrileno-dev.github.io` so the website rebuilds. Needs the `SITE_DISPATCH_TOKEN` secret (a fine-grained PAT scoped to the site repo, Contents read/write).
 
@@ -214,4 +334,5 @@ All workflows verify template content (our docs, our scripts). A forked project 
 - `scaffold-module.scala` + `templates/module/` — generator + templates
 - `dev-console.scala` — wrapper. The REPL predef is embedded as a string inside the wrapper (top of the file), written to a temp file at launch and passed to scala-cli's REPL. One file, at the cost of no syntax highlighting on the predef section in most editors.
 - `doctor.scala` — standalone, no companion files
+- `architecture.scala` + `architecture/` — entry point (CLI) + the extractor, diff and renderers it includes; `architecture/*.test.scala` are its unit tests (`scala-cli test scripts/architecture.scala`)
 - `check-links.scala` — standalone; template-only, deleted on init
