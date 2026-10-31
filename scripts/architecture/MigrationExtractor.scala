@@ -6,29 +6,35 @@ object MigrationExtractor {
   private val Name   = """(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_]*)(?:\.(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_]*))?"""
   private val Create =
     s"""(?i)\\bcreate\\s+(?:unlogged\\s+)?+table\\s+(?:if\\s+not\\s+exists\\s+)?+((?>$Name))(?!\\s+partition\\s+of\\b)""".r
-  private val Alter    = s"""(?i)\\balter\\s+table\\s+(?:if\\s+exists\\s+)?+(?:only\\s+)?+($Name)""".r
-  private val Drop     = s"""(?i)\\bdrop\\s+table\\s+(?:if\\s+exists\\s+)?+($Name(?:\\s*,\\s*$Name)*)""".r
-  private val Rename   = s"""(?i)\\balter\\s+table\\s+(?:if\\s+exists\\s+)?+(?:only\\s+)?+($Name)\\s+rename\\s+to\\s+($Name)""".r
+  private val Alter  = s"""(?i)\\balter\\s+table\\s+(?:if\\s+exists\\s+)?+(?:only\\s+)?+($Name)""".r
+  private val Drop   = s"""(?i)\\bdrop\\s+table\\s+(?:if\\s+exists\\s+)?+($Name(?:\\s*,\\s*$Name)*)""".r
+  private val Rename = s"""(?i)\\balter\\s+table\\s+(?:if\\s+exists\\s+)?+(?:only\\s+)?+($Name)\\s+rename\\s+to\\s+($Name)""".r
+  private val Index  =
+    s"""(?i)\\bcreate\\s+(?:unique\\s+)?index\\s+(?:concurrently\\s+)?(?:if\\s+not\\s+exists\\s+)?(?:$Name\\s+)?on\\s+(?:only\\s+)?($Name)""".r
+  private val Writes = List(
+    s"""(?i)\\binsert\\s+into\\s+($Name)""",
+    s"""(?i)\\bupdate\\s+(?:only\\s+)?($Name)(?:\\s+(?:as\\s+)?[A-Za-z_][A-Za-z0-9_]*)?\\s+set\\b""",
+    s"""(?i)\\bdelete\\s+from\\s+(?:only\\s+)?($Name)""",
+    s"""(?i)\\btruncate\\s+(?:table\\s+)?(?:only\\s+)?($Name(?:\\s*,\\s*$Name)*)"""
+  ).map(_.r)
   private val Version  = """V(\d+(?:[._]\d+)*)__.*""".r
   private val Comments = """(?s)((?<![A-Za-z0-9_])[Ee]'(?:[^'\\]|\\.|'')*'|'(?:[^']|'')*')|--[^\n]*|/\*.*?\*/""".r
   private val Part     = """"([^"]+)"|([A-Za-z0-9_$]+)""".r
 
   def extract(files: List[SourceFile]): List[Migration] =
     files.map { file =>
-      val sql = withoutLiterals(file.content)
+      val sql     = withoutLiterals(file.content)
+      val creates = names(Create, sql)
       Migration(
         file.packagePath,
         Trees.hash(normalized(withoutComments(file.content))),
-        names(Create, sql),
+        creates,
         (names(Alter, sql) ++ Rename.findAllMatchIn(sql).map(m => tableName(m.group(2)))).distinct,
-        names(Drop, sql)
+        names(Drop, sql),
+        names(Index, sql).filterNot(creates.contains),
+        Writes.flatMap(_.findAllMatchIn(sql)).sortBy(_.start).flatMap(_.group(1).split(',').map(tableName)).distinct.filterNot(creates.contains)
       )
     }
-
-  def created(file: SourceFile): List[MigrationTable] = {
-    val sql = withoutLiterals(file.content)
-    Create.findAllMatchIn(sql).map(m => MigrationTable(tableName(m.group(1)), lineOf(file, sql, m.start))).toList
-  }
 
   private enum Statement {
     case Created(table: MigrationTable)

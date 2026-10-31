@@ -155,12 +155,14 @@ final case class Migration(
   digest: String,
   creates: List[String] = Nil,
   alters: List[String] = Nil,
-  drops: List[String] = Nil)
+  drops: List[String] = Nil,
+  indexes: List[String] = Nil,
+  writes: List[String] = Nil)
     derives ReadWriter {
-  def tables: List[String] = (creates ++ alters ++ drops).distinct
+  def tables: List[String] = (creates ++ alters ++ drops ++ indexes ++ writes).distinct
 
   def summary(name: String => String): String =
-    List("creates" -> creates, "alters" -> alters, "drops" -> drops)
+    List("creates" -> creates, "alters" -> alters, "drops" -> drops, "indexes" -> indexes, "writes" -> writes)
       .collect { case (verb, tables) if tables.nonEmpty => s"$verb ${tables.map(name).mkString(", ")}" }
       .mkString(", ")
 }
@@ -200,7 +202,6 @@ final case class ArchModel(
   outboxEvents: List[OutboxEvent],
   tasks: List[TaskDecl],
   tables: List[TableDecl],
-  migrationTables: List[MigrationTable],
   warnings: List[Warning],
   unclassified: List[Unclassified],
   migrations: List[Migration] = Nil,

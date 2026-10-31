@@ -19,8 +19,8 @@ class TablesSuite extends munit.FunSuite {
       "create table \"user\"(id uuid);\nCREATE TABLE IF NOT EXISTS public.order_line(id uuid);\ncreate table ghost(id int);"
     )
   )
-  private val result                    = TableExtractor.extract(files, migrations, Ownership.of(files))
-  private val (tables, migrationTables) = result.value
+  private val result = TableExtractor.extract(files, migrations, Ownership.of(files))
+  private val tables = result.value
 
   test("tables with normalized names, owners and users") {
     assertEquals(
@@ -30,7 +30,7 @@ class TablesSuite extends munit.FunSuite {
   }
 
   test("migration tables, with the last dot segment and line numbers") {
-    assertEquals(migrationTables.map(m => m.name -> m.loc.line), List("user" -> 1, "order_line" -> 2, "ghost" -> 3))
+    assertEquals(MigrationExtractor.existing(migrations).map(m => m.name -> m.loc.line), List("user" -> 1, "order_line" -> 2, "ghost" -> 3))
   }
 
   test("warnings: cross-module use and undeclared migration table") {
@@ -66,7 +66,7 @@ class TablesSuite extends munit.FunSuite {
     )
     val result = TableExtractor.extract(files, Nil, Ownership.of(files))
     assertEquals(
-      result.value._1.map(t => (t.name, t.owner, t.users.map(_.enclosing))),
+      result.value.map(t => (t.name, t.owner, t.users.map(_.enclosing))),
       List(("shared", Owner.Module("a"), List("ARepository", "BRepository")))
     )
     assertEquals(
@@ -84,7 +84,7 @@ class TablesSuite extends munit.FunSuite {
       )
     )
     val result = TableExtractor.extract(files, Nil, Ownership.of(files))
-    assertEquals(result.value._1.map(_.name), List("shared"))
+    assertEquals(result.value.map(_.name), List("shared"))
     assertEquals(result.warnings, Nil)
   }
 
@@ -110,7 +110,7 @@ class TablesSuite extends munit.FunSuite {
     )
     val result = TableExtractor.extract(files, Nil, Ownership.of(files))
     assertEquals(result.unclassified, Nil)
-    assertEquals(result.value._1.map(t => t.name -> t.users.map(_.enclosing)), List("shared" -> List("CRepository")))
+    assertEquals(result.value.map(t => t.name -> t.users.map(_.enclosing)), List("shared" -> List("CRepository")))
     assertEquals(result.warnings.count(_.kind == WarningKind.CrossModuleTableUse), 1, result.warnings)
   }
 
@@ -125,7 +125,7 @@ class TablesSuite extends munit.FunSuite {
       )
     )
     assertEquals(
-      TableExtractor.extract(files, Nil, Ownership.of(files)).value._1.map(_.columns),
+      TableExtractor.extract(files, Nil, Ownership.of(files)).value.map(_.columns),
       List(List(TableColumn("id", "uuid.as[UserId]"), TableColumn("email", "text.as[Email].opt")))
     )
   }
@@ -160,7 +160,7 @@ class TablesSuite extends munit.FunSuite {
         "create table if not exists orders_2025 partition of orders for values from ('2025-01-01') to ('2026-01-01');"
     )
     val result = TableExtractor.extract(Nil, List(sql), Ownership(Set.empty))
-    assertEquals(result.value._2.map(t => t.name -> t.loc.line), List("cache_entries" -> 4))
+    assertEquals(MigrationExtractor.existing(List(sql)).map(t => t.name -> t.loc.line), List("cache_entries" -> 4))
     assertEquals(result.warnings.map(_.key), List("migration-table-without-table:cache_entries"))
     assertEquals(MigrationExtractor.extract(List(sql)).map(_.creates), List(List("cache_entries")))
   }
@@ -171,7 +171,7 @@ class TablesSuite extends munit.FunSuite {
       Fixtures.src("user/repositories/UserTable.scala", "package app.user.repositories\nobject UserTable extends Table[UserRow](\"public.users\")")
     )
     val result = TableExtractor.extract(files, List(Fixtures.migration("V1__init.sql", "create table public.users (id uuid);")), Ownership.of(files))
-    assertEquals(result.value._1.map(_.name), List("users"))
+    assertEquals(result.value.map(_.name), List("users"))
     assertEquals(result.warnings, Nil)
   }
   test("an object extending a subclass of Table is a table, with the name the subclass passes on") {
@@ -190,7 +190,7 @@ class TablesSuite extends munit.FunSuite {
     val migrations = List(Fixtures.migration("V1__init.sql", "create table account (id uuid);\ncreate table users (id uuid);"))
     val result     = TableExtractor.extract(files, migrations, Ownership.of(files))
     assertEquals(
-      result.value._1.map(t => (t.name, t.objectName, t.users.map(_.enclosing))),
+      result.value.map(t => (t.name, t.objectName, t.users.map(_.enclosing))),
       List(("account", "AccountTable", List("UserRepository")), ("users", "UserTable", Nil))
     )
     assertEquals(result.warnings, Nil)
@@ -235,7 +235,7 @@ class TablesSuite extends munit.FunSuite {
       )
     )
     val result = TableExtractor.extract(files, Nil, Ownership.of(files))
-    assertEquals(result.value._1.map(t => (t.name, t.users)), List(("orders", Nil)))
+    assertEquals(result.value.map(t => (t.name, t.users)), List(("orders", Nil)))
     assertEquals(result.warnings, Nil)
   }
   test("a column with a type argument is a column") {
@@ -246,7 +246,7 @@ class TablesSuite extends munit.FunSuite {
         "package app.shop.repositories\nobject OrderTable extends Table[OrderRow](\"orders\") {\n  val total = column[Money](\"total\", numeric)\n}"
       )
     )
-    assertEquals(TableExtractor.extract(files, Nil, Ownership.of(files)).value._1.flatMap(_.columns), List(TableColumn("total", "numeric")))
+    assertEquals(TableExtractor.extract(files, Nil, Ownership.of(files)).value.flatMap(_.columns), List(TableColumn("total", "numeric")))
   }
 
   test("text in a SQL string literal is not DDL, but changing it changes the migration") {
@@ -254,8 +254,10 @@ class TablesSuite extends munit.FunSuite {
       "V1__init.sql",
       s"COMMENT ON TABLE orders IS '$note';\nINSERT INTO settings VALUES ('a--b', 'it''s'); create table audit_log (id int);\ncreate table orders (id int);"
     )
-    val result = TableExtractor.extract(Nil, List(sql("create table of record")), Ownership(Set.empty))
-    assertEquals(result.value._2.map(t => t.name -> t.loc.line), List("audit_log" -> 2, "orders" -> 3))
+    assertEquals(
+      MigrationExtractor.existing(List(sql("create table of record"))).map(t => t.name -> t.loc.line),
+      List("audit_log" -> 2, "orders" -> 3)
+    )
     assertEquals(MigrationExtractor.extract(List(sql("create table of record"))).map(_.creates), List(List("audit_log", "orders")))
     assertNotEquals(MigrationExtractor.extract(List(sql("one"))).map(_.digest), MigrationExtractor.extract(List(sql("two"))).map(_.digest))
   }
@@ -271,5 +273,20 @@ class TablesSuite extends munit.FunSuite {
       "INSERT INTO notes VALUES (E'it\\'s; create table fake (id int);');\ncreate table \"Mixed.Case\" (id int);\ncreate table public.\"Odd.Name\" (id int);"
     )
     assertEquals(MigrationExtractor.extract(List(sql)).map(_.creates), List(List("mixed.case", "odd.name")))
+  }
+
+  test("index and data statements are listed as indexes and writes, leaving out the tables the migration creates") {
+    val sql = Fixtures.migration(
+      "V7__backfill.sql",
+      "create table audit(id int);\ncreate index on audit (id);\ncreate unique index concurrently if not exists bid_amount on public.bid (amount);\n" +
+        "insert into \"user\"(id) values (1);\nupdate offer o set price = 1;\ndelete from only session where true;\ntruncate table cache, tmp;\n" +
+        "alter table x add constraint fk foreign key (a) references y(b) on update cascade on delete set null;"
+    )
+    val migration = MigrationExtractor.extract(List(sql)).head
+    assertEquals(
+      (migration.creates, migration.alters, migration.indexes, migration.writes),
+      (List("audit"), List("x"), List("bid"), List("user", "offer", "session", "cache", "tmp"))
+    )
+    assertEquals(migration.summary(identity), "creates audit, alters x, indexes bid, writes user, offer, session, cache, tmp")
   }
 }

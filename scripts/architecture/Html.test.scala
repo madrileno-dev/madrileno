@@ -185,4 +185,8 @@ class HtmlSuite extends munit.FunSuite {
     val out = Html.render(ArchDiff.compare(model(true), model(false), "b", "h"))
     assert(out.contains("1 module · 0 tables · 0 events · 0 new warnings"), out.take(3000))
   }
+
+  test("a consumed member's provider is the current one when the providing module changed") {
+    assert(page.contains("wirings.find(w => w.status !== 'Removed') || wirings[0]"), page)
+  }
 }

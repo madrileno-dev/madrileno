@@ -56,7 +56,7 @@ object ModuleExtractor {
     val stats      = Trees.members(defn.templ)
     val ownFiles   = files.filter(f => ownership.ownerOf(f.pkg) == Owner.Module(id))
     val components = stats.flatMap(componentOf(file, defn, id, ownFiles, elsewhere(files, ownership), _))
-    val resolved   = components.collect { case Right(component) => component }
+    val resolved   = components.collect { case Right(component) => component }.distinctBy(_.name)
     Extracted(
       Module(
         id = id,

@@ -380,9 +380,11 @@ body.changed-only [data-status="unchanged"] { display: none; }
     const coupling = data.metrics.coupling.find(c => c.id === id);
     if (coupling) panel.appendChild(node('p', `used by ${count(coupling.dependents, 'module')} · depends on ${coupling.dependencies} · instability ${coupling.instability.toFixed(2)}`, 'muted'));
     const providerOf = member => {
-      const wiring = data.wirings.map(latest).find(w => w.consumer === id && w.member === member);
+      const wirings = data.wirings.filter(w => latest(w).consumer === id && latest(w).member === member);
+      const wiring = wirings.find(w => w.status !== 'Removed') || wirings[0];
       if (!wiring) return 'nothing';
-      return wiring.provider['$type'] === 'FromModule' ? wiring.provider.id : 'platform';
+      const provider = latest(wiring).provider;
+      return provider['$type'] === 'FromModule' ? provider.id : 'platform';
     };
     const membersOf = name => diff.members.filter(m => m.section === name);
     if (changedFiles.length) section('Code changed', changedFiles.map(path => [path, null, null]));

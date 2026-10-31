@@ -278,4 +278,15 @@ class CodeChangesSuite extends munit.FunSuite {
     assertEquals(diff.topics.map(t => (t.key, t.codeChanged)), List(("orders-invoices", false)))
     assert(!Mermaid.render(diff).contains("topic `orders-invoices`"), Mermaid.render(diff))
   }
+
+  test("a migration that only indexes a table or changes its rows marks the table") {
+    val v1   = Fixtures.migration("V1__init.sql", "create table account (id uuid primary key);")
+    val v2   = Fixtures.migration("V2__index.sql", "create index account_id on account (id);")
+    val v3   = Fixtures.migration("V3__backfill.sql", "update account set id = id;")
+    val base = Extractor.extract(withAccounts(idOnly, List(v1)))
+    for (added <- List(v2, v3)) {
+      val diff = ArchDiff.compare(base, Extractor.extract(withAccounts(idOnly, List(v1, added))), "main", "working tree")
+      assertEquals(diff.tables.map(t => t.key -> t.codeChanged), List("account" -> true), added.packagePath)
+    }
+  }
 }

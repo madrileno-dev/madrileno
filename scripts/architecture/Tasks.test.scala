@@ -195,4 +195,22 @@ class TasksSuite extends munit.FunSuite {
     )
     assertEquals(TaskExtractor.extract(files, Ownership.of(files)).value.map(_.name), List("s\"prober/${instance.name}/asap\""))
   }
+
+  test("a task named by a string constant takes the constant's value, from its own file first") {
+    val files = Fixtures.parsed(
+      Fixtures.src("auth/AuthModule.scala", "package app.auth\ntrait AuthModule"),
+      Fixtures.src(
+        "auth/services/Cleanup.scala",
+        "package app.auth.services\nobject Cleanup {\n  val CleanupTaskName = \"auth-cleanup\"\n" +
+          "  val cleanup = Task.recurring(CleanupTaskName, Schedule.RecurringWithFixedRate(1.hour))(_ => IO.unit)\n" +
+          "  val purge = Task.oneTime(TaskDescriptor[Unit](Names.Purge))(_ => IO.unit)\n" +
+          "  val sweep = Task.oneTime(TaskDescriptor[Unit](Shared))(_ => IO.unit)\n}"
+      ),
+      Fixtures
+        .src("auth/services/Names.scala", "package app.auth.services\nobject Names {\n  val Purge = \"purge\"\n  val CleanupTaskName = \"other\"\n}"),
+      Fixtures.src("auth/services/A.scala", "package app.auth.services\nobject A {\n  val Shared = \"a\"\n}"),
+      Fixtures.src("auth/services/B.scala", "package app.auth.services\nobject B {\n  val Shared = \"b\"\n}")
+    )
+    assertEquals(TaskExtractor.extract(files, Ownership.of(files)).value.map(_.name), List("Shared", "auth-cleanup", "purge"))
+  }
 }

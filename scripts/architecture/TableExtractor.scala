@@ -7,13 +7,12 @@ object TableExtractor {
     files: List[ParsedFile],
     migrations: List[SourceFile],
     ownership: Ownership
-  ): Extracted[(List[TableDecl], List[MigrationTable])] = {
+  ): Extracted[List[TableDecl]] = {
     val classes   = files.flatMap(_.tree.collect { case cls: Defn.Class => cls.name.value -> cls }).toMap
     val found     = files.flatMap(declarationsIn(_, classes, ownership))
     val declared  = found.collect { case Right(table) => table }
     val local     = localNames(files, declared, ownership)
     val withUsers = declared.map(table => table.copy(users = usersOf(table, declared, local, files, ownership)))
-    val migrated  = migrations.flatMap(MigrationExtractor.created)
 
     val crossModule = withUsers
       .flatMap { table =>
@@ -60,7 +59,7 @@ object TableExtractor {
         )
       )
 
-    Extracted((merged.sortBy(_.name), migrated), crossModule ++ duplicates ++ undeclared, found.collect { case Left(item) => item })
+    Extracted(merged.sortBy(_.name), crossModule ++ duplicates ++ undeclared, found.collect { case Left(item) => item })
   }
 
   private def declarationsIn(

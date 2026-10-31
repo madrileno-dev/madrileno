@@ -194,4 +194,14 @@ class ModuleExtractorSuite extends munit.FunSuite {
       )
     )
   }
+
+  test("the same class wired twice is one component") {
+    val files = Fixtures.parsed(
+      Fixtures
+        .src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule {\n  lazy val a = wire[ShopService]\n  lazy val b = wire[ShopService]\n}"),
+      Fixtures.src("shop/services/ShopService.scala", "package app.shop.services\nclass ShopService")
+    )
+    val shop = ModuleExtractor.extract(files, Ownership.of(files)).value.head
+    assertEquals((shop.components.map(_.name), shop.metrics.components), (List("ShopService"), 1))
+  }
 }

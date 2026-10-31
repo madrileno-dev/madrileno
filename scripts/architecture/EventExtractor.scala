@@ -34,7 +34,10 @@ object EventExtractor {
     val namesByType  = topics.groupMap(_.eventType)(_.name).view.mapValues(_.distinct.sorted).toMap
     val linkedTopics = topics.map { topic =>
       val uses = if (namesByType(topic.eventType).size > 1) Nil else busUses.filter(_.eventType == topic.eventType)
-      topic.copy(publishers = uses.filter(_.role == Role.Publishes).map(_.site), subscribers = uses.filter(_.role == Role.Subscribes).map(_.site))
+      topic.copy(
+        publishers = uses.filter(_.role == Role.Publishes).map(_.site).distinctBy(perClass),
+        subscribers = uses.filter(_.role == Role.Subscribes).map(_.site).distinctBy(perClass)
+      )
     }
     val ambiguousBus = busUses
       .flatMap(use =>
@@ -61,8 +64,8 @@ object EventExtractor {
     val resolvedPublishes = publishes.collect { case Right(published) => published }
     val linkedEvents      = descriptors.map { event =>
       event.copy(
-        publishers = resolvedPublishes.filter(_._1 == event.typeName).map(_._2),
-        subscribers = subscribes.filter(_._1 == event.typeName).map(_._2)
+        publishers = resolvedPublishes.filter(_._1 == event.typeName).map(_._2).distinctBy(perClass),
+        subscribers = subscribes.filter(_._1 == event.typeName).map(_._2).distinctBy(s => (s.consumer, perClass(s.site)))
       )
     }
     val unknownTypes =
@@ -75,10 +78,17 @@ object EventExtractor {
 
     val topicsByName = byDeclaration(linkedTopics)(_.name)(_.loc)
     val mergedTopics =
-      topicsByName.map(same => same.head.copy(publishers = same.flatMap(_.publishers).distinct, subscribers = same.flatMap(_.subscribers).distinct))
+      topicsByName.map(same =>
+        same.head.copy(publishers = same.flatMap(_.publishers).distinctBy(perClass), subscribers = same.flatMap(_.subscribers).distinctBy(perClass))
+      )
     val eventsByType = byDeclaration(linkedEvents)(_.eventType)(_.loc)
     val events       =
-      eventsByType.map(same => same.head.copy(publishers = same.flatMap(_.publishers).distinct, subscribers = same.flatMap(_.subscribers).distinct))
+      eventsByType.map(same =>
+        same.head.copy(
+          publishers = same.flatMap(_.publishers).distinctBy(perClass),
+          subscribers = same.flatMap(_.subscribers).distinctBy(s => (s.consumer, perClass(s.site)))
+        )
+      )
     val duplicates = topicsByName.collect { case same @ (first :: second :: _) =>
       Warning(
         WarningKind.DuplicateTopic,
@@ -216,9 +226,9 @@ object EventExtractor {
           case e: Enumerator.Generator     => e.pat
           case e: Enumerator.CaseGenerator => e.pat
           case e: Enumerator.Val           => e.pat
-        }.flatMap(patternNames)
+        }.flatMap(patternNames(_, generic))
           .toMap
-      case c: Case => patternNames(c.pat).toMap
+      case c: Case => patternNames(c.pat, generic).toMap
       case _       => Map.empty
     }
   }
@@ -232,7 +242,12 @@ object EventExtractor {
       case _           => Nil
     }.toMap
 
-  private def patternNames(pat: Pat): List[(String, Option[String])] = pat.collect { case Pat.Var(name) => name.value -> None }
+  private def patternNames(pat: Pat, generic: Set[String]): List[(String, Option[String])] =
+    pat.collect { case Pat.Var(name) => name.value -> None } ++ pat.collect { case Pat.Typed(Pat.Var(name), tpe) =>
+      name.value -> busType(Some(tpe), generic)
+    }
+
+  private def perClass(site: Site): (Owner, String) = (site.owner, site.enclosing)
 
   private def typeParams(tree: Tree): Set[String] =
     (tree :: Trees.ancestors(tree))

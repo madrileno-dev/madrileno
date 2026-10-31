@@ -25,7 +25,14 @@ object Parsing {
         Packages
           .relative(rootPackage, declared)
           .map(ParsedFile(file, _, tree, opensRoot))
-          .toRight(Unclassified(s"outside-root:${file.packagePath}", s"package $declared is outside $rootPackage", Loc(file.projectPath, 1)))
+          .toRight(
+            Unclassified(
+              s"outside-root:${file.packagePath}",
+              if (declared.isEmpty) s"the file has no package clause, so it is outside $rootPackage"
+              else s"package $declared is outside $rootPackage",
+              Loc(file.projectPath, 1)
+            )
+          )
       case error: Parsed.Error =>
         Left(
           Unclassified(

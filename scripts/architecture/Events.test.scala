@@ -316,4 +316,48 @@ class EventsSuite extends munit.FunSuite {
     val result = EventExtractor.extract(files, Ownership.of(files))
     assertEquals((result.value._1, result.unclassified), (Nil, Nil))
   }
+
+  test("a class that publishes in two places is listed once") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "user/UserModule.scala",
+        "package app.user\ntrait UserModule {\n  lazy val userBus: EventBus[UserEvent] = eventBusRuntime.topic[UserEvent](\"user_events\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "user/domain/UserDeleted.scala",
+        "package app.user.domain\nobject UserDeleted {\n  given DomainEventDescriptor[UserDeleted] = DomainEventDescriptor(\"user.deleted.v1\", \"user\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "user/services/UserService.scala",
+        "package app.user.services\nclass UserService(bus: EventBus[UserEvent], outbox: Outbox) {\n  def a = bus.publish(UserEvent.A)\n  def b = bus.publish(UserEvent.B)\n" +
+          "  def c(id: Id) = outbox.publishTransactionally(UserDeleted(id))\n  def d(id: Id) = outbox.publishTransactionally(UserDeleted(id))\n}"
+      )
+    )
+    val (topics, events) = EventExtractor.extract(files, Ownership.of(files)).value
+    assertEquals(
+      (topics.map(_.publishers.map(_.enclosing)), events.map(_.publishers.map(_.enclosing))),
+      (List(List("UserService")), List(List("UserService")))
+    )
+  }
+
+  test("a bus bound by a typed pattern is known by that type") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "user/UserModule.scala",
+        "package app.user\ntrait UserModule {\n  lazy val bus: EventBus[UserEvent] = eventBusRuntime.topic[UserEvent](\"user_events\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        "package app.shop\ntrait ShopModule {\n  lazy val bus: EventBus[ShopEvent] = eventBusRuntime.topic[ShopEvent](\"shop_events\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "user/services/Pinger.scala",
+        "package app.user.services\nobject Pinger {\n  def on(x: Any) = x match {\n    case bus: EventBus[UserEvent] => bus.publish(UserEvent.Ping)\n  }\n}"
+      )
+    )
+    assertEquals(
+      EventExtractor.extract(files, Ownership.of(files)).value._1.map(t => t.name -> t.publishers.map(_.enclosing)),
+      List("shop_events" -> Nil, "user_events" -> List("Pinger"))
+    )
+  }
 }

@@ -40,4 +40,9 @@ class ParsingSuite extends munit.FunSuite {
     os.makeDir.all(dir / "src" / "main" / "scala" / "app")
     assert(ProjectInput.load(dir).isLeft)
   }
+
+  test("a file without a package clause says so") {
+    val result = Parsing.parseAll(Fixtures.project(Fixtures.src("X.scala", "class X")))
+    assertEquals(result.unclassified.map(_.description), List("the file has no package clause, so it is outside app"))
+  }
 }

@@ -5,8 +5,14 @@ import scala.meta.{Member as _, *}
 object TaskExtractor {
   private final case class Definition(task: TaskDecl, definedAs: Option[String])
 
+  private final case class Constant(
+    path: String,
+    name: String,
+    value: String)
+
   def extract(files: List[ParsedFile], ownership: Ownership): Extracted[List[TaskDecl]] = {
-    val found       = files.flatMap(definitionsIn(_, ownership))
+    val constants   = files.flatMap(constantsIn)
+    val found       = files.flatMap(file => definitionsIn(file, ownership, nameOf(file, constants)))
     val definitions = found.collect { case Right(definition) => definition }
     val resolved    = files.flatMap(instancesIn(_, ownership)).flatMap((name, site) => resolve(definitions, name, site).map(_ -> site))
     val tasks       = definitions.map { definition =>
@@ -36,7 +42,16 @@ object TaskExtractor {
     List(candidates.filter(_.task.owner == site.owner), candidates).collectFirst { case List(only) => only }
   }
 
-  private def definitionsIn(file: ParsedFile, ownership: Ownership): List[Either[Unclassified, Definition]] =
+  private def constantsIn(file: ParsedFile): List[Constant] =
+    file.tree.collect { case d: Defn.Val => (Trees.patNames(d.pats), d.rhs) }.collect { case (List(name), Lit.String(value)) =>
+      Constant(file.source.projectPath, name, value)
+    }
+
+  private def definitionsIn(
+    file: ParsedFile,
+    ownership: Ownership,
+    nameOf: Term => String
+  ): List[Either[Unclassified, Definition]] =
     file.tree.collect {
       case call @ Term.Apply.After_4_6_0(fun, args) if taskMethod(fun).contains("recurring") =>
         Trees.argument(args.values, "name", 0).filterNot(isParameter(_, call)).map { name =>
@@ -44,12 +59,12 @@ object TaskExtractor {
         }
       case call @ Term.Apply.After_4_6_0(fun, args) if taskMethod(fun).exists(Set("oneTime", "custom")) =>
         Trees.argument(args.values, "descriptor", 0).flatMap { descriptor =>
-          fromDescriptor(file, ownership, call, descriptor, if (taskMethod(fun).contains("oneTime")) TaskKind.OneTime else TaskKind.Custom)
+          fromDescriptor(file, ownership, call, descriptor, if (taskMethod(fun).contains("oneTime")) TaskKind.OneTime else TaskKind.Custom, nameOf)
         }
       case call @ Term.Apply.After_4_6_0(fun, args) if constructed(fun).isDefined =>
         Trees
           .argument(args.values, "descriptor", 0)
-          .flatMap(fromDescriptor(file, ownership, call, _, constructed(fun).getOrElse(TaskKind.OneTime)))
+          .flatMap(fromDescriptor(file, ownership, call, _, constructed(fun).getOrElse(TaskKind.OneTime), nameOf))
     }.flatten
 
   private def taskMethod(fun: Term): Option[String] = fun match {
@@ -63,9 +78,10 @@ object TaskExtractor {
     ownership: Ownership,
     call: Term,
     descriptor: Term,
-    kind: TaskKind
+    kind: TaskKind,
+    nameOf: Term => String
   ): Option[Either[Unclassified, Definition]] =
-    descriptorName(descriptor) match {
+    descriptorName(descriptor, nameOf) match {
       case Some(name)                            => Some(Right(definition(file, ownership, call, name, kind, None)))
       case None if isParameter(descriptor, call) => None
       case None                                  =>
@@ -114,14 +130,21 @@ object TaskExtractor {
     case _                                    => None
   }
 
-  private def descriptorName(term: Term): Option[String] = term match {
+  private def descriptorName(term: Term, nameOf: Term => String): Option[String] = term match {
     case Term.Apply.After_4_6_0(Term.ApplyType.After_4_6_0(Term.Name("TaskDescriptor"), _), args) =>
       Trees.argument(args.values, "taskName", 0).map(nameOf)
     case Term.Apply.After_4_6_0(Term.Name("TaskDescriptor"), args) => Trees.argument(args.values, "taskName", 0).map(nameOf)
     case _                                                         => None
   }
 
-  private def nameOf(term: Term): String = Trees.stringLiteral(term).getOrElse(Trees.collapse(term.pos.text, 80))
+  private def nameOf(file: ParsedFile, constants: List[Constant])(term: Term): String =
+    Trees
+      .stringLiteral(term)
+      .orElse(lastName(term).flatMap { name =>
+        val candidates = constants.filter(_.name == name)
+        List(candidates.filter(_.path == file.source.projectPath), candidates).map(_.map(_.value).distinct).collectFirst { case List(only) => only }
+      })
+      .getOrElse(Trees.collapse(term.pos.text, 80))
 
   private def scheduleOf(term: Term): String = term match {
     case Term.Apply.After_4_6_0(fun, args) if lastName(fun).contains("Cron") =>
