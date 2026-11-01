@@ -29,7 +29,7 @@ object EventExtractor {
     ownership: Ownership,
     rootPackage: String
   ): Extracted[(List[BusTopic], List[OutboxEvent])] = {
-    val types      = typeDefinitions(files, ownership)
+    val types      = typeDefinitions(files, ownership, rootPackage)
     val scopes     = definitionScopes(files)
     val typeOwners = files.map(file => file -> typeOwnerIn(file, scopes, ownership, rootPackage)).toMap
     val declared   = files.flatMap(topicsIn(_, ownership))
@@ -180,14 +180,17 @@ object EventExtractor {
 
     Extracted(
       (
-        mergedTopics.map(topic => topic.copy(definedIn = fileOf(types, topic.eventType, topic.loc.path, topic.owner))).sortBy(_.name),
+        mergedTopics
+          .map(topic => topic.copy(definedIn = definitionOf(types, topic.eventType, topic.loc.path, topic.owner).map(_.file)))
+          .sortBy(_.name),
         events
-          .map(event =>
-            event.copy(definedIn =
-              fileOf(types, event.typeName, event.loc.path, event.owner)
-                .orElse(files.find(_.source.projectPath == event.loc.path).map(_.source.packagePath))
+          .map { event =>
+            val payload = definitionOf(types, event.typeName, event.loc.path, event.owner)
+            event.copy(
+              definedIn = payload.map(_.file).orElse(files.find(_.source.projectPath == event.loc.path).map(_.source.packagePath)),
+              payloadDigest = payload.map(_.digest)
             )
-          )
+          }
           .sortBy(_.eventType)
       ),
       warnings,
@@ -203,9 +206,14 @@ object EventExtractor {
     outer: List[String],
     path: String,
     file: String,
-    owner: Owner)
+    owner: Owner,
+    digest: String)
 
-  private def typeDefinitions(files: List[ParsedFile], ownership: Ownership): List[TypeDefinition] =
+  private def typeDefinitions(
+    files: List[ParsedFile],
+    ownership: Ownership,
+    rootPackage: String
+  ): List[TypeDefinition] =
     files.flatMap { file =>
       file.tree
         .collect {
@@ -214,22 +222,24 @@ object EventExtractor {
           case d: Defn.Enum  => d -> d.name.value
         }
         .map { (defn, name) =>
-          val outer = Trees.ancestors(defn).collect { case o: Defn.Object => o.name.value }.reverse
-          TypeDefinition(name, outer, file.source.projectPath, file.source.packagePath, ownership.ownerOf(file.pkg))
+          val outer     = Trees.ancestors(defn).collect { case o: Defn.Object => o.name.value }.reverse
+          val companion = defn.parent.toList.flatMap(_.children).collect { case o: Defn.Object if o.name.value == name => o }
+          val digest    = Trees.hash((defn :: companion).map(Trees.codeDigest(_, rootPackage)).mkString)
+          TypeDefinition(name, outer, file.source.projectPath, file.source.packagePath, ownership.ownerOf(file.pkg), digest)
         }
     }
 
-  private def fileOf(
+  private def definitionOf(
     types: List[TypeDefinition],
     typeName: String,
     declaredIn: String,
     owner: Owner
-  ): Option[String] = {
+  ): Option[TypeDefinition] = {
     val named      = types.filter(_.name == simpleName(typeName))
     val qualifier  = typeName.takeWhile(_ != '[').split('.').toList.dropRight(1)
     val nested     = named.filter(t => qualifier.nonEmpty && t.outer.endsWith(qualifier))
     val candidates = if (nested.nonEmpty) nested else named
-    List(candidates.filter(_.path == declaredIn), candidates.filter(_.owner == owner), candidates).collectFirst { case List(only) => only.file }
+    List(candidates.filter(_.path == declaredIn), candidates.filter(_.owner == owner), candidates).collectFirst { case List(only) => only }
   }
 
   private def simpleName(typeName: String): String = typeName.takeWhile(_ != '[').split('.').last

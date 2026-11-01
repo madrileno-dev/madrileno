@@ -37,19 +37,22 @@ object Mermaid {
     val large     = if (unchanged) None else tooLarge(graph)
     val elsewhere = outside.nonEmpty || tasksChanged(diff)
     val heading   = s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n"
+    val blast     = diff.blastRadius.fold("")(radius =>
+      s"\n**Blast radius: ${radius.level.toString.toLowerCase}.** ${BlastRadius.summary(radius, name => s"`$name`")}\n"
+    )
     def compose(intro: Option[String], footer: String): String =
       if (unchanged && !elsewhere)
-        s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n${if (metricsMoved(diff)) metricsSection(diff) else ""}$footer$Credit"
-      else if (unchanged) s"$heading${metricsSection(diff)}$footer$Credit"
+        s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n$blast${if (metricsMoved(diff)) metricsSection(diff) else ""}$footer$Credit"
+      else if (unchanged) s"$heading$blast${metricsSection(diff)}$footer$Credit"
       else
         intro match {
-          case Some(text) => s"$heading\n$text\n\n${summary(diff)}${metricsSection(diff)}$footer$Credit"
+          case Some(text) => s"$heading$blast\n$text\n\n${summary(diff)}${metricsSection(diff)}$footer$Credit"
           case None       =>
             val note =
               if (graph.collapsed)
                 s"\n_The classes modules wire are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
               else ""
-            s"$heading\n```mermaid\n${diagram(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
+            s"$heading$blast\n```mermaid\n${diagram(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
         }
     val lists      = (if (large.isDefined) "" else section("Outside the modules", outside)) + footerOf(diff)
     val pointer    = if (lists.isEmpty) "" else "\n_The lists of changes would make this longer than GitHub accepts. Open the HTML for them._\n"

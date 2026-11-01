@@ -115,7 +115,8 @@ final case class OutboxEvent(
   publishers: List[Site],
   subscribers: List[OutboxSubscriber],
   loc: Loc,
-  definedIn: Option[String] = None)
+  definedIn: Option[String] = None,
+  payloadDigest: Option[String] = None)
     derives ReadWriter
 
 enum TaskKind derives ReadWriter {
@@ -157,7 +158,8 @@ final case class Migration(
   alters: List[String] = Nil,
   drops: List[String] = Nil,
   indexes: List[String] = Nil,
-  writes: List[String] = Nil)
+  writes: List[String] = Nil,
+  destructive: List[Destructive] = Nil)
     derives ReadWriter {
   def tables: List[String] = (creates ++ alters ++ drops ++ indexes ++ writes).distinct
 
@@ -166,6 +168,8 @@ final case class Migration(
       .collect { case (verb, tables) if tables.nonEmpty => s"$verb ${tables.map(name).mkString(", ")}" }
       .mkString(", ")
 }
+
+final case class Destructive(verb: String, target: String) derives ReadWriter
 
 final case class MigrationTable(name: String, loc: Loc) derives ReadWriter
 

@@ -84,7 +84,11 @@ object Html {
           row.description
         )}</div></div>"""
     }
-    s"""<div class="metrics">${cards.mkString}</div>"""
+    val blast = diff.blastRadius.map { radius =>
+      s"""<div class="metric"><div class="metric-name">Blast radius</div><div class="metric-value">${radius.level}</div><div class="muted">${BlastRadius
+          .summary(radius, name => s"<code>${escape(name)}</code>")}</div></div>"""
+    }
+    s"""<div class="metrics">${(blast.toList ++ cards).mkString}</div>"""
   }
 
   private def summary(diff: DiffModel): String = {

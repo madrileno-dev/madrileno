@@ -57,7 +57,7 @@ An assistant can hand over a large change faster than anyone can read it. Start 
 - new dependencies between modules
 - events and tables
 
-It also warns where the change drifts from the template's conventions. `AGENTS.md` tells the assistant to run the same check, as Mermaid (`--diff main --mermaid`), after changes that add or move modules, services, repositories, events or tables, and to fix the new warnings and unclassified items it lists. It also tells the assistant to paste that output into the PR description, so the picture is already there when you open the PR. See [scripts.md](scripts.md#architecturescala).
+It starts with the blast radius: how many other modules depend on what changed, and whether anything is hard to undo, such as a dropped column or an edited migration. A low one may need only a skim, a high one a close read. It also warns where the change drifts from the template's conventions. `AGENTS.md` tells the assistant to run the same check, as Mermaid (`--diff main --mermaid`), after changes that add or move modules, services, repositories, events or tables, and to fix the new warnings and unclassified items it lists. It also tells the assistant to paste that output into the PR description, so the picture is already there when you open the PR. See [scripts.md](scripts.md#architecturescala).
 
 ## How the assistant runs the app
 

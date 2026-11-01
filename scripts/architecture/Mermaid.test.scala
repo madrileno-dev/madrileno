@@ -5,7 +5,12 @@ class MermaidSuite extends munit.FunSuite {
   private val out  = Mermaid.render(diff)
 
   test("header, flowchart and class definitions") {
-    assert(out.startsWith("### Architecture changes: `main@abc1234` → `working tree`\n\n```mermaid\n---\nconfig:\n  theme: base\n"), out)
+    assert(
+      out.startsWith(
+        "### Architecture changes: `main@abc1234` → `working tree`\n\n**Blast radius: low.** No other module depends on what changed. Code outside the modules changed too, which this doesn't trace.\n\n```mermaid\n---\nconfig:\n  theme: base\n"
+      ),
+      out
+    )
     assert(out.contains("---\nflowchart LR\n"), out)
     assert(out.contains("classDef added fill:#2f7d4a,stroke:#1f5c35,color:#ffffff"))
   }
@@ -33,7 +38,7 @@ class MermaidSuite extends munit.FunSuite {
     val same = ArchDiff.compare(Fixtures.diffHead, Fixtures.diffHead, "main@abc1234", "working tree")
     assertEquals(
       Mermaid.render(same),
-      "No architecture changes between `main@abc1234` and `working tree`.\n\n<sub>Mapped by Madrileño's <code>scripts/architecture.scala</code></sub>\n"
+      "No architecture changes between `main@abc1234` and `working tree`.\n\n**Blast radius: low.** No module changed.\n\n<sub>Mapped by Madrileño's <code>scripts/architecture.scala</code></sub>\n"
     )
   }
 
@@ -52,6 +57,7 @@ class MermaidSuite extends munit.FunSuite {
     val text  = Mermaid.render(ArchDiff.compare(empty, Extractor.extract(Fixtures.project(many*)), "b", "h"))
     assert(!text.contains("```mermaid"), text.take(300))
     assert(text.contains("**Added modules (90):** m1, m10, m11"), text.take(600))
+    assert(text.contains("\n**Blast radius: low.** No other module depends on what changed.\n"), text.take(600))
   }
 
   test("edges between two unchanged neighbours are left out") {
@@ -500,6 +506,7 @@ class MermaidSuite extends munit.FunSuite {
     assert(text.length < 65536, text.length.toString)
     assert(text.contains("**New unclassified**"), text.take(800))
     assert(text.contains("+600 more"), text.takeRight(800))
+    assert(text.contains("**Blast radius: low.**"), text.take(800))
   }
 
   test("an over-long output caps the findings first and keeps a short list of changes") {

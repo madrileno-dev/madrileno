@@ -13,17 +13,20 @@ object MigrationExtractor {
   private val Rename = s"""(?i)\\balter\\s+table\\s+(?:if\\s+exists\\s+)?+(?:only\\s+)?+($Name)\\s+rename\\s+to\\s+($Name)""".r
   private val Index  =
     s"""(?i)\\bcreate\\s+(?:unique\\s+)?index\\s+(?:concurrently\\s+)?(?:if\\s+not\\s+exists\\s+)?(?:$Name\\s+)?on\\s+(?:only\\s+)?($Name)""".r
-  private val Writes = List(
-    s"""(?i)\\binsert\\s+into\\s+($Name)""",
-    s"""(?i)\\bupdate\\s+(?:only\\s+)?($Name)(?:\\s+(?:as\\s+)?[A-Za-z_][A-Za-z0-9_]*)?\\s+set\\b""",
-    s"""(?i)\\bdelete\\s+from\\s+(?:only\\s+)?($Name)""",
-    s"""(?i)\\btruncate\\s+(?:table\\s+)?(?:only\\s+)?($Name(?:\\s*,\\s*$Name)*)""",
-    s"""(?i)\\bmerge\\s+into\\s+(?:only\\s+)?($Name)""",
-    s"""(?i)\\bcopy\\s+($Name)(?:\\s*\\([^)]*\\))?\\s+from\\b"""
-  ).map(_.r)
-  private val Version  = """V(\d+(?:[._]\d+)*)__.*""".r
-  private val Comments = """(?s)((?<![A-Za-z0-9_])[Ee]'[^'\\]*+(?:(?:\\.|'')[^'\\]*+)*+'|'[^']*+(?:''[^']*+)*+')|--[^\n]*|/\*.*?\*/""".r
-  private val Part     = """"([^"]+)"|([A-Za-z0-9_$]+)""".r
+  private val Update   = s"""(?i)\\bupdate\\s+(?:only\\s+)?($Name)(?:\\s+(?:as\\s+)?[A-Za-z_][A-Za-z0-9_]*)?\\s+set\\b""".r
+  private val Delete   = s"""(?i)\\bdelete\\s+from\\s+(?:only\\s+)?($Name)""".r
+  private val Truncate = s"""(?i)\\btruncate\\s+(?:table\\s+)?(?:only\\s+)?($Name(?:\\s*,\\s*$Name)*)""".r
+  private val Merge    = s"""(?i)\\bmerge\\s+into\\s+(?:only\\s+)?($Name)""".r
+  private val Writes   =
+    List(s"""(?i)\\binsert\\s+into\\s+($Name)""".r, Update, Delete, Truncate, Merge, s"""(?i)\\bcopy\\s+($Name)(?:\\s*\\([^)]*\\))?\\s+from\\b""".r)
+  private val AlterActions = s"""(?is)\\balter\\s+table\\s+(?:if\\s+exists\\s+)?+(?:only\\s+)?+($Name)(.*)""".r.unanchored
+  private val DropColumn   =
+    s"""(?i)(?:^|,)\\s*drop\\s+(?!constraint\\b|default\\b|not\\s+null\\b|identity\\b|expression\\b)(?:column\\s+)?(?:if\\s+exists\\s+)?($Name)""".r
+  private val RenameColumn = s"""(?i)(?:^|,)\\s*rename\\s+(?!to\\b|constraint\\b)(?:column\\s+)?($Name)\\s+to\\b""".r
+  private val RetypeColumn = s"""(?i)(?:^|,)\\s*alter\\s+(?:column\\s+)?($Name)\\s+(?:set\\s+data\\s+)?type\\b""".r
+  private val Version      = """V(\d+(?:[._]\d+)*)__.*""".r
+  private val Comments     = """(?s)((?<![A-Za-z0-9_])[Ee]'[^'\\]*+(?:(?:\\.|'')[^'\\]*+)*+'|'[^']*+(?:''[^']*+)*+')|--[^\n]*|/\*.*?\*/""".r
+  private val Part         = """"([^"]+)"|([A-Za-z0-9_$]+)""".r
 
   def extract(files: List[SourceFile]): List[Migration] =
     inVersionOrder(files)(_.packagePath).map { file =>
@@ -45,8 +48,38 @@ object MigrationExtractor {
           .flatMap(_.group(1).split(',').map(tableName))
           .distinct
           .filterNot(creates.contains)
-          .filterNot(temporary.contains)
+          .filterNot(temporary.contains),
+        destructive(sql).filterNot(d => creates.contains(d.table) || temporary.contains(d.table)).map(_.change)
       )
+    }
+
+  private final case class Loss(table: String, change: Destructive)
+
+  private def destructive(sql: String): List[Loss] =
+    sql.split(';').toList.flatMap { statement =>
+      val tables = List(
+        "drops table"       -> Drop,
+        "renames table"     -> Rename,
+        "updates rows in"   -> Update,
+        "deletes rows from" -> Delete,
+        "truncates"         -> Truncate,
+        "merges into"       -> Merge
+      ).flatMap { (verb, pattern) =>
+        pattern
+          .findAllMatchIn(statement)
+          .toList
+          .flatMap(m => m.group(1).split(',').map(tableName).map(table => m.start -> Loss(table, Destructive(verb, table))))
+      }
+      val columns = statement match {
+        case AlterActions(name, actions) =>
+          val table  = tableName(name)
+          val offset = statement.length - actions.length
+          List("drops column" -> DropColumn, "renames column" -> RenameColumn, "changes the type of" -> RetypeColumn).flatMap { (verb, pattern) =>
+            pattern.findAllMatchIn(actions).map(m => offset + m.start -> Loss(table, Destructive(verb, s"$table.${tableName(m.group(1))}")))
+          }
+        case _ => Nil
+      }
+      (tables ++ columns).sortBy(_._1).map(_._2)
     }
 
   private enum Statement {
