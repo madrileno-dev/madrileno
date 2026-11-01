@@ -18,11 +18,14 @@ The contract is `put(key, metadata, body) -> bytes written`, `get(key, ttl, file
 
 ## Quick start (dev)
 
-`docker compose up -d` brings up [Silo](https://silo.pgsty.com/) (a maintained MinIO fork; upstream's Docker Hub images were pulled) on `127.0.0.1:59000` (S3 API) and `127.0.0.1:59001` (console — login `minioadmin` / `minioadmin`). A `silo-init` sidecar runs `mc mb --ignore-existing local/madrileno` once the server is healthy, so the bucket is there on first boot.
+The stock `.env` selects the disk backend (`OBJECT_STORAGE=disk`): objects live under `uploads/` (git-ignored; `STORAGE_DISK_ROOT` moves it) and no service is needed. Everything below is for the S3 backend, which the `full` compose profile serves locally.
 
-`.env.sample` is wired against that container:
+`docker compose --profile full up -d` brings up [Silo](https://silo.pgsty.com/) (a maintained MinIO fork; upstream's Docker Hub images were pulled) on `127.0.0.1:59000` (S3 API) and `127.0.0.1:59001` (console — login `minioadmin` / `minioadmin`). A `silo-init` sidecar runs `mc mb --ignore-existing local/madrileno` once the server is healthy, so the bucket is there on first boot.
+
+`.env.sample` is wired against that container; set `OBJECT_STORAGE=s3` to use it:
 
 ```
+OBJECT_STORAGE=s3
 S3_ENDPOINT=http://localhost:59000
 S3_REGION=us-east-1
 S3_BUCKET=madrileno
@@ -30,14 +33,14 @@ S3_ACCESS_KEY_ID=minioadmin
 S3_SECRET_ACCESS_KEY=minioadmin
 ```
 
-`Main.scala` always wires the S3 backend:
+`Main.scala` wires whichever backend `storage.backend` names and logs the choice at startup:
 
 ```scala
 storageConfig      <- Resource.eval(IO.delay(config.at("storage").loadOrThrow[StorageConfig]))
-objectStoreRuntime <- ObjectStoreRuntime.s3(storageConfig)
+objectStoreRuntime <- ObjectStoreRuntime.fromConfig(storageConfig)   // disk(...) or s3(...)
 ```
 
-If you want the disk backend instead (e.g. zero-deps local dev or running tests outside Testcontainers), swap that line for `Resource.pure(ObjectStoreRuntime.disk(FsPath("./uploads"), storageConfig.maxFetchBytes))`. There's intentionally no config-driven dispatch — the choice lives in `Main`, the same way `CacheRuntime.scaffeine` and `RateLimiterRuntime.scaffeine()` do.
+The HOCON default is `s3`, so a deployment that sets only the `S3_*` variables behaves as before; `.env.sample` sets `OBJECT_STORAGE=disk` for local work. This is the one runtime whose choice is config-driven rather than fixed in `Main` like `CacheRuntime.scaffeine`: the dev stack is Postgres-only by default, and moving between that and the full profile has to be an `.env` edit, not a code change.
 
 ## The abstraction
 

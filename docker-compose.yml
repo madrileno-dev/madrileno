@@ -16,6 +16,7 @@ services:
       retries: 10
 
   mailpit:
+    profiles: ["full"]
     image: axllent/mailpit:latest
     environment:
       MP_MAX_MESSAGES: 5000
@@ -26,6 +27,7 @@ services:
       - "127.0.0.1:58025:8025"  # UI + REST API at http://localhost:58025
 
   openobserve:
+    profiles: ["full"]
     image: public.ecr.aws/zinclabs/openobserve:latest
     environment:
       ZO_ROOT_USER_EMAIL: root@example.com
@@ -41,6 +43,7 @@ services:
       retries: 20
 
   silo:
+    profiles: ["full"]
     image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z
     command: server /data --console-address ":9001"
     environment:
@@ -58,6 +61,7 @@ services:
       retries: 10
 
   silo-init:
+    profiles: ["full"]
     image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z
     depends_on:
       silo:

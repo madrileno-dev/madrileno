@@ -12,7 +12,7 @@ import java.util.Base64
 import scala.concurrent.duration.FiniteDuration
 
 class Mailer(
-  smtpSender: SmtpSender,
+  sender: MailSender,
   schedulerClient: SchedulerClient,
   context: MailContext
 )(using
@@ -24,7 +24,7 @@ class Mailer(
   val sendMailTask: OneTimeTask[SerializedMail] =
     Task.oneTime(TaskDescriptor[SerializedMail]("send-mail")) { task =>
       logger.info(s"Sending email to ${task.payload.to.mkString(", ")}: ${task.payload.subject}") *>
-        smtpSender.send(task.payload)
+        sender.send(task.payload)
     }
 
   /** Schedule an email for delivery. If both `at` and `in` are provided, `at` takes precedence. */

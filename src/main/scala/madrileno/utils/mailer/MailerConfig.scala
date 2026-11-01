@@ -9,5 +9,6 @@ final case class MailerConfig(
   password: Option[String] = None,
   fromAddress: String,
   fromName: Option[String] = None,
-  tls: Boolean = true)
+  tls: Boolean = true,
+  sender: MailSenderKind = MailSenderKind.Smtp)
     derives ConfigReader

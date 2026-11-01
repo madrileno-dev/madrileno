@@ -283,7 +283,7 @@ Separate from the OTel layer: sttp's `LoggingBackend` is also wired into the sha
 Everything is `OTEL_*` environment variables — see `.env.sample`:
 
 ```
-OTEL_SDK_DISABLED=false
+OTEL_SDK_DISABLED=true     # the stock .env keeps telemetry off; false once OpenObserve runs (docker compose --profile full up -d)
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 OTEL_EXPORTER_OTLP_HEADERS="authorization=Basic …"
 OTEL_SERVICE_NAME="madrileno"
@@ -292,7 +292,7 @@ OTEL_EXPORTER_OTLP_METRICS_ENDPOINT="http://localhost:55080/api/default/v1/metri
 OTEL_EXPORTER_OTLP_LOGS_ENDPOINT="http://localhost:55080/api/default/v1/logs"
 ```
 
-`OtelJava.autoConfigured[IO]()` reads these directly — the app code doesn't parse OTLP config. Set `OTEL_SDK_DISABLED=true` to disable telemetry entirely (useful in load tests where you don't want to measure the exporter).
+`OtelJava.autoConfigured[IO]()` reads these directly — the app code doesn't parse OTLP config. `OTEL_SDK_DISABLED=true` disables telemetry entirely: the stock `.env` ships that way because the default dev stack has no OTLP receiver and an exporter with nowhere to send fills the log with retries. It's also what you want in load tests where you don't want to measure the exporter.
 
 `OTEL_SERVICE_NAME` does double duty: the autoconfigured SDK uses it for the resource `service.name`, and `application.conf` also feeds it into `app.name`, which names the OTel instrumentation scope. So it's the single knob for the service's identity — set it per deployment and both follow.
 
@@ -311,7 +311,7 @@ OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=your-key"
 
 ## OpenObserve in dev
 
-`docker compose up -d` starts it. Open `http://localhost:55080`, log in with `root@example.com` / `Complexpass#123`. Tabs:
+`docker compose --profile full up -d` starts it; set `OTEL_SDK_DISABLED=false` in `.env` and restart the app. Open `http://localhost:55080`, log in with `root@example.com` / `Complexpass#123`. Tabs:
 
 - **Logs** — every log line that went through the OpenTelemetry appender. Filter by trace ID, level, MDC keys.
 - **Traces** — span tree per request. Click an inbound HTTP span and you see the DB queries, outbound calls, custom spans inside.

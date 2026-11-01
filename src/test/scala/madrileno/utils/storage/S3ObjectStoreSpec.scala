@@ -36,6 +36,8 @@ class S3ObjectStoreSpec extends AsyncWordSpec with AsyncIOSpec with Matchers wit
 
   private def configFor(container: GenericContainer): StorageConfig = StorageConfig(
     maxFetchBytes = 10L * 1024L * 1024L,
+    backend = ObjectStorageBackend.S3,
+    disk = DiskStorageConfig("uploads"),
     objectStorage = S3Config(
       endpoint = s"http://${container.host}:${container.mappedPort(9000)}",
       region = "us-east-1",

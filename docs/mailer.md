@@ -22,7 +22,7 @@ service: mailer.send(to, template, lang)
         scheduler picks it up (async)
                 │
                 ▼
-   sendMailTask.execution(task) → smtpSender.send(payload)
+   sendMailTask.execution(task) → sender.send(payload)
                 │
                 ▼
         SMTP delivery (or retry)
@@ -38,7 +38,7 @@ The send call returns once the row is in the queue. Delivery is the scheduler's 
 | `EmailTemplate`                       | Trait with one method: `render(ctx, lang): RenderedMail`. Templates live in feature modules. |
 | `RenderedMail` / `MailBody`           | The intermediate output: subject, text/html body, optional inline attachments.              |
 | `SerializedMail` / `SerializedMailBody` | Wire format the scheduler row stores. HTML tags get rendered to a string at serialization. |
-| `SmtpSender`                          | Wraps Jakarta Mail. Talks to the configured SMTP host.                                       |
+| `MailSender`                          | What `Mailer` delivers through: `SmtpSender` (Jakarta Mail, the configured SMTP host) or `LoggingSender` (the application log; `mailer.sender = log`). |
 | `MailerConfig`                        | host / port / credentials / from address / TLS — pureconfig-loaded from `mailer.*`.         |
 | `MailPreview` / `MailPreviewRouter`   | Dev-mode `/admin/mail-previews` UI for rendering templates without sending.                  |
 
@@ -145,7 +145,7 @@ If both `at` and `in` are provided, `at` wins.
 val sendMailTask: OneTimeTask[SerializedMail] =
   Task.oneTime(TaskDescriptor[SerializedMail]("send-mail")) { task =>
     logger.info(s"Sending email to ${task.payload.to.mkString(", ")}: ${task.payload.subject}") *>
-      smtpSender.send(task.payload)
+      sender.send(task.payload)
   }
 ```
 
@@ -164,12 +164,15 @@ mailer {
   from-address = "noreply@example.com"         # default sender
   from-name    = "App"                         # display name
   tls          = true                          # STARTTLS
+  sender       = "smtp"                        # or "log": write each mail to the application log instead of sending
 }
 ```
 
-In dev (`docker compose up -d`), Mailpit runs on `localhost:51025` (SMTP) with no auth and TLS off. The default `.env` matches.
+`sender` picks the `MailSender`: `SmtpSender` for `smtp`, `LoggingSender` for `log`. The stock `.env` sets `MAILER_SENDER=log`, so the Postgres-only dev stack needs no SMTP server: each mail shows up in the log as one entry with recipients, subject and the text body (HTML-only mails are summarised by size). The scheduler path is the same either way, so retries, the `send-mail` task and the previews UI all behave as in production.
 
-For production, point at SES / SendGrid / your provider's SMTP relay. The mailer doesn't ship API-based delivery (e.g., SES native API) — if you need that, drop a different `SmtpSender` implementation in.
+With the `full` compose profile (`docker compose --profile full up -d`), Mailpit runs on `localhost:51025` (SMTP) with no auth and TLS off; set `MAILER_SENDER=smtp` and the default `.env` matches it.
+
+For production, leave `sender` at its `smtp` default and point at SES / SendGrid / your provider's SMTP relay. The mailer doesn't ship API-based delivery (e.g., SES native API) — if you need that, add a `MailSender` implementation and a `MailSenderKind` for it.
 
 ## Previews
 
