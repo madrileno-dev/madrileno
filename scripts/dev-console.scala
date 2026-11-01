@@ -40,8 +40,7 @@ object DevConsole {
     val root          = os.pwd
     val classpathFile = root / "target" / "console-classpath"
 
-    require(os.exists(root / "build.sbt"),
-      s"$root doesn't look like the project root (no build.sbt)")
+    require(os.exists(root / "build.sbt"), s"$root doesn't look like the project root (no build.sbt)")
     if (!os.exists(classpathFile)) {
       Console.err.println(s"missing $classpathFile")
       Console.err.println("run `sbt compile` first — that hook writes the cached classpath (and ensures project classes exist).")
@@ -49,8 +48,7 @@ object DevConsole {
     }
 
     val packageDirs = os.list(root / "src" / "main" / "scala").filter(os.isDir(_))
-    require(packageDirs.size == 1,
-      s"expected exactly one package directory under src/main/scala/, found: ${packageDirs.map(_.last).mkString(", ")}")
+    require(packageDirs.size == 1, s"expected exactly one package directory under src/main/scala/, found: ${packageDirs.map(_.last).mkString(", ")}")
     val packageName = packageDirs.head.last
 
     val cp = os.read(classpathFile).trim
@@ -59,29 +57,29 @@ object DevConsole {
     val envFromFile: Map[String, String] = {
       val f = root / ".env"
       if (!os.exists(f)) Map.empty
-      else os.read(f).linesIterator
-        .map(_.trim)
-        .filter(l => l.nonEmpty && !l.startsWith("#"))
-        .flatMap { l =>
-          l.split("=", 2) match {
-            case Array(k, v) =>
-              val unquoted = v.trim.stripPrefix("\"").stripSuffix("\"").stripPrefix("'").stripSuffix("'")
-              Some(k.trim -> unquoted)
-            case _ => None
+      else
+        os.read(f)
+          .linesIterator
+          .map(_.trim)
+          .filter(l => l.nonEmpty && !l.startsWith("#"))
+          .flatMap { l =>
+            l.split("=", 2) match {
+              case Array(k, v) =>
+                val unquoted = v.trim.stripPrefix("\"").stripSuffix("\"").stripPrefix("'").stripSuffix("'")
+                Some(k.trim -> unquoted)
+              case _ => None
+            }
           }
-        }.toMap
+          .toMap
     }
 
     val predef     = predefSource.replace("__package__", packageName)
     val predefFile = os.temp(predef, prefix = "dev-console-predef-", suffix = ".scala")
 
-    val rc = os.proc("scala-cli", "repl", "--scala", "3.9.0", "--classpath", cp, predefFile.toString).call(
-      env = envFromFile ++ sys.env,
-      stdin = os.Inherit,
-      stdout = os.Inherit,
-      stderr = os.Inherit,
-      check = false
-    ).exitCode
+    val rc = os
+      .proc("scala-cli", "repl", "--scala", "3.9.0", "--classpath", cp, predefFile.toString)
+      .call(env = envFromFile ++ sys.env, stdin = os.Inherit, stdout = os.Inherit, stderr = os.Inherit, check = false)
+      .exitCode
     sys.exit(rc)
   }
 

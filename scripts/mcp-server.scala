@@ -17,12 +17,23 @@ import scala.util.{Failure, Success, Try}
 
 case class MadrilenoRef(repo: String, sha: String)
 
-case class OverviewInput()                                                                derives io.circe.Codec.AsObject, Schema
-case class ModuleInput(name: String, at: Option[String])                                  derives io.circe.Codec.AsObject, Schema
-case class DocInput(name: String)                                                         derives io.circe.Codec.AsObject, Schema
-case class SourceInput(path: String, at: Option[String])                                  derives io.circe.Codec.AsObject, Schema
-case class ChangesInput(since: Option[String], paths: Option[List[String]], target: Option[String]) derives io.circe.Codec.AsObject, Schema
-case class DiffInput(since: Option[String], target: Option[String], paths: Option[List[String]], format: Option[String]) derives io.circe.Codec.AsObject, Schema
+case class OverviewInput() derives io.circe.Codec.AsObject, Schema
+case class ModuleInput(name: String, at: Option[String]) derives io.circe.Codec.AsObject, Schema
+case class DocInput(name: String) derives io.circe.Codec.AsObject, Schema
+case class SourceInput(path: String, at: Option[String]) derives io.circe.Codec.AsObject, Schema
+case class ChangesInput(
+  since: Option[String],
+  paths: Option[List[String]],
+  target: Option[String])
+    derives io.circe.Codec.AsObject,
+      Schema
+case class DiffInput(
+  since: Option[String],
+  target: Option[String],
+  paths: Option[List[String]],
+  format: Option[String])
+    derives io.circe.Codec.AsObject,
+      Schema
 
 object MCPServer {
 
@@ -42,7 +53,7 @@ object MCPServer {
       // Parse to (lineNo, key, value) so malformed lines produce a specific error rather than
       // being silently dropped — a `.madrileno-ref` with `ref <sha>` instead of `ref=<sha>`
       // would otherwise just produce a generic "must contain `ref=` line" message.
-      val lines = os.read(refFile).linesIterator.zipWithIndex.toList
+      val lines  = os.read(refFile).linesIterator.zipWithIndex.toList
       val parsed = lines
         .map { case (l, i) => (i + 1, l.trim) }
         .filter { case (_, l) => l.nonEmpty && !l.startsWith("#") }
@@ -53,7 +64,7 @@ object MCPServer {
         val map = parsed.flatMap { case (_, l) => l.split("=", 2) match { case Array(k, v) => Some(k.trim -> v.trim); case _ => None } }.toMap
         (map.get("repo"), map.get("ref")) match {
           case (Some(repo), Some(ref)) => Right(MadrilenoRef(repo, ref))
-          case _                       => Left(s"$refFile must contain `repo=<url>` and `ref=<sha>` lines (found keys: ${map.keys.toList.sorted.mkString(", ")})")
+          case _ => Left(s"$refFile must contain `repo=<url>` and `ref=<sha>` lines (found keys: ${map.keys.toList.sorted.mkString(", ")})")
         }
       }
     }
@@ -93,9 +104,9 @@ object MCPServer {
   // Tool inputs are AI-supplied; restrict to characters that compose into safe git paths.
   // Module/doc names are simple identifiers; refs may include `/`, `.`, `@`, `^`, `~` for branches/tags
   // but must be single refnames (no `..` ranges — the caller composes ranges by passing since/target separately).
-  private val ValidNamePattern   = """[A-Za-z0-9_-]+""".r
-  private val ValidRefPattern    = """[a-zA-Z0-9_./@^~-]+""".r
-  private val PinnedShaPattern   = """[0-9a-fA-F]{7,40}""".r // accept short shas down to 7 chars; case-insensitive per git
+  private val ValidNamePattern = """[A-Za-z0-9_-]+""".r
+  private val ValidRefPattern  = """[a-zA-Z0-9_./@^~-]+""".r
+  private val PinnedShaPattern = """[0-9a-fA-F]{7,40}""".r // accept short shas down to 7 chars; case-insensitive per git
   private def validateName(name: String): Either[String, Unit] =
     if (ValidNamePattern.matches(name)) Right(()) else Left(s"name must match [A-Za-z0-9_-]+; got '$name'")
   private def validateRef(ref: String): Either[String, Unit] =
@@ -132,7 +143,9 @@ object MCPServer {
         Console.err.println(s"[mcp] fetching latest in $shadowDir")
         val r = os.proc("git", "-C", shadowDir.toString, "fetch", "origin").call(check = false)
         if (r.exitCode != 0)
-          Console.err.println(s"[mcp] warning: `git fetch origin` failed (exit ${r.exitCode}); madrileno_changes will compare against the cached origin/main: ${r.err.text().trim}")
+          Console.err.println(
+            s"[mcp] warning: `git fetch origin` failed (exit ${r.exitCode}); madrileno_changes will compare against the cached origin/main: ${r.err.text().trim}"
+          )
       }
     } match {
       case Success(_) => Right(())
@@ -171,32 +184,41 @@ object MCPServer {
     else Left(s"git ls-tree -r --name-only $ref -- $path failed: ${r.err.text().trim}")
   }
 
-  def gitLog(since: String, target: String, paths: List[String]): Either[String, List[String]] = {
+  def gitLog(
+    since: String,
+    target: String,
+    paths: List[String]
+  ): Either[String, List[String]] = {
     for {
-      _    <- validateRef(since)
-      _    <- validateRef(target)
-      _    <- paths.foldLeft(Right(()): Either[String, Unit])((acc, p) => acc.flatMap(_ => validatePath(p)))
-      base  = Seq("git", "-C", shadowDir.toString, "log", "--oneline", "--no-decorate", s"$since..$target")
-      args  = if (paths.nonEmpty) base ++ Seq("--") ++ paths else base
-      r     = os.proc(args).call(check = false)
+      _ <- validateRef(since)
+      _ <- validateRef(target)
+      _ <- paths.foldLeft(Right(()): Either[String, Unit])((acc, p) => acc.flatMap(_ => validatePath(p)))
+      base = Seq("git", "-C", shadowDir.toString, "log", "--oneline", "--no-decorate", s"$since..$target")
+      args = if (paths.nonEmpty) base ++ Seq("--") ++ paths else base
+      r    = os.proc(args).call(check = false)
       logs <- if (r.exitCode == 0) Right(r.out.text().linesIterator.toList.filter(_.nonEmpty))
               else Left(s"git log $since..$target failed: ${r.err.text().trim}")
     } yield logs
   }
 
-  def gitDiff(since: String, target: String, paths: List[String], stat: Boolean): Either[String, String] = {
+  def gitDiff(
+    since: String,
+    target: String,
+    paths: List[String],
+    stat: Boolean
+  ): Either[String, String] = {
     for {
-      _    <- validateRef(since)
-      _    <- validateRef(target)
-      _    <- paths.foldLeft(Right(()): Either[String, Unit])((acc, p) => acc.flatMap(_ => validatePath(p)))
+      _ <- validateRef(since)
+      _ <- validateRef(target)
+      _ <- paths.foldLeft(Right(()): Either[String, Unit])((acc, p) => acc.flatMap(_ => validatePath(p)))
       // --stat=400: when stdout isn't a tty git assumes 80 columns and ellipsizes file names,
       // which mangles exactly the paths the caller needs to feed back into a path-filtered call.
-      mode  = if (stat) Seq("--stat=400") else Seq.empty
-      args  = Seq("git", "-C", shadowDir.toString, "diff") ++ mode ++ Seq(s"$since..$target") ++
-                (if (paths.nonEmpty) Seq("--") ++ paths else Seq.empty)
-      r     = os.proc(args).call(check = false)
-      out  <- if (r.exitCode == 0) Right(r.out.text())
-              else Left(s"git diff $since..$target failed: ${r.err.text().trim}")
+      mode = if (stat) Seq("--stat=400") else Seq.empty
+      args = Seq("git", "-C", shadowDir.toString, "diff") ++ mode ++ Seq(s"$since..$target") ++
+               (if (paths.nonEmpty) Seq("--") ++ paths else Seq.empty)
+      r = os.proc(args).call(check = false)
+      out <- if (r.exitCode == 0) Right(r.out.text())
+             else Left(s"git diff $since..$target failed: ${r.err.text().trim}")
     } yield out
   }
 
@@ -270,7 +292,9 @@ object MCPServer {
          |- `madrileno_module(name, at?)` — all source files for one module (main + tests). `at` (default: pinned ref) reads another ref, e.g. `origin/main` for upstream-latest.
          |- `madrileno_doc(name)` — one doc.
          |- `madrileno_source(path, at?)` — verbatim file. Fallback for a specific path. Same `at` semantics as `madrileno_module`.
-         |- `madrileno_changes(since?, paths?, target?)` — git log between two refs, optionally path-filtered. Defaults: `since=${ref.sha.take(10)}` (the pinned ref), `target=origin/main`. Use this to learn what's new in upstream since your project was anchored.
+         |- `madrileno_changes(since?, paths?, target?)` — git log between two refs, optionally path-filtered. Defaults: `since=${ref.sha.take(
+          10
+        )}` (the pinned ref), `target=origin/main`. Use this to learn what's new in upstream since your project was anchored.
          |- `madrileno_diff(since?, target?, paths?, format?)` — git diff between the same defaults. `format`: `stat` (default) or `patch`. Scope with `stat`, then pull `patch` per area — see `madrileno_doc("updating-from-upstream")` for the full loop.
          |
          |## Package rewriting
@@ -291,24 +315,24 @@ object MCPServer {
 
   def module(name: String, at: Option[String]): Either[String, String] = {
     for {
-      _          <- validateName(name)
-      _          <- at.fold(Right(()): Either[String, Unit])(validateRef)
-      ref        <- readRef
-      treeRef     = at.getOrElse(ref.sha)
-      mainPaths  <- gitListTree(treeRef, s"src/main/scala/madrileno/$name").map(_.filter(_.endsWith(".scala")))
+      _   <- validateName(name)
+      _   <- at.fold(Right(()): Either[String, Unit])(validateRef)
+      ref <- readRef
+      treeRef = at.getOrElse(ref.sha)
+      mainPaths <- gitListTree(treeRef, s"src/main/scala/madrileno/$name").map(_.filter(_.endsWith(".scala")))
       // git ls-tree returns 0 with empty output when the path doesn't exist (e.g. a module without
       // tests), so an empty list here is "no test dir, fine" — non-zero exits are real errors and propagate.
-      testPaths  <- gitListTree(treeRef, s"src/test/scala/madrileno/$name").map(_.filter(_.endsWith(".scala")))
-      allPaths    = mainPaths ++ testPaths
-      _          <- if (allPaths.isEmpty) Left(s"no files under src/{main,test}/scala/madrileno/$name at ref ${displayRef(treeRef)}") else Right(())
-      contents   <- allPaths.foldLeft(Right(List.empty[(String, String)]): Either[String, List[(String, String)]]) { (acc, p) =>
-                      for {
-                        soFar <- acc
-                        body  <- gitShow(treeRef, p)
-                      } yield (p, body) :: soFar
-                    }
-      ordered     = contents.reverse
-      pkg         = projectPackage
+      testPaths <- gitListTree(treeRef, s"src/test/scala/madrileno/$name").map(_.filter(_.endsWith(".scala")))
+      allPaths = mainPaths ++ testPaths
+      _        <- if (allPaths.isEmpty) Left(s"no files under src/{main,test}/scala/madrileno/$name at ref ${displayRef(treeRef)}") else Right(())
+      contents <- allPaths.foldLeft(Right(List.empty[(String, String)]): Either[String, List[(String, String)]]) { (acc, p) =>
+                    for {
+                      soFar <- acc
+                      body  <- gitShow(treeRef, p)
+                    } yield (p, body) :: soFar
+                  }
+      ordered = contents.reverse
+      pkg     = projectPackage
     } yield {
       ordered
         .map { case (p, body) =>
@@ -347,29 +371,38 @@ object MCPServer {
     else if (path.exists(c => c.isControl)) Left(s"path must not contain control characters; got '${path.replaceAll("[\\x00-\\x1f]", "?")}'")
     else Right(())
 
-  def changes(since: Option[String], paths: Option[List[String]], target: Option[String]): Either[String, String] = {
+  def changes(
+    since: Option[String],
+    paths: Option[List[String]],
+    target: Option[String]
+  ): Either[String, String] = {
     for {
-      ref       <- readRef
-      sinceRef   = since.getOrElse(ref.sha)
-      targetRef  = target.getOrElse("origin/main")
-      logs      <- gitLog(sinceRef, targetRef, paths.getOrElse(Nil))
+      ref <- readRef
+      sinceRef  = since.getOrElse(ref.sha)
+      targetRef = target.getOrElse("origin/main")
+      logs <- gitLog(sinceRef, targetRef, paths.getOrElse(Nil))
     } yield {
       if (logs.isEmpty) s"no commits in $sinceRef..$targetRef${paths.filter(_.nonEmpty).map(p => s" for paths ${p.mkString(", ")}").getOrElse("")}"
       else s"$sinceRef..$targetRef (${logs.size} commit${if (logs.size == 1) "" else "s"}):\n\n" + logs.mkString("\n")
     }
   }
 
-  def diff(since: Option[String], target: Option[String], paths: Option[List[String]], format: Option[String]): Either[String, String] = {
+  def diff(
+    since: Option[String],
+    target: Option[String],
+    paths: Option[List[String]],
+    format: Option[String]
+  ): Either[String, String] = {
     for {
-      stat      <- format.getOrElse("stat") match {
-                     case "stat"  => Right(true)
-                     case "patch" => Right(false)
-                     case other   => Left(s"format must be 'stat' or 'patch'; got '$other'")
-                   }
-      ref       <- readRef
-      sinceRef   = since.getOrElse(ref.sha)
-      targetRef  = target.getOrElse("origin/main")
-      out       <- gitDiff(sinceRef, targetRef, paths.getOrElse(Nil), stat)
+      stat <- format.getOrElse("stat") match {
+                case "stat"  => Right(true)
+                case "patch" => Right(false)
+                case other   => Left(s"format must be 'stat' or 'patch'; got '$other'")
+              }
+      ref <- readRef
+      sinceRef  = since.getOrElse(ref.sha)
+      targetRef = target.getOrElse("origin/main")
+      out <- gitDiff(sinceRef, targetRef, paths.getOrElse(Nil), stat)
     } yield {
       if (out.isBlank) s"no changes in $sinceRef..$targetRef${paths.filter(_.nonEmpty).map(p => s" for paths ${p.mkString(", ")}").getOrElse("")}"
       // Patches get the same package rewrite as source reads, so the `-`/`+` lines compare
@@ -382,32 +415,44 @@ object MCPServer {
   // -- chimp wiring -----------------------------------------------------------
 
   val overviewTool = tool("madrileno_overview")
-    .description("Returns orientation: what madrileno is, available reference modules, doc index, available tools, pinned ref. CALL THIS FIRST in any session — it's the anchor.")
+    .description(
+      "Returns orientation: what madrileno is, available reference modules, doc index, available tools, pinned ref. CALL THIS FIRST in any session — it's the anchor."
+    )
     .input[OverviewInput]
     .handle(_ => overview())
 
   val moduleTool = tool("madrileno_module")
-    .description("Returns concatenated source of all main + test files under one reference module (e.g., 'user', 'auction', 'healthcheck'). Files are prefixed with `// ===== <path> =====`. Source is auto-rewritten from `madrileno.*` to the local project package. Reads at the pinned ref unless `at` (a ref, e.g. 'origin/main') is given — pass `at` to see the upstream-latest version when porting changes. CALL THIS to learn a module pattern in full when implementing a similar one.")
+    .description(
+      "Returns concatenated source of all main + test files under one reference module (e.g., 'user', 'auction', 'healthcheck'). Files are prefixed with `// ===== <path> =====`. Source is auto-rewritten from `madrileno.*` to the local project package. Reads at the pinned ref unless `at` (a ref, e.g. 'origin/main') is given — pass `at` to see the upstream-latest version when porting changes. CALL THIS to learn a module pattern in full when implementing a similar one."
+    )
     .input[ModuleInput]
     .handle(i => module(i.name, i.at))
 
   val docTool = tool("madrileno_doc")
-    .description("Returns one doc (markdown) at the pinned ref. Pass the basename without extension, e.g. 'auth', 'database', 'adding-a-module'. Returned verbatim (no package rewriting).")
+    .description(
+      "Returns one doc (markdown) at the pinned ref. Pass the basename without extension, e.g. 'auth', 'database', 'adding-a-module'. Returned verbatim (no package rewriting)."
+    )
     .input[DocInput]
     .handle(i => doc(i.name))
 
   val sourceTool = tool("madrileno_source")
-    .description("Returns the verbatim source of any file. Pass a full path like `src/main/scala/madrileno/user/repositories/UserRepository.scala`. Source is auto-rewritten from `madrileno.*` to the local project package. Reads at the pinned ref unless `at` (a ref, e.g. 'origin/main') is given. Fallback for when `madrileno_module` is too coarse.")
+    .description(
+      "Returns the verbatim source of any file. Pass a full path like `src/main/scala/madrileno/user/repositories/UserRepository.scala`. Source is auto-rewritten from `madrileno.*` to the local project package. Reads at the pinned ref unless `at` (a ref, e.g. 'origin/main') is given. Fallback for when `madrileno_module` is too coarse."
+    )
     .input[SourceInput]
     .handle(i => source(i.path, i.at))
 
   val changesTool = tool("madrileno_changes")
-    .description("Returns `git log --oneline` between two refs. Defaults: `since` = the project's pinned ref, `target` = `origin/main`, no path filter. Use to learn what's changed in upstream madrileno since the project was anchored. Follow up with `madrileno_diff` for content.")
+    .description(
+      "Returns `git log --oneline` between two refs. Defaults: `since` = the project's pinned ref, `target` = `origin/main`, no path filter. Use to learn what's changed in upstream madrileno since the project was anchored. Follow up with `madrileno_diff` for content."
+    )
     .input[ChangesInput]
     .handle(i => changes(i.since, i.paths, i.target))
 
   val diffTool = tool("madrileno_diff")
-    .description("Returns `git diff` between two refs, optionally path-filtered. Defaults: `since` = the project's pinned ref, `target` = `origin/main`. `format` is 'stat' (default — per-file change summary) or 'patch' (full diff, package-rewritten to the local project package). Call with 'stat' first to scope the change surface, then 'patch' with `paths` for the areas that matter — an unfiltered patch across months of drift can be huge.")
+    .description(
+      "Returns `git diff` between two refs, optionally path-filtered. Defaults: `since` = the project's pinned ref, `target` = `origin/main`. `format` is 'stat' (default — per-file change summary) or 'patch' (full diff, package-rewritten to the local project package). Call with 'stat' first to scope the change surface, then 'patch' with `paths` for the areas that matter — an unfiltered patch across months of drift can be huge."
+    )
     .input[DiffInput]
     .handle(i => diff(i.since, i.target, i.paths, i.format))
 
@@ -432,10 +477,7 @@ object MCPServer {
     Console.err.println(s"[mcp] anchored at ${ref.sha.take(10)} (${ref.repo})")
     Console.err.println(s"[mcp] listening on http://localhost:8910/mcp")
 
-    val mcpServerEndpoint = mcpEndpoint(
-      List(overviewTool, moduleTool, docTool, sourceTool, changesTool, diffTool),
-      List("mcp")
-    )
+    val mcpServerEndpoint = mcpEndpoint(List(overviewTool, moduleTool, docTool, sourceTool, changesTool, diffTool), List("mcp"))
 
     // Bind to localhost explicitly — there's no auth, so binding to 0.0.0.0 would expose the
     // MCP endpoints on the LAN. Loopback only; users wanting LAN access can edit this.

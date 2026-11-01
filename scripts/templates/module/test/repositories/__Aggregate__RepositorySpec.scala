@@ -56,7 +56,8 @@ class __Aggregate__RepositorySpec extends AsyncWordSpec with AsyncIOSpec with Ma
     }
 
     "update returns None for a non-existent __aggregate__" in withRollback {
-      repo.update(TestData.random__Aggregate__Id(), (a: __Aggregate__) => a.rename(__Aggregate__Name("x"), now))
+      repo
+        .update(TestData.random__Aggregate__Id(), (a: __Aggregate__) => a.rename(__Aggregate__Name("x"), now))
         .map(_ shouldBe None)
     }
 
