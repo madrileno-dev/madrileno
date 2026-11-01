@@ -589,4 +589,28 @@ class MermaidSuite extends munit.FunSuite {
     val page = Html.render(diff)
     assert(!page.contains("\"empty\":\"No architecture changes.\""), "the page's empty message")
   }
+
+  test("a module's task with new callers is an architecture change") {
+    def model(caller: Boolean) = Extractor.extract(
+      Fixtures.project(
+        List(
+          Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+          Fixtures.src(
+            "user/UserModule.scala",
+            "package app.user\ntrait UserModule {\n  val cleanup = Task.oneTime(TaskDescriptor[Int](\"user-cleanup\"))(_ => IO.unit)\n}"
+          )
+        ) ++ Option
+          .when(caller)(
+            Fixtures.src(
+              "user/services/UserService.scala",
+              "package app.user.services\nclass UserService {\n  def go = scheduler.schedule(cleanup.instance(\"x\", 1))\n}"
+            )
+          )
+          .toList*
+      )
+    )
+    val text = Mermaid.render(ArchDiff.compare(model(caller = false), model(caller = true), "b", "h"))
+    assert(!text.contains("No architecture changes"), text)
+    assert(text.contains("now scheduled from UserService"), text)
+  }
 }

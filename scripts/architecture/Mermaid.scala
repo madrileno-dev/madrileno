@@ -35,7 +35,7 @@ object Mermaid {
     val outside   = undrawn(diff, graph)
     val unchanged = graph.nodes.forall(_.status == Status.Unchanged) && graph.edges.forall(_.status == Status.Unchanged)
     val large     = if (unchanged) None else tooLarge(graph)
-    val elsewhere = outside.nonEmpty || tasksOutside(diff)
+    val elsewhere = outside.nonEmpty || tasksChanged(diff)
     val heading   = s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n"
     def compose(intro: Option[String], footer: String): String =
       if (unchanged && !elsewhere)
@@ -256,15 +256,7 @@ object Mermaid {
       section("Tasks", tasks)
   }
 
-  def tasksOutside(diff: DiffModel): Boolean =
-    diff.tasks.exists(node =>
-      node.status != Status.Unchanged && node.head
-        .orElse(node.base)
-        .exists(_.owner match {
-          case Owner.Module(_) => false
-          case _               => true
-        })
-    )
+  def tasksChanged(diff: DiffModel): Boolean = diff.tasks.exists(_.status != Status.Unchanged)
 
   def undrawn(diff: DiffModel, graph: Graph): List[String] = {
     val drawn                                                               = graph.nodes.map(_.key).toSet
