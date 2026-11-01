@@ -323,4 +323,16 @@ class TablesSuite extends munit.FunSuite {
     val migrations = List("R__views.sql", "V10__c.sql", "V2__b.sql", "V1_1__a.sql", "V1__init.sql").map(Fixtures.migration(_, "select 1;"))
     assertEquals(MigrationExtractor.extract(migrations).map(_.path), List("V1__init.sql", "V1_1__a.sql", "V2__b.sql", "V10__c.sql", "R__views.sql"))
   }
+
+  test("a temporary table is left out of a migration's summary") {
+    val migration = MigrationExtractor.extract(
+      List(
+        Fixtures.migration(
+          "V3__fix.sql",
+          "create temp table tmp_fix as select id from orders;\ninsert into tmp_fix select 1;\nupdate orders set paid = true where id in (select id from tmp_fix);\ndrop table tmp_fix;"
+        )
+      )
+    )
+    assertEquals(migration.map(m => (m.creates, m.alters, m.drops, m.indexes, m.writes)), List((Nil, Nil, Nil, Nil, List("orders"))))
+  }
 }

@@ -137,7 +137,7 @@ object Html {
         else if (Mermaid.undrawn(diff, GraphView.changes(diff)).nonEmpty)
           "No module changes to draw. The tables, topics or events that changed outside the modules are listed in the sections below."
         else "No architecture changes."
-      "empty" -> ujson.Obj.from(Levels.map((name, _) => name -> ujson.Str(message)))
+      "empty" -> ujson.Str(message)
     }
     val ids = GraphView.shown(diff).flatMap { m =>
       (Mermaid.nodeId(s"module:${m.id}") -> m.id) :: m.components.map(c => Mermaid.nodeId(s"component:${m.id}:${c.name}") -> m.id)
@@ -434,7 +434,7 @@ body.changed-only [data-status="unchanged"] { display: none; }
     showAll.hidden = !focused;
     if (!window.mermaid) { graph.replaceChildren(node('p', 'The diagram loads Mermaid from jsDelivr and needs network access. The module list above still opens each module.', 'muted')); return; }
     const text = source();
-    if (!text) { graph.replaceChildren(node('p', (diagrams.empty && diagrams.empty[levelName()]) || 'No architecture changes.', 'muted')); return; }
+    if (!text) { graph.replaceChildren(node('p', diagrams.empty || 'No architecture changes.', 'muted')); return; }
     window.mermaid.render(`arch-${Math.random().toString(36).slice(2)}`, text).then(({ svg }) => {
       if (ticket !== drawing) return;
       graph.innerHTML = svg;

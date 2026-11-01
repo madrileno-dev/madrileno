@@ -39,7 +39,7 @@ object EventExtractor {
       .flatMap(_.collect { case (name, Some(eventType)) => name -> eventType })
       .groupMap(_._1)(_._2)
       .view
-      .mapValues(_.distinct)
+      .mapValues(_.distinctBy(unqualified))
       .toMap
     val busUses     = files.flatMap(file => busUsesIn(file, busTypes, ownership, typeOwners(file)))
     val found       = files.flatMap(descriptorsIn(_, ownership))

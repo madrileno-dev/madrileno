@@ -614,4 +614,23 @@ class EventsSuite extends munit.FunSuite {
     assertEquals(result.value._2.map(_.publishers.map(_.enclosing)), List(List("AuditService", "Recorder")))
     assertEquals(result.unclassified, Nil)
   }
+
+  test("a bus reached by name finds its type when classes spell the payload qualified and plain") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "order/OrderModule.scala",
+        "package app.order\ntrait OrderModule {\n  lazy val orderBus: EventBus[OrderEvents.Placed] = eventBusRuntime.topic[OrderEvents.Placed](\"orders\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "order/services/OrderService.scala",
+        "package app.order.services\nimport app.order.domain.OrderEvents.*\nclass OrderService(orderBus: EventBus[Placed]) {\n  def p = orderBus.publish\n}"
+      ),
+      Fixtures.src("order/services/Notifier.scala", "package app.order.services\nclass Notifier extends Base {\n  def run = orderBus.subscribe\n}")
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
+    assertEquals(
+      result.value._1.map(t => (t.name, t.publishers.map(_.enclosing), t.subscribers.map(_.enclosing))),
+      List(("orders", List("OrderService"), List("Notifier")))
+    )
+  }
 }

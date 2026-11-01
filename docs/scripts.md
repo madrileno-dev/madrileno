@@ -202,7 +202,7 @@ Draws a map of the project's architecture from its source:
 - references between modules, from imports, exports and fully qualified names
 - event-bus topics and outbox events, with their publishers and subscribers. A payload type matches whether it's written qualified, like `Events.Order`, or by its name alone.
 - tables, with the module that owns each one, the modules that use it and, in the JSON and a diff, its columns. A `Table` object can also extend a class that extends `Table`.
-- migrations in version order, with the tables each one creates, alters, drops, indexes or writes to
+- migrations in version order, with the tables each one creates, alters, drops, indexes or writes to, leaving out the temporary tables it creates
 - scheduled tasks: one-time, recurring with their cron or interval, and custom, with the code that schedules them
 - warnings where the code drifts from the template's conventions
 

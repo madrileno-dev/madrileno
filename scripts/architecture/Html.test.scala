@@ -210,9 +210,9 @@ class HtmlSuite extends munit.FunSuite {
       ujson.read("""<script type="application/json" id="arch-diagrams">(.*?)</script>""".r.findFirstMatchIn(page).get.group(1))
     val outside = diagramsOf(Html.render(ArchDiff.compare(project(audit = false), project(audit = true), "b", "h")))
     assertEquals(outside("changed")("everything").str, "")
-    assert(outside("empty")("everything").str.contains("outside the modules"), outside.toString)
+    assert(outside("empty").str.contains("outside the modules"), outside.toString)
     assertEquals(
-      diagramsOf(Html.render(ArchDiff.compare(project(audit = false), project(audit = false), "b", "h")))("empty")("modules").str,
+      diagramsOf(Html.render(ArchDiff.compare(project(audit = false), project(audit = false), "b", "h")))("empty").str,
       "No architecture changes."
     )
   }
@@ -240,7 +240,6 @@ class HtmlSuite extends munit.FunSuite {
     val diagrams = ujson.read("""<script type="application/json" id="arch-diagrams">(.*?)</script>""".r.findFirstMatchIn(page).get.group(1))
     assertEquals(diagrams("changed")("modules").str, "")
     assert(diagrams("changed")("everything").str.contains("table_orders"))
-    assert(diagrams("empty")("modules").str.contains("with tables and events"), diagrams("empty").toString)
-    assert(page.contains("diagrams.empty[levelName()]"))
+    assert(diagrams("empty").str.contains("with tables and events"), diagrams("empty").toString)
   }
 }

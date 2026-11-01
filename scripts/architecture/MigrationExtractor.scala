@@ -6,6 +6,8 @@ object MigrationExtractor {
   private val Name   = """(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_]*)(?:\.(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_]*))?"""
   private val Create =
     s"""(?i)\\bcreate\\s+(?:unlogged\\s+)?+table\\s+(?:if\\s+not\\s+exists\\s+)?+((?>$Name))(?!\\s+partition\\s+of\\b)""".r
+  private val Temporary =
+    s"""(?i)\\bcreate\\s+(?:(?:global|local)\\s+)?temp(?:orary)?\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?+($Name)""".r
   private val Alter  = s"""(?i)\\balter\\s+table\\s+(?:if\\s+exists\\s+)?+(?:only\\s+)?+($Name)""".r
   private val Drop   = s"""(?i)\\bdrop\\s+table\\s+(?:if\\s+exists\\s+)?+($Name(?:\\s*,\\s*$Name)*)""".r
   private val Rename = s"""(?i)\\balter\\s+table\\s+(?:if\\s+exists\\s+)?+(?:only\\s+)?+($Name)\\s+rename\\s+to\\s+($Name)""".r
@@ -25,16 +27,25 @@ object MigrationExtractor {
 
   def extract(files: List[SourceFile]): List[Migration] =
     inVersionOrder(files)(_.packagePath).map { file =>
-      val sql     = withoutLiterals(file.content)
-      val creates = names(Create, sql)
+      val sql       = withoutLiterals(file.content)
+      val creates   = names(Create, sql)
+      val temporary = names(Temporary, sql)
       Migration(
         file.packagePath,
         Trees.hash(normalized(withoutComments(file.content))),
         creates,
-        (names(Alter, sql) ++ Rename.findAllMatchIn(sql).map(m => tableName(m.group(2)))).distinct.filterNot(creates.contains),
-        names(Drop, sql),
-        names(Index, sql).filterNot(creates.contains),
-        Writes.flatMap(_.findAllMatchIn(sql)).sortBy(_.start).flatMap(_.group(1).split(',').map(tableName)).distinct.filterNot(creates.contains)
+        (names(Alter, sql) ++ Rename.findAllMatchIn(sql).map(m => tableName(m.group(2)))).distinct
+          .filterNot(creates.contains)
+          .filterNot(temporary.contains),
+        names(Drop, sql).filterNot(temporary.contains),
+        names(Index, sql).filterNot(creates.contains).filterNot(temporary.contains),
+        Writes
+          .flatMap(_.findAllMatchIn(sql))
+          .sortBy(_.start)
+          .flatMap(_.group(1).split(',').map(tableName))
+          .distinct
+          .filterNot(creates.contains)
+          .filterNot(temporary.contains)
       )
     }
 
