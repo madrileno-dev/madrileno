@@ -672,4 +672,15 @@ class EventsSuite extends munit.FunSuite {
       List("orders" -> Some("shop/domain/OrderEvents.scala"), "payments" -> Some("shop/domain/PaymentEvents.scala"))
     )
   }
+
+  test("an unclassified description cuts a long expression short") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        s"package app.shop\ntrait ShopModule {\n  lazy val bus = eventBusRuntime.topic[OrderEvent](Topics.named(${"\"part\" + " * 40}\"end\"), maxQueued = 8)\n}"
+      )
+    )
+    val description = EventExtractor.extract(files, Ownership.of(files), "app").unclassified.map(_.description).head
+    assert(description.length < 200 && description.contains("…"), description)
+  }
 }

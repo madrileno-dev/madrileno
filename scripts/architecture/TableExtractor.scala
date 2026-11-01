@@ -77,7 +77,7 @@ object TableExtractor {
           .toRight(
             Unclassified(
               s"table-name:${file.source.packagePath}:${obj.name.value}",
-              s"${obj.name.value} extends Table with the name ${arg.fold("the map can't see")(_.syntax)}, not a string literal",
+              s"${obj.name.value} extends Table with the name ${arg.fold("the map can't see")(a => Trees.collapse(a.syntax, 80))}, not a string literal",
               Trees.loc(file, obj)
             )
           )

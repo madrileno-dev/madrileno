@@ -363,4 +363,22 @@ class CodeChangesSuite extends munit.FunSuite {
     val diff = ArchDiff.compare(project(legacyModule = true), project(legacyModule = false), "b", "h")
     assertEquals(diff.modules.map(m => (m.id, m.changedFiles)), List("user" -> Nil, "user/legacy" -> Nil))
   }
+
+  test("spelling a payload type qualified or plain doesn't change its event or topic") {
+    def model(payload: String) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+        Fixtures.src(
+          "user/UserModule.scala",
+          s"package app.user\ntrait UserModule {\n  lazy val bus: EventBus[$payload] = eventBusRuntime.topic[$payload](\"users\", maxQueued = 8)\n}"
+        ),
+        Fixtures.src(
+          "user/domain/Events.scala",
+          s"package app.user.domain\nobject Events {\n  final case class UserDeleted(id: Id)\n  given DomainEventDescriptor[$payload] = DomainEventDescriptor(\"user-deleted.v1\", \"user\", _.id)\n}"
+        )
+      )
+    )
+    val diff = ArchDiff.compare(model("UserDeleted"), model("Events.UserDeleted"), "b", "h")
+    assertEquals((diff.topics.map(_.status), diff.events.map(_.status)), (List(Status.Unchanged), List(Status.Unchanged)))
+  }
 }

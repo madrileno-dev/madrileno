@@ -501,4 +501,59 @@ class MermaidSuite extends munit.FunSuite {
     assert(text.contains("**New unclassified**"), text.take(800))
     assert(text.contains("+600 more"), text.takeRight(800))
   }
+
+  test("an over-long output caps the findings first and keeps a short list of changes") {
+    val publishers              = (1 to 700).map(i => s"class P$i(bus: EventBus[Payload$i]) { def p = bus.publish }").mkString("\n")
+    def project(extra: Boolean) = Extractor.extract(
+      Fixtures.project(
+        List(
+          Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+          Fixtures.src("user/UserModule.scala", s"package app.user\ntrait UserModule {\n${if (extra) "  lazy val newMember: Int = 1" else ""}\n}")
+        ) ++ Option.when(extra)(Fixtures.src("user/services/Publishers.scala", s"package app.user.services\n$publishers")).toList*
+      )
+    )
+    val text = Mermaid.render(ArchDiff.compare(project(extra = false), project(extra = true), "b", "h"))
+    assert(text.contains("**Changed modules**\n\n- user: now provides `newMember: Int`"), text.take(1500))
+    assert(text.contains("+600 more"), text.takeRight(500))
+  }
+
+  test("an output whose diagram and capped findings are too long falls back to the textual summary") {
+    val name    = "x" * 240
+    val modules = (1 to 79).map(i => Fixtures.src(s"m$i$name/M${i}Module.scala", s"package app.m$i$name\ntrait M${i}Module"))
+    val broken  = (1 to 300).map(i =>
+      Fixtures.src(s"m1$name/services/P$i.scala", s"package app.m1$name.services\nclass P$i(bus: EventBus[Payload$i]) { def p = bus.publish }")
+    )
+    val empty = ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil)
+    val text  = Mermaid.render(ArchDiff.compare(empty, Extractor.extract(Fixtures.project((modules ++ broken)*)), "b", "h"))
+    assert(text.length <= 60000, text.length.toString)
+    assert(!text.contains("```mermaid"), text.take(400))
+  }
+
+  test("a module that only came to own something says what it owns now") {
+    def model(task: Boolean) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+        Fixtures.src(
+          "user/services/UserService.scala",
+          s"package app.user.services\nclass UserService {\n${if (task) "  val sweep = Task.recurring(\"sweep\", Schedule.RecurringWithFixedRate(5.minutes))(_ => IO.unit)"
+            else ""}\n}"
+        )
+      )
+    )
+    val text = Mermaid.render(ArchDiff.compare(model(task = false), model(task = true), "b", "h"))
+    assert(text.contains("- user: now owns task `sweep`"), text)
+  }
+
+  test("a class that moves out of a layer package says what it no longer is") {
+    def model(pkg: String) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule {\n  lazy val priceService: PriceService = wire[PriceService]\n}"),
+        Fixtures.src(s"user/$pkg/PriceService.scala", s"package app.user.${pkg.replace('/', '.')}\nclass PriceService")
+      )
+    )
+    val text = Mermaid.render(ArchDiff.compare(model("services"), model("services/pricing"), "b", "h"))
+    assert(text.contains("`PriceService` is no longer a service"), text)
+  }
 }

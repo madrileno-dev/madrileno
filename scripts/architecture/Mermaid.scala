@@ -31,33 +31,43 @@ object Mermaid {
   private val Credit: String = "\n<sub>Mapped by Madrileño's <code>scripts/architecture.scala</code></sub>\n"
 
   def render(diff: DiffModel): String = {
-    val graph                           = GraphView.changes(diff)
-    val outside                         = undrawn(diff, graph)
-    val unchanged                       = graph.nodes.forall(_.status == Status.Unchanged) && graph.edges.forall(_.status == Status.Unchanged)
-    val large                           = if (unchanged) None else tooLarge(graph)
-    def compose(footer: String): String =
+    val graph     = GraphView.changes(diff)
+    val outside   = undrawn(diff, graph)
+    val unchanged = graph.nodes.forall(_.status == Status.Unchanged) && graph.edges.forall(_.status == Status.Unchanged)
+    val large     = if (unchanged) None else tooLarge(graph)
+    val heading   = s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n"
+    def compose(intro: Option[String], footer: String): String =
       if (unchanged && outside.isEmpty)
         s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n${if (metricsMoved(diff)) metricsSection(diff) else ""}$footer$Credit"
-      else if (unchanged) s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n${metricsSection(diff)}$footer$Credit"
+      else if (unchanged) s"$heading${metricsSection(diff)}$footer$Credit"
       else
-        large match {
-          case Some(intro) =>
-            s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n$intro\n\n${summary(diff)}${metricsSection(diff)}$footer$Credit"
-          case None =>
+        intro match {
+          case Some(text) => s"$heading\n$text\n\n${summary(diff)}${metricsSection(diff)}$footer$Credit"
+          case None       =>
             val note =
               if (graph.collapsed)
                 s"\n_The classes modules wire are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
               else ""
-            s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\n${diagram(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
+            s"$heading\n```mermaid\n${diagram(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
         }
-    val full = compose((if (large.isDefined) "" else section("Outside the modules", outside)) + footerOf(diff) + findingsOf(diff, Int.MaxValue))
-    if (full.length <= MaxText) full
-    else compose("\n_The lists of changes would make this longer than GitHub accepts. Open the HTML for them._\n" + findingsOf(diff, MaxFindings))
+    val lists      = (if (large.isDefined) "" else section("Outside the modules", outside)) + footerOf(diff)
+    val pointer    = "\n_The lists of changes would make this longer than GitHub accepts. Open the HTML for them._\n"
+    val summarised = large.orElse(Some("_The diagram would make this longer than GitHub accepts. Open the HTML for the full picture._"))
+    val attempts   = LazyList(
+      () => compose(large, lists + findingsOf(diff, Int.MaxValue)),
+      () => compose(large, lists + findingsOf(diff, MaxFindings)),
+      () => compose(large, pointer + findingsOf(diff, MaxFindings)),
+      () => compose(summarised, pointer + findingsOf(diff, MaxFindings)),
+      () => compose(summarised, pointer + findingsOf(diff, FewFindings))
+    ).map(_())
+    attempts.find(_.length <= MaxText).getOrElse(attempts.last)
   }
 
   private val MaxText = 60000
 
   private val MaxFindings = 100
+
+  private val FewFindings = 10
 
   def diagram(graph: Graph): String = s"$Theme---\nflowchart LR\n${body(graph)}"
 
@@ -277,6 +287,17 @@ object Mermaid {
         if before.mixedIn != after.mixedIn
       } yield s"is ${if (after.mixedIn) "now" else "no longer"} mixed into ApplicationLoader"
       val components = m.components.flatMap(componentChange)
+      val owner      = Owner.Module(m.id)
+      def owned[A](kind: String, nodes: List[NodeDiff[A]])(ownerOf: A => Owner, name: A => String): List[String] =
+        nodes.flatMap { node =>
+          val was = node.base.exists(ownerOf(_) == owner)
+          val is  = node.head.exists(ownerOf(_) == owner)
+          node.head.orElse(node.base).map(name).flatMap { item =>
+            if (is && !was) Some(s"now owns $kind `$item`") else if (was && !is) Some(s"no longer owns $kind `$item`") else None
+          }
+        }
+      val ownership = owned("table", diff.tables)(_.owner, _.name) ++ owned("topic", diff.topics)(_.owner, _.name) ++
+        owned("event", diff.events)(_.owner, _.eventType) ++ owned("task", diff.tasks)(_.owner, _.name)
       val members = m.members.flatMap(member => change(member.status).map(when => s"$when ${member.section.toString.toLowerCase} `${member.text}`"))
       val references = diff.references.flatMap { node =>
         node.head.orElse(node.base).filter(_.from == m.id).flatMap { r =>
@@ -290,7 +311,7 @@ object Mermaid {
           }
         }
       }
-      val lines = mixedIn.toList ++ components ++ members ++ references
+      val lines = mixedIn.toList ++ components ++ ownership ++ members ++ references
       Option.when(lines.nonEmpty)(s"- ${m.id}: ${lines.mkString("; ")}")
     }
   }
@@ -306,7 +327,9 @@ object Mermaid {
         val changes =
           Option.when(takes.nonEmpty)(s"now takes ${takes.mkString(", ")}").toList ++
             Option.when(dropped.nonEmpty)(s"no longer takes ${dropped.mkString(", ")}") ++
-            Option.when(before.kind != after.kind)(s"is now a ${kind(after)}")
+            Option.when(before.kind != after.kind)(
+              if (after.kind == ComponentKind.Other) s"is no longer a ${kind(before)}" else s"is now a ${kind(after)}"
+            )
         Option.when(changes.nonEmpty)(s"`${component.name}` ${changes.mkString(" and ")}")
       case _ => None
     }

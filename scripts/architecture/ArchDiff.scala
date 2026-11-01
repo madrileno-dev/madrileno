@@ -129,10 +129,10 @@ object ArchDiff {
       tables = nodes(base.tables, head.tables)(_.name)(t => (t.owner, sites(t.users))).map(t =>
         t.copy(codeChanged = t.status == Status.Unchanged && (columnChanges(t).nonEmpty || migrated(t.key)))
       ),
-      topics = nodes(base.topics, head.topics)(_.name)(t => (t.eventType, t.owner, sites(t.publishers), sites(t.subscribers)))
+      topics = nodes(base.topics, head.topics)(_.name)(t => (Trees.unqualified(t.eventType), t.owner, sites(t.publishers), sites(t.subscribers)))
         .map(withCodeChange(_, changedPaths)(_.definedIn)),
       events = nodes(base.outboxEvents, head.outboxEvents)(_.eventType)(e =>
-        (e.typeName, e.owner, sites(e.publishers), e.subscribers.map(s => (s.consumer, s.site.owner, s.site.enclosing)).toSet)
+        (Trees.unqualified(e.typeName), e.owner, sites(e.publishers), e.subscribers.map(s => (s.consumer, s.site.owner, s.site.enclosing)).toSet)
       ).map(withCodeChange(_, changedPaths)(_.definedIn)),
       tasks =
         nodes(numbered(base.tasks)(taskKey), numbered(head.tasks)(taskKey))(_._1)((_, t) => (t.kind, t.schedule, t.owner, sites(t.scheduledFrom)))

@@ -51,7 +51,7 @@ object EventExtractor {
 
     def topicOf(use: BusUse): Option[Either[List[String], String]] = {
       val exact    = topics.filter(_.eventType == use.eventType)
-      val matching = if (exact.nonEmpty) exact else topics.filter(t => unqualified(t.eventType) == unqualified(use.eventType))
+      val matching = if (exact.nonEmpty) exact else topics.filter(t => Trees.unqualified(t.eventType) == Trees.unqualified(use.eventType))
       Option.when(matching.nonEmpty)(matching.map(_.name).distinct.sorted match {
         case List(name) => Right(name)
         case names      =>
@@ -98,7 +98,7 @@ object EventExtractor {
       def matching(same: (String, String) => Boolean) =
         use.candidates.view.map(candidate => declaredTypes.filter(d => same(d.typeName, candidate))).find(_.nonEmpty)
       val typeName = use.candidates.head
-      matching(_ == _).orElse(matching(unqualified(_) == unqualified(_))) match {
+      matching(_ == _).orElse(matching(Trees.unqualified(_) == Trees.unqualified(_))) match {
         case None =>
           Left(Unclassified(s"outbox-event-unknown:$typeName", s"$typeName is published or subscribed but has no DomainEventDescriptor", site.loc))
         case Some(found) =>
@@ -234,11 +234,6 @@ object EventExtractor {
 
   private def simpleName(typeName: String): String = typeName.takeWhile(_ != '[').split('.').last
 
-  private def unqualified(typeName: String): String = {
-    val base = typeName.takeWhile(_ != '[')
-    base.split('.').last + typeName.drop(base.length)
-  }
-
   private def byDeclaration[A](items: List[A])(key: A => String)(loc: A => Loc): List[List[A]] =
     items.groupBy(key).values.toList.map(_.sortBy(item => (loc(item).path, loc(item).line)))
 
@@ -254,7 +249,7 @@ object EventExtractor {
           .toRight(
             Unclassified(
               s"topic-name:${file.source.packagePath}:$eventType",
-              s"topic[$eventType] in ${Trees.enclosingName(file, call)} is named by ${name.syntax}, not a string literal",
+              s"topic[$eventType] in ${Trees.enclosingName(file, call)} is named by ${Trees.collapse(name.syntax, 80)}, not a string literal",
               Trees.loc(file, call)
             )
           )
@@ -418,7 +413,7 @@ object EventExtractor {
                     ownership.ownerOf(file.pkg),
                     Unclassified(
                       s"outbox-event-name:${file.source.packagePath}:$typeName",
-                      s"DomainEventDescriptor[$typeName] in ${Trees.enclosingName(file, alias)} has the event type ${eventType.syntax}, not a string literal",
+                      s"DomainEventDescriptor[$typeName] in ${Trees.enclosingName(file, alias)} has the event type ${Trees.collapse(eventType.syntax, 80)}, not a string literal",
                       Trees.loc(file, alias)
                     )
                   )
@@ -463,7 +458,7 @@ object EventExtractor {
           .toRight(
             Unclassified(
               s"outbox-publish:${file.source.packagePath}:${site.enclosing}:${Trees.collapse(args.values.head.syntax, 80)}",
-              s"publishTransactionally argument ${args.values.head.syntax} has no visible event type",
+              s"publishTransactionally argument ${Trees.collapse(args.values.head.syntax, 80)} has no visible event type",
               site.loc
             )
           )
@@ -516,7 +511,7 @@ object EventExtractor {
             .toRight(
               Unclassified(
                 s"outbox-subscription:${file.source.packagePath}:$typeName",
-                s"OutboxSubscription[$typeName] in ${site.enclosing} names its consumer by ${consumer.syntax}, not a string literal",
+                s"OutboxSubscription[$typeName] in ${site.enclosing} names its consumer by ${Trees.collapse(consumer.syntax, 80)}, not a string literal",
                 site.loc
               )
             )
