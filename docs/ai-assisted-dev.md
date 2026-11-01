@@ -61,9 +61,10 @@ It also warns where the change drifts from the template's conventions. `AGENTS.m
 
 ## How the assistant runs the app
 
-The assistant never runs a watch loop, `sbt run`, or a bare `sbt` shell: all of them block its shell until something kills them. It uses the one-shot tasks from [dev-workflow.md](dev-workflow.md#running-the-app-without-a-watch-loop) instead, under two rules:
+The assistant never runs a watch loop, `sbt run`, or a bare `sbt` shell: all of them block its shell until something kills them. It drives the app through `./scripts/app.scala` (see [scripts.md](scripts.md#appscala)), which owns the process, the health check and the log tail so that the assistant does not have to:
 
-- **Check before starting.** It runs `curl -sf http://localhost:9000/v1/health-check` first. If the app answers, that is usually your `~reStart` loop, which rebuilds on save; the assistant uses that app and does not run `reStart`, because only one of them can own port 9000.
-- **Own what it starts.** If nothing answers, it starts the app with `sbt --client reStart`, waits for the health check for up to 60 seconds, reads the end of `logs/madrileno.log` if the app never answers, and reruns `reStart` after its own code changes. It only stops an app it started itself.
+- `./scripts/app.scala start` compiles through the sbt client, applies pending migrations, runs the app in its own process and returns once `/v1/health-check` answers. When it fails, the message carries the last log lines, and no half-started app is left behind.
+- `./scripts/app.scala restart` after a code change or a `.env` change; `stop`, `status` and `logs` do what they say.
+- When `start` reports an app it did not start, that is usually your `~reStart` loop, which rebuilds on save. The assistant uses that app and leaves it alone, because only one of them can own the port.
 
 `AGENTS.md` states the same rules, so the assistant follows them without being told.

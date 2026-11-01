@@ -18,7 +18,7 @@ You'll need four tools. Install each from its package manager or official instal
 
 - **JDK 21 (Temurin)** — [adoptium.net/installation](https://adoptium.net/installation/) (apt repo on Linux, `brew install --cask temurin@21` on macOS, winget on Windows)
 - **sbt 1.12+** — [scala-sbt.org/download](https://www.scala-sbt.org/download/) (`sbt --version` to check; the launcher reads `project/build.properties` and pulls the pinned sbt itself)
-- **scala-cli** — [scala-cli.virtuslab.org/install](https://scala-cli.virtuslab.org/install) — needed for the tools under `scripts/` (`scaffold-module`, `doctor`, `dev-console`, …)
+- **scala-cli** — [scala-cli.virtuslab.org/install](https://scala-cli.virtuslab.org/install) — needed for the tools under `scripts/` (`app`, `scaffold-module`, `doctor`, `dev-console`, …). Versions before 1.18 print a warning about TASTY files from Scala 3.9 on every run; it is harmless.
 - **Docker** with `docker compose` — [docs.docker.com/engine/install](https://docs.docker.com/engine/install/)
 
 The three JVM tools also install together via [SDKMAN](https://sdkman.io/):
@@ -93,6 +93,8 @@ Inside the sbt shell:
 
 `~reStart` watches sources and restarts the app on every save (compile-on-save). Plain `reStart` runs it once. The app comes up on `http://localhost:9000` (override with `PORT` in `.env`).
 
+Without an sbt shell, from a script or a coding assistant, the launcher does the same as a one-shot: `./scripts/app.scala start` compiles, applies pending migrations, runs the app in the background and returns once the health check answers. `restart`, `stop`, `status` and `logs` do what they say, and `migrate` applies migrations without starting. See [docs/scripts.md](docs/scripts.md#appscala).
+
 Quick smoke test from another terminal:
 
 ```bash
@@ -114,11 +116,11 @@ To check the whole setup at once — Docker, the compose services, Postgres, and
 
 ## Things that catch people out
 
-- **`reStart` reports success even when the app fails to start** (e.g. port 9000 is taken). Check `curl -sf http://localhost:9000/v1/health-check` before assuming it's up; if it never answers, the error is at the end of `logs/madrileno.log`.
-- **sbt caches `.env` at JVM startup.** If you change `.env`, exit sbt and start it again. Same goes for the long-lived sbt server (`~/.sbt/1.0/server/...`).
+- **`reStart` reports success even when the app fails to start** (e.g. port 9000 is taken). Check `curl -sf http://localhost:9000/v1/health-check` before assuming it's up; if it never answers, the error is at the end of `logs/madrileno.log`. `./scripts/app.scala start` waits for the health check itself and fails with those lines.
+- **sbt caches `.env` at JVM startup.** If you change `.env`, exit sbt and start it again. Same goes for the long-lived sbt server (`~/.sbt/1.0/server/...`). An app started by `./scripts/app.scala` reads `.env` at every start, so there a `restart` is enough.
 - **`docker compose down` keeps volumes; `docker compose down -v` wipes them.** Wipe when you want a clean PG, change OpenObserve credentials, or cycle a corrupted state.
 - **Tests don't use the docker-compose stack.** Testcontainers spins up its own. Don't worry about polluting your dev DB during a test run.
-- **Migrations don't run automatically when the app starts.** Run `sbt "runMain madrileno.main.MigrateMain"` after adding one or after wiping volumes.
+- **The app doesn't run migrations when it starts.** Run `sbt "runMain madrileno.main.MigrateMain"` or `./scripts/app.scala migrate` after adding one or after wiping volumes; `./scripts/app.scala start` runs them before it starts the app.
 - **OpenObserve creates OTLP streams on first ingest.** If the Traces tab is empty right after boot, hit the app a few times, refresh, give it a moment.
 
 ## Documentation

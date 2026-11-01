@@ -44,6 +44,15 @@ jobs:
           scala-cli test scripts/architecture.scala
           ./scripts/architecture.scala --strict --out /tmp/architecture.html
 
+  test-app-launcher:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: VirtusLab/scala-cli-setup@d320e01a605bf27128a5657575382668f83ef34e # v1
+      - name: Unit-test the app launcher
+        run: scala-cli test scripts/app.scala
+
   run-doctor:
     runs-on: ubuntu-latest
     timeout-minutes: 30
