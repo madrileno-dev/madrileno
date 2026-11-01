@@ -33,12 +33,10 @@ final case class __Aggregate__(
 }
 
 object __Aggregate__ {
-  def create(id: __Aggregate__Id, name: __Aggregate__Name, now: Instant): __Aggregate__ =
-    __Aggregate__(
-      id = id,
-      name = name,
-      createdAt = now,
-      updatedAt = now,
-      deletedAt = None
-    )
+  def create(
+    id: __Aggregate__Id,
+    name: __Aggregate__Name,
+    now: Instant
+  ): __Aggregate__ =
+    __Aggregate__(id = id, name = name, createdAt = now, updatedAt = now, deletedAt = None)
 }
