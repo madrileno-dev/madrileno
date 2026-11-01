@@ -657,4 +657,19 @@ class EventsSuite extends munit.FunSuite {
     val result = EventExtractor.extract(files, Ownership.of(files), "app")
     assertEquals(result.value._1.map(t => t.name -> t.subscribers.map(_.enclosing)), List("orders" -> Nil, "payments" -> Nil))
   }
+
+  test("a topic's payload nested in an object is found in its file when another object nests a type of the same name") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "shop/ShopModule.scala",
+        "package app.shop\ntrait ShopModule {\n  lazy val orders: EventBus[OrderEvents.Created] = eventBusRuntime.topic[OrderEvents.Created](\"orders\", maxQueued = 8)\n  lazy val payments: EventBus[PaymentEvents.Created] = eventBusRuntime.topic[PaymentEvents.Created](\"payments\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src("shop/domain/OrderEvents.scala", "package app.shop.domain\nobject OrderEvents {\n  final case class Created(id: Id)\n}"),
+      Fixtures.src("shop/domain/PaymentEvents.scala", "package app.shop.domain\nobject PaymentEvents {\n  final case class Created(id: Id)\n}")
+    )
+    assertEquals(
+      EventExtractor.extract(files, Ownership.of(files), "app").value._1.map(t => t.name -> t.definedIn),
+      List("orders" -> Some("shop/domain/OrderEvents.scala"), "payments" -> Some("shop/domain/PaymentEvents.scala"))
+    )
+  }
 }

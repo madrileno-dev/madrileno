@@ -353,4 +353,33 @@ class MermaidSuite extends munit.FunSuite {
     assert(!text.contains("No architecture changes"), text)
     assert(text.contains("**Outside the modules**\n\n- added table `audit` in platform (utils/db)"), text)
   }
+
+  test("a changed module says under the diagram what changed in its members and references") {
+    def model(user: String) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+        Fixtures.src("user/UserModule.scala", user),
+        Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),
+        Fixtures.src("shop/domain/Cart.scala", "package app.shop.domain\nfinal case class Cart(id: String)\nfinal case class Sku(id: String)")
+      )
+    )
+    val text = Mermaid.render(
+      ArchDiff.compare(
+        model("package app.user\nimport app.shop.domain.Cart\ntrait UserModule"),
+        model("package app.user\nimport app.shop.domain.{Cart, Sku}\ntrait UserModule {\n  val clock: Clock\n}"),
+        "b",
+        "h"
+      )
+    )
+    assert(text.contains("**Changed modules**\n\n- user: now consumes `clock: Clock`; now imports `Sku` from shop domain"), text)
+  }
+
+  test("the full map's textual fallback lists only the modules the map shows") {
+    val many = (1 to 90).map(i => Fixtures.src(s"m$i/M${i}Module.scala", s"package app.m$i\ntrait M${i}Module")) :+
+      Fixtures.src("utils/flags/FlagsModule.scala", "package app.utils.flags\ntrait FlagsModule")
+    val text    = Mermaid.renderFull(ArchDiff.full(Extractor.extract(Fixtures.project(many*)), "h"))
+    val modules = text.linesIterator.find(_.startsWith("- **Modules")).getOrElse("")
+    assert(modules.startsWith("- **Modules (90):**"), text.take(600))
+    assert(!modules.contains("utils/flags"), modules)
+  }
 }

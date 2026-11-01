@@ -164,4 +164,21 @@ class WiringSuite extends munit.FunSuite {
     assertEquals(wiring.value, List(Wiring("clock", "b", Provider.FromPlatform)))
     assertEquals(wiring.warnings, Nil)
   }
+
+  test("a module that reaches a platform-imported type through its companion takes no dependency on it") {
+    val files = Fixtures.parsed(
+      Fixtures.src("auth/AuthModule.scala", "package app.auth\ntrait AuthModule"),
+      Fixtures.src(
+        "auth/domain/AuthContext.scala",
+        "package app.auth.domain\nfinal case class AuthContext(id: String)\nobject AuthContext { def toJson(c: AuthContext) = ??? }"
+      ),
+      Fixtures.src("utils/http/Routes.scala", "package app.utils.http\nimport app.auth.domain.AuthContext\ntrait AuthRouteProvider"),
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+      Fixtures.src(
+        "user/routers/UserRouter.scala",
+        "package app.user.routers\nclass UserRouter {\n  def j(c: Any) = app.auth.domain.AuthContext.toJson(c)\n}"
+      )
+    )
+    assertEquals(ReferenceExtractor.extract(files, Ownership.of(files), "app"), Nil)
+  }
 }

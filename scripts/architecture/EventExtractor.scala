@@ -200,6 +200,7 @@ object EventExtractor {
 
   private final case class TypeDefinition(
     name: String,
+    outer: List[String],
     path: String,
     file: String,
     owner: Owner)
@@ -208,11 +209,14 @@ object EventExtractor {
     files.flatMap { file =>
       file.tree
         .collect {
-          case d: Defn.Class => d.name.value
-          case d: Defn.Trait => d.name.value
-          case d: Defn.Enum  => d.name.value
+          case d: Defn.Class => d -> d.name.value
+          case d: Defn.Trait => d -> d.name.value
+          case d: Defn.Enum  => d -> d.name.value
         }
-        .map(TypeDefinition(_, file.source.projectPath, file.source.packagePath, ownership.ownerOf(file.pkg)))
+        .map { (defn, name) =>
+          val outer = Trees.ancestors(defn).collect { case o: Defn.Object => o.name.value }.reverse
+          TypeDefinition(name, outer, file.source.projectPath, file.source.packagePath, ownership.ownerOf(file.pkg))
+        }
     }
 
   private def fileOf(
@@ -221,7 +225,10 @@ object EventExtractor {
     declaredIn: String,
     owner: Owner
   ): Option[String] = {
-    val candidates = types.filter(_.name == simpleName(typeName))
+    val named      = types.filter(_.name == simpleName(typeName))
+    val qualifier  = typeName.takeWhile(_ != '[').split('.').toList.dropRight(1)
+    val nested     = named.filter(t => qualifier.nonEmpty && t.outer.endsWith(qualifier))
+    val candidates = if (nested.nonEmpty) nested else named
     List(candidates.filter(_.path == declaredIn), candidates.filter(_.owner == owner), candidates).collectFirst { case List(only) => only.file }
   }
 

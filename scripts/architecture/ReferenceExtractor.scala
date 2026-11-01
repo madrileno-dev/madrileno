@@ -22,7 +22,7 @@ object ReferenceExtractor {
     val platformContract = raw.flatMap {
       case RawReference(Owner.Platform(_), path, symbol, _) if symbol != "*" && symbol != "given" =>
         ownership.ownerOf(path) match {
-          case Owner.Module(id) => Some(id -> symbol)
+          case Owner.Module(id) => Some(id -> locate(id, path, symbol)._2)
           case _                => None
         }
       case _ => None
@@ -30,9 +30,9 @@ object ReferenceExtractor {
     raw
       .flatMap { ref =>
         (ref.from, ownership.ownerOf(ref.targetPath)) match {
-          case (Owner.Module(from), Owner.Module(to)) if from != to && !platformContract.contains(to -> ref.symbol) =>
+          case (Owner.Module(from), Owner.Module(to)) if from != to =>
             val (layer, symbol) = locate(to, ref.targetPath, ref.symbol)
-            Some(Reference(from, to, layer, symbol, ref.loc))
+            Option.unless(platformContract.contains(to -> symbol))(Reference(from, to, layer, symbol, ref.loc))
           case _ => None
         }
       }

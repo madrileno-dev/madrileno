@@ -192,4 +192,35 @@ class ExtractorSuite extends munit.FunSuite {
       )
     )
   }
+
+  test("private and protected constructor vals and a case class's later parameter lists aren't exposed, and a var is") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+        Fixtures.src(
+          "user/UserModule.scala",
+          "package app.user\ntrait UserModule {\n  lazy val userService: UserService = wire[UserService]\n  lazy val userConfig: UserConfig = ???\n}"
+        ),
+        Fixtures.src(
+          "user/services/UserService.scala",
+          "package app.user.services\nclass Calc\nclass Secret\nclass Counter\nclass Extra\nclass UserService(private val calc: Calc, protected val secret: Secret, var counter: Counter)\nfinal case class UserConfig(id: String)(extra: Extra)"
+        ),
+        Fixtures.src(
+          "shop/ShopModule.scala",
+          "package app.shop\nimport app.user.services.{Calc, Counter, Extra, Secret, UserConfig, UserService}\ntrait ShopModule {\n  lazy val userService: UserService\n  lazy val userConfig: UserConfig\n}"
+        )
+      )
+    )
+    assertEquals(
+      model.references.map(r => r.symbol -> r.explainedBy).sortBy(_._1),
+      List(
+        "Calc"        -> None,
+        "Counter"     -> Some(Explanation.Wiring),
+        "Extra"       -> None,
+        "Secret"      -> None,
+        "UserConfig"  -> Some(Explanation.Wiring),
+        "UserService" -> Some(Explanation.Wiring)
+      )
+    )
+  }
 }

@@ -68,18 +68,15 @@ object ExplainedReferences {
       case _: Mod.Case => true
       case _           => false
     }
-    typeNames(
-      cls.ctor.paramClauses
-        .flatMap(_.values)
-        .filter(param =>
-          caseClass || param.mods.exists {
-            case _: Mod.ValParam => true
-            case _               => false
-          }
-        )
-        .flatMap(_.decltpe)
-        .toList
-    )
+    val fields = cls.ctor.paramClauses.toList.zipWithIndex.flatMap { (clause, index) =>
+      clause.values.filter(param =>
+        isPublic(param.mods) && ((caseClass && index == 0) || param.mods.exists {
+          case _: Mod.ValParam | _: Mod.VarParam => true
+          case _                                 => false
+        })
+      )
+    }
+    typeNames(fields.flatMap(_.decltpe))
   }
 
   private def signatureTypes(template: Template): List[String] =

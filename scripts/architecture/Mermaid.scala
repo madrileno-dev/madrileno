@@ -68,7 +68,7 @@ object Mermaid {
     val graph     = if (collapsed) GraphView.full(diff, Level.Modules) else detailed
     val shown     =
       tooLarge(graph).fold(s"```mermaid\n${diagram(graph)}```\n")(intro =>
-        s"$intro\n\n- **Modules (${diff.modules.size}):** ${diff.modules.map(_.id).mkString(", ")}\n"
+        s"$intro\n\n- **Modules (${GraphView.shown(diff).size}):** ${GraphView.shown(diff).map(_.id).mkString(", ")}\n"
       )
     val note =
       if (collapsed)
@@ -218,7 +218,10 @@ object Mermaid {
         s"- ${node.status.toString.toLowerCase} `${migration.path}`${if (does.isEmpty) "" else s": $does"}"
       }
     }
-    section("Code changed", code ++ outside ++ payloads ++ tables) + section("Migrations", migrations) +
+    section("Changed modules", changedModules(diff)) + section("Code changed", code ++ outside ++ payloads ++ tables) + section(
+      "Migrations",
+      migrations
+    ) +
       section("Tasks", tasks) + section("New warnings", warnings) + section("New unclassified", unclassified)
   }
 
@@ -229,6 +232,26 @@ object Mermaid {
         n.head.orElse(n.base).map(item => s"- ${n.status.toString.toLowerCase} $kind `${n.key}` in ${owner(item).label}")
       }
     lines("table", diff.tables)(_.owner) ++ lines("topic", diff.topics)(_.owner) ++ lines("event", diff.events)(_.owner)
+  }
+
+  private def changedModules(diff: DiffModel): List[String] = {
+    val change = (status: Status) =>
+      status match {
+        case Status.Added   => Some("now")
+        case Status.Removed => Some("no longer")
+        case _              => None
+      }
+    diff.modules.filter(_.status == Status.Changed).flatMap { m =>
+      val members = m.members.flatMap(member => change(member.status).map(when => s"$when ${member.section.toString.toLowerCase} `${member.text}`"))
+      val references = diff.references.flatMap { node =>
+        node.head.orElse(node.base).filter(_.from == m.id).flatMap { r =>
+          change(node.status).map { when =>
+            s"$when ${if (ArchDiff.isUse(r)) "uses" else "imports"} `${r.symbol}` from ${r.to}${if (r.layer == "module") "" else s" ${r.layer}"}"
+          }
+        }
+      }
+      Option.when((members ++ references).nonEmpty)(s"- ${m.id}: ${(members ++ references).mkString("; ")}")
+    }
   }
 
   private def listed(paths: List[String]): String = {
