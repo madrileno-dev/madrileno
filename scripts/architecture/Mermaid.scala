@@ -31,25 +31,31 @@ object Mermaid {
   private val Credit: String = "\n<sub>Mapped by Madrileño's <code>scripts/architecture.scala</code></sub>\n"
 
   def render(diff: DiffModel): String = {
-    val graph     = GraphView.changes(diff)
-    val outside   = undrawn(diff, graph)
-    val footer    = section("Outside the modules", outside) + footerOf(diff)
-    val unchanged = graph.nodes.forall(_.status == Status.Unchanged) && graph.edges.forall(_.status == Status.Unchanged)
-    if (unchanged && outside.isEmpty)
-      s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n${if (metricsMoved(diff)) metricsSection(diff) else ""}$footer$Credit"
-    else if (unchanged) s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n${metricsSection(diff)}$footer$Credit"
-    else
-      tooLarge(graph) match {
-        case Some(intro) =>
-          s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n$intro\n\n${summary(diff)}${metricsSection(diff)}$footer$Credit"
-        case None =>
-          val note =
-            if (graph.collapsed)
-              s"\n_The classes modules wire are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
-            else ""
-          s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\n${diagram(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
-      }
+    val graph                           = GraphView.changes(diff)
+    val outside                         = undrawn(diff, graph)
+    val unchanged                       = graph.nodes.forall(_.status == Status.Unchanged) && graph.edges.forall(_.status == Status.Unchanged)
+    val large                           = if (unchanged) None else tooLarge(graph)
+    def compose(footer: String): String =
+      if (unchanged && outside.isEmpty)
+        s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n${if (metricsMoved(diff)) metricsSection(diff) else ""}$footer$Credit"
+      else if (unchanged) s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n${metricsSection(diff)}$footer$Credit"
+      else
+        large match {
+          case Some(intro) =>
+            s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n$intro\n\n${summary(diff)}${metricsSection(diff)}$footer$Credit"
+          case None =>
+            val note =
+              if (graph.collapsed)
+                s"\n_The classes modules wire are hidden: the diagram would have more than ${GraphView.MaxNodes} boxes. Open the HTML for details._\n"
+              else ""
+            s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\n${diagram(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
+        }
+    val full = compose((if (large.isDefined) "" else section("Outside the modules", outside)) + footerOf(diff))
+    if (full.length <= MaxText) full
+    else compose("\n_The lists of changes would make this longer than GitHub accepts. Open the HTML for them._\n")
   }
+
+  private val MaxText = 60000
 
   def diagram(graph: Graph): String = s"$Theme---\nflowchart LR\n${body(graph)}"
 
@@ -242,10 +248,11 @@ object Mermaid {
 
   private def taskChanges(before: TaskDecl, after: TaskDecl): List[String] = {
     val callers  = (task: TaskDecl) => task.scheduledFrom.map(_.enclosing).distinct
+    val kind     = Option.when(before.kind != after.kind)(s"was ${before.kind.label}")
     val schedule = Option.when(before.schedule != after.schedule)(s"was ${before.schedule.fold("unscheduled")(scheduleText)}")
     val added    = callers(after).filterNot(callers(before).contains)
     val removed  = callers(before).filterNot(callers(after).contains)
-    schedule.toList ++ Option.when(added.nonEmpty)(s"now scheduled from ${added.mkString(", ")}") ++
+    kind.toList ++ schedule ++ Option.when(added.nonEmpty)(s"now scheduled from ${added.mkString(", ")}") ++
       Option.when(removed.nonEmpty)(s"no longer scheduled from ${removed.mkString(", ")}")
   }
 
@@ -287,8 +294,8 @@ object Mermaid {
       case (Status.Added, _, Some(after))              => Some(s"now wires `${component.name}` (${kind(after)})")
       case (Status.Removed, Some(_), _)                => Some(s"no longer wires `${component.name}`")
       case (Status.Changed, Some(before), Some(after)) =>
-        val takes   = after.dependencies.filterNot(before.dependencies.contains).map(d => s"`$d`")
-        val dropped = before.dependencies.filterNot(after.dependencies.contains).map(d => s"`$d`")
+        val takes   = after.dependencies.diff(before.dependencies).map(d => s"`$d`")
+        val dropped = before.dependencies.diff(after.dependencies).map(d => s"`$d`")
         val changes =
           Option.when(takes.nonEmpty)(s"now takes ${takes.mkString(", ")}").toList ++
             Option.when(dropped.nonEmpty)(s"no longer takes ${dropped.mkString(", ")}") ++

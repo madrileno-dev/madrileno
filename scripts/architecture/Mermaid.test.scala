@@ -445,4 +445,44 @@ class MermaidSuite extends munit.FunSuite {
     )
     assert(text.contains("- user: now imports everything from shop domain; now imports the givens of shop domain"), text)
   }
+
+  test("a second parameter of a type a class already takes, and a task's new kind, are explained") {
+    def model(params: String, task: String) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+        Fixtures
+          .src("user/UserModule.scala", s"package app.user\ntrait UserModule {\n  lazy val userRouter: UserRouter = wire[UserRouter]\n  $task\n}"),
+        Fixtures.src("user/routers/UserRouter.scala", s"package app.user.routers\nclass UserRouter($params)")
+      )
+    )
+    val text = Mermaid.render(
+      ArchDiff.compare(
+        model("a: UserService", "val analyze = Task.oneTime(TaskDescriptor[Int](\"analyze\"))(_ => IO.unit)"),
+        model("a: UserService, b: UserService", "val analyze = Task.custom(TaskDescriptor[Int](\"analyze\"))(_ => IO.unit)"),
+        "b",
+        "h"
+      )
+    )
+    assert(text.contains("- user: `UserRouter` now takes `UserService`"), text)
+    assert(text.contains("- changed `analyze`: custom, in user; was one-time"), text)
+  }
+
+  test("an output longer than GitHub accepts replaces the lists under the diagram with a pointer to the HTML") {
+    val migrations =
+      (1 to 1500).map(i => Fixtures.migration(f"V$i%04d__create_a_table_with_a_rather_long_name_$i.sql", s"create table t$i (id int);")).toList
+    val files = List(
+      Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+      Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule")
+    )
+    val text = Mermaid.render(
+      ArchDiff.compare(
+        Extractor.extract(Fixtures.projectWithMigrations(files, Nil)),
+        Extractor.extract(Fixtures.projectWithMigrations(files, migrations)),
+        "b",
+        "h"
+      )
+    )
+    assert(text.length < 65536, text.length.toString)
+    assert(text.contains("Open the HTML for them."), text.take(500))
+  }
 }

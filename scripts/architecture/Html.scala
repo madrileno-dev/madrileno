@@ -27,7 +27,7 @@ object Html {
       s"""<div class="brand">$brandMark<span class="eyebrow">Madrileño</span></div>""",
       s"<h1>${escape(title)}</h1>",
       s"""<p class="summary">${escape(summary(diff))}</p>""",
-      if (diff.isDiff) """<label class="toggle"><input type="checkbox" id="changed-only"> Changed only</label>""" else "",
+      if (diff.isDiff) """<label class="toggle"><input type="checkbox" id="changed-only" autocomplete="off"> Changed only</label>""" else "",
       "</header>",
       "<main>",
       s"""<section id="metrics"><h2>Metrics</h2><p class="muted">Lower is better. Read propagation cost together with size concentration: merging modules lowers the first and raises the second.</p>${metricsCards(
@@ -318,6 +318,7 @@ main { padding: 0 24px 40px; }
 #details code { overflow-wrap: anywhere; }
 .graph { background: #f5f1ea; color: #1e1e24; min-height: 160px; padding: 12px; }
 .graph svg { max-width: none; height: auto; }
+.graph .muted { color: #5c5b63; }
 .graph g.node, .graph g.cluster { cursor: pointer; }
 .graph-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 8px; }
 .zoom { margin-left: auto; display: inline-flex; gap: 4px; }

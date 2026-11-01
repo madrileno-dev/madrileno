@@ -242,4 +242,10 @@ class HtmlSuite extends munit.FunSuite {
     assert(diagrams("changed")("everything").str.contains("table_orders"))
     assert(diagrams("empty").str.contains("with tables and events"), diagrams("empty").toString)
   }
+
+  test("the diagram panel's messages stay readable in dark mode, and a reload doesn't restore Changed only") {
+    val page = Html.render(ArchDiff.compare(Fixtures.diffBase, Fixtures.diffHead, "b", "h"))
+    assert(page.contains(".graph .muted { color: #5c5b63; }"))
+    assert(page.contains("""<input type="checkbox" id="changed-only" autocomplete="off">"""))
+  }
 }
