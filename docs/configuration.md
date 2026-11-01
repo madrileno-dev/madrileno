@@ -177,7 +177,7 @@ When `sbt` (or `sbt --client`) starts, the plugin reads `.env` from the project 
 Two consequences:
 
 - **`.env` is dev-only.** Don't deploy it. Production uses the real environment (Docker `--env`, k8s `env:`, systemd `Environment=`, your secrets manager, whatever).
-- **Restart sbt to pick up `.env` changes.** The plugin reads it once at startup. `~reStart` watches Scala/HOCON files, not `.env`.
+- **Restart sbt to pick up `.env` changes.** The plugin reads it once at startup. `~reStart` watches Scala/HOCON files, not `.env`. `./scripts/app.scala start` reads `.env` itself at every start, so an app run through the launcher needs only a `restart`.
 
 `.env.sample` is what's checked in. Copy to `.env` for local work. Don't commit `.env` itself — it's in `.gitignore`.
 

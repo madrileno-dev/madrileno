@@ -6,7 +6,7 @@ Skim the **Start here** path on day one. Reach for the rest by topic.
 
 ## Start here
 
-- [`../README.md`](../README.md) — Quick Start: dev stack, `.env`, migrations, `~reStart`.
+- [`../README.md`](../README.md) — Quick Start: dev stack, `.env`, migrations, `~reStart` or `./scripts/app.scala start`.
 - [`dev-workflow.md`](dev-workflow.md) — day-to-day sbt ergonomics, common stuck states.
 - [`adding-a-module.md`](adding-a-module.md) — vertical-slice walkthrough from migration to OpenAPI.
 
@@ -38,7 +38,7 @@ Skim the **Start here** path on day one. Reach for the rest by topic.
 
 ## Tooling
 
-- [`scripts.md`](scripts.md) — scala-cli scripts under `scripts/`: `init-project` (rename template), `scaffold-module` (vertical-slice generator), `dev-console` (REPL with the wire graph live).
+- [`scripts.md`](scripts.md) — scala-cli scripts under `scripts/`: `init-project` (rename template), `scaffold-module` (vertical-slice generator), `dev-console` (REPL with the wire graph live), `app` (start / stop / migrate without an sbt shell), `doctor`.
 - [`mcp.md`](mcp.md) — `scripts/mcp-server.scala` — MCP server exposing this template's docs / source / diffs to an AI assistant for pattern-aware new-module work.
 - [`updating-from-upstream.md`](updating-from-upstream.md) — pulling upstream template changes into a derived project after it has drifted; the triage loop and what the `.madrileno-ref` pin means.
 - [`ai-assisted-dev.md`](ai-assisted-dev.md) — the Metals + madrileno MCP server setup for driving development with Claude Code (the build tools `AGENTS.md` assumes), and how the assistant runs the app.

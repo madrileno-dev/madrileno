@@ -78,7 +78,7 @@ object Doctor {
       checkHttp(
         "app responding",
         s"http://localhost:$appPort/$apiVersion/health-check",
-        "sbt --client reStart (or ~reStart in an sbt shell to rebuild on save)"
+        "./scripts/app.scala start (or ~reStart in an sbt shell to rebuild on save)"
       )
     )
 

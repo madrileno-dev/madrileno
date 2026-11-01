@@ -180,7 +180,7 @@ Output on a healthy box:
 All 8 checks passed. Happy hacking.
 ```
 
-On failure, each failed check prints a one-line `Hint:` pointing at the command that fixes it (`cp .env.sample .env`, `docker compose up -d`, `sbt --client reStart`, etc.). Failures don't cascade — every independent check runs so you see the full picture in one shot, not iteratively.
+On failure, each failed check prints a one-line `Hint:` pointing at the command that fixes it (`cp .env.sample .env`, `docker compose up -d`, `./scripts/app.scala start`, etc.). Failures don't cascade — every independent check runs so you see the full picture in one shot, not iteratively.
 
 The checks:
 
@@ -191,7 +191,7 @@ The checks:
 | 3 | docker-compose services running | Reports each of postgres / mailpit / silo / openobserve and its status. |
 | 4 | Postgres TCP socket open on `PG_PORT` | Reads `.env` for the port (falls back to `.env.sample` if `.env` is missing). |
 | 5–7 | Mailpit / Silo / OpenObserve HTTP health endpoints | `GET /api/v1/info`, `/minio/health/live`, `/healthz` respectively. |
-| 8 | App responding | `GET http://localhost:$PORT/v1/health-check`. Hints `sbt --client reStart` on failure, or `~reStart` in an sbt shell to rebuild on save. |
+| 8 | App responding | `GET http://localhost:$PORT/v1/health-check`. Hints `./scripts/app.scala start` on failure, or `~reStart` in an sbt shell to rebuild on save. |
 
 ### What it doesn't do
 
@@ -328,14 +328,45 @@ Instead of guessing, the map lists these under **Unclassified**, each with its l
 - **Doesn't parse syntax newer than scalameta's.** A file using experimental syntax scalameta doesn't support yet, such as `tracked` parameters, is listed as unparseable, and a module whose trait is in that file is left out of the map, so the modules that consume its members warn.
 - **Doesn't resolve types.** A wildcard import counts as a reference to the package, not to each symbol in it. A bus reached through another object, such as `deps.bus.publish(…)`, or inherited from a parent class is matched by its name, so it's found only when the buses that classes declare with that name all have one type, written qualified or not. A bus passed as a parameter or matched by a typed pattern is known by its type, and one typed by a type parameter, like `EventBus[E]` in a generic helper, isn't a use. Neither is a bus held in an untyped local `val`, like `val bus = deps.bus`.
 
+## `app.scala`
+
+Starts, stops and inspects the app as a process of its own, outside the sbt server. It is the path for scripts and coding assistants; a developer with an sbt shell open can keep using `~reStart`.
+
+```bash
+./scripts/app.scala start                # compile, run in the background, wait for /v1/health-check
+./scripts/app.scala migrate              # apply pending Flyway migrations without starting
+./scripts/app.scala restart              # after a code or .env change
+./scripts/app.scala status               # exit 0 when the app it started answers
+./scripts/app.scala logs --lines 100     # the end of the newest file in logs/
+./scripts/app.scala stop                 # SIGTERM, then SIGKILL after --grace seconds (default 35)
+```
+
+### How it works
+
+- `start` runs `sbt --client compile` (skip it with `--no-compile`) and `migrate` (skip it with `--no-migrate`), reads the runtime classpath that `compile` caches in `target/console-classpath`, finds `<package>.main.Main` among the compiled classes, and launches it on the script's own JDK with the JVM options `build.sbt` sets in `javaOptions` (copied in `scripts/app/Launch.scala`, so change both) and the variables from `.env` layered over the environment, the way `reStart` does. The process's console output goes to `target/app/app.out.log`; the application log is wherever logback writes it, `logs/` by default.
+- It then polls the health check once a second for `--timeout` seconds (default 60). Ready: exit 0 with the URL and pid. Died first: exit 1 with the last log lines. Still not answering at the deadline: the process is stopped and exit 1, so a failed `start` never leaves a half-started app behind.
+- The pid is kept in `target/app/app.pid`. `status`, `stop` and `restart` work from it; a stale file left by a process that is gone is removed and reported.
+- When the health check answers but the pid file names no live process, something else owns the port, usually a `~reStart` loop. `start` and `stop` then exit 1 and say so instead of touching it.
+- The health probe is a plain HTTP/1.0 request on a socket it closes at once. A pooled keep-alive connection would make the app's graceful shutdown wait out `HTTP_SHUTDOWN_TIMEOUT`, and `stop` would take 30 seconds instead of 3.
+- `migrate` runs `<package>.main.MigrateMain` in the foreground with the same classpath and environment.
+
+Exit codes: 0 ok, 1 the app is not in the asked-for state or failed to get there, 2 bad arguments, not the project root, or no `.env` for a command that needs one.
+
+### What it doesn't do
+
+- It doesn't watch sources. Rerun `restart` after a change, or use `~reStart` in an sbt shell.
+- It doesn't start the compose stack or create the database. `doctor.scala` tells you what is missing.
+- It doesn't manage the sbt server. `sbt --client shutdown` still stops that one, and no longer takes the app down with it.
+
 ## Template-internal CI workflows
 
 The repo ships four GitHub Actions. `.github/workflows/scala.yml` is the project's own CI (format check, scalafix, compile, test) — kept on init like any other project file. The other three are **template-internal**: they validate template content and are deleted by `init-project.scala` (along with `scripts/check-links.scala`, which only the link-check workflow uses):
 
 - **`.github/workflows/link-check.yml`** — runs `scripts/check-links.scala` on PRs touching markdown. The script walks every `.md`, extracts `[text](target)` links, verifies internal targets exist (relative paths + `#anchor` heading slugs). Externals + `mailto:` / `tel:` are skipped. Code spans + fenced blocks are stripped first so Scala signatures inside code samples don't trip the regex.
-- **`.github/workflows/script-tests.yml`** — runs on PRs touching `scripts/` or `src/main/`, since the init, scaffold and architecture checks depend on the app's code too. Five jobs:
+- **`.github/workflows/script-tests.yml`** — runs on PRs touching `scripts/` or `src/main/`, since the init, scaffold and architecture checks depend on the app's code too. Six jobs:
   - `compile-scripts` — checks that everything under `scripts/` is formatted with the project's scalafmt config, then compiles every `scripts/*.scala` and runs it with `--help`, which catches dependency drift and a broken entry point. Two module templates are excluded in `.scalafmt.conf`, since a placeholder followed by `:` makes them unparseable as Scala
   - `test-architecture` — runs the architecture map's unit tests, then `./scripts/architecture.scala --strict` on the template, which fails on any warning or unclassified item
+  - `test-app-launcher` — runs the launcher's unit tests, `scala-cli test scripts/app.scala`
   - `run-doctor` — smoke-runs `scripts/doctor.scala`, accepts exit `0` or `1` (CI has no dev stack so doctor's "checks failed" exit is expected; anything else is a real crash)
   - `test-init-project` — `git clone`s the repo into a temp dir, runs `./scripts/init-project.scala wine-cellar`, asserts the rename / auction-drop / workflow-cleanup happened, runs `./scripts/architecture.scala --strict` on the result, then `sbt compile`s
   - `test-scaffold-module` — same shape, runs `./scripts/scaffold-module.scala Wine wines`, asserts generated files exist + `WineModule` is wired into `ApplicationLoader`, then `sbt compile`s
@@ -351,4 +382,5 @@ All workflows verify template content (our docs, our scripts). A forked project 
 - `doctor.scala` — standalone, no companion files
 - `mcp-server.scala` — standalone, no companion files
 - `architecture.scala` + `architecture/` — entry point (CLI) + the extractor, diff and renderers it includes; `architecture/*.test.scala` are its unit tests (`scala-cli test scripts/architecture.scala`)
+- `app.scala` + `app/` — launcher. The decisions (`.env` parsing, what the pid file and the health check add up to, when to give up, what each command does in each state) are plain functions with munit tests: `scala-cli test scripts/app.scala`
 - `check-links.scala` — standalone; template-only, deleted on init
