@@ -334,7 +334,7 @@ The repo ships four GitHub Actions. `.github/workflows/scala.yml` is the project
 
 - **`.github/workflows/link-check.yml`** — runs `scripts/check-links.scala` on PRs touching markdown. The script walks every `.md`, extracts `[text](target)` links, verifies internal targets exist (relative paths + `#anchor` heading slugs). Externals + `mailto:` / `tel:` are skipped. Code spans + fenced blocks are stripped first so Scala signatures inside code samples don't trip the regex.
 - **`.github/workflows/script-tests.yml`** — runs on PRs touching `scripts/` or `src/main/`, since the init, scaffold and architecture checks depend on the app's code too. Five jobs:
-  - `compile-scripts` — compiles every `scripts/*.scala` and runs it with `--help`, which catches dependency drift and a broken entry point
+  - `compile-scripts` — checks that everything under `scripts/` is formatted with the project's scalafmt config, then compiles every `scripts/*.scala` and runs it with `--help`, which catches dependency drift and a broken entry point. Two module templates are excluded in `.scalafmt.conf`, since a placeholder followed by `:` makes them unparseable as Scala
   - `test-architecture` — runs the architecture map's unit tests, then `./scripts/architecture.scala --strict` on the template, which fails on any warning or unclassified item
   - `run-doctor` — smoke-runs `scripts/doctor.scala`, accepts exit `0` or `1` (CI has no dev stack so doctor's "checks failed" exit is expected; anything else is a real crash)
   - `test-init-project` — `git clone`s the repo into a temp dir, runs `./scripts/init-project.scala wine-cellar`, asserts the rename / auction-drop / workflow-cleanup happened, runs `./scripts/architecture.scala --strict` on the result, then `sbt compile`s
