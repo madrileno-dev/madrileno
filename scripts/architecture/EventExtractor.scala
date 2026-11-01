@@ -39,7 +39,7 @@ object EventExtractor {
       .flatMap(_.collect { case (name, Some(eventType)) => name -> eventType })
       .groupMap(_._1)(_._2)
       .view
-      .mapValues(_.distinctBy(unqualified))
+      .mapValues(_.distinct)
       .toMap
     val busUses     = files.flatMap(file => busUsesIn(file, busTypes, ownership, typeOwners(file)))
     val found       = files.flatMap(descriptorsIn(_, ownership))
@@ -299,8 +299,10 @@ object EventExtractor {
   ): List[BusUse] =
     file.tree.collect { case select @ Term.Select(receiver, Term.Name(BusRole(role))) =>
       def declared(name: String) = Trees.ancestors(select).view.flatMap(bindings(_).get(name)).headOption
-      def unique(name: String)   = busTypes.get(name).collect { case List(eventType) => eventType }
-      val eventType              = receiver match {
+      def unique(name: String)   = busTypes.get(name).flatMap { spellings =>
+        spellings.maxByOption(_.length).filter(longest => spellings.forall(s => s == longest || longest.endsWith(s".$s")))
+      }
+      val eventType = receiver match {
         case Term.Name(name)                            => declared(name).getOrElse(unique(name))
         case Term.Select(_: Term.This, Term.Name(name)) => declared(name).getOrElse(unique(name))
         case Term.Select(_, Term.Name(name))            => unique(name)

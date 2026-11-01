@@ -633,4 +633,28 @@ class EventsSuite extends munit.FunSuite {
       List(("orders", List("OrderService"), List("Notifier")))
     )
   }
+
+  test("a bus reached by name stays unresolved when two payload types share only a simple name") {
+    val files = Fixtures.parsed(
+      Fixtures.src(
+        "order/OrderModule.scala",
+        "package app.order\ntrait OrderModule {\n  lazy val orders: EventBus[OrderEvents.Placed] = eventBusRuntime.topic[OrderEvents.Placed](\"orders\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "payment/PaymentModule.scala",
+        "package app.payment\ntrait PaymentModule {\n  lazy val payments: EventBus[PaymentEvents.Placed] = eventBusRuntime.topic[PaymentEvents.Placed](\"payments\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src("order/services/OrderPublisher.scala", "package app.order.services\nclass OrderPublisher(val bus: EventBus[OrderEvents.Placed])"),
+      Fixtures.src(
+        "payment/services/PaymentPublisher.scala",
+        "package app.payment.services\nclass PaymentPublisher(val bus: EventBus[PaymentEvents.Placed])"
+      ),
+      Fixtures.src(
+        "notify/services/Relay.scala",
+        "package app.notify.services\nclass Relay(deps: PaymentPublisher) {\n  def go = deps.bus.subscribe\n}"
+      )
+    )
+    val result = EventExtractor.extract(files, Ownership.of(files), "app")
+    assertEquals(result.value._1.map(t => t.name -> t.subscribers.map(_.enclosing)), List("orders" -> Nil, "payments" -> Nil))
+  }
 }

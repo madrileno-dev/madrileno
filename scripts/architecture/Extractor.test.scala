@@ -163,4 +163,33 @@ class ExtractorSuite extends munit.FunSuite {
       List("FlagConfig" -> Some(Explanation.Wiring), "FlagService" -> Some(Explanation.Wiring))
     )
   }
+
+  test("a type a wired class exposes through a constructor val, or a case class field, is explained by the wiring") {
+    val model = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+        Fixtures.src(
+          "user/UserModule.scala",
+          "package app.user\ntrait UserModule {\n  lazy val userService: UserService = wire[UserService]\n  lazy val userConfig: UserConfig = ???\n}"
+        ),
+        Fixtures.src(
+          "user/services/UserService.scala",
+          "package app.user.services\nclass PriceCalculator\nclass Limits\nclass UserService(val calculator: PriceCalculator)\nfinal case class UserConfig(limits: Limits)"
+        ),
+        Fixtures.src(
+          "shop/ShopModule.scala",
+          "package app.shop\nimport app.user.services.{Limits, PriceCalculator, UserConfig, UserService}\ntrait ShopModule {\n  lazy val userService: UserService\n  lazy val userConfig: UserConfig\n}"
+        )
+      )
+    )
+    assertEquals(
+      model.references.map(r => r.symbol -> r.explainedBy).sortBy(_._1),
+      List(
+        "Limits"          -> Some(Explanation.Wiring),
+        "PriceCalculator" -> Some(Explanation.Wiring),
+        "UserConfig"      -> Some(Explanation.Wiring),
+        "UserService"     -> Some(Explanation.Wiring)
+      )
+    )
+  }
 }

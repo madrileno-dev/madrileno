@@ -245,7 +245,7 @@ Arrows between modules are labelled with the kind of dependency:
 - **`uses`** names types from the other module's `services`, `repositories`, `routers` or `gateways` that wiring doesn't explain, such as `uses PriceCalculator` for a helper object taken from another module's `services`. In a diff, a type newly used next to ones the arrow already uses gets an arrow of its own, like a newly wired member.
 
 Several things count as explained:
-- a wired member's type, its supertypes, and the types in their public method signatures, such as a result type a wired service returns
+- a wired member's type, its supertypes, and the types in their public method signatures and public `val`s, constructor `val`s and case class fields included, such as a result type a wired service returns
 - a wildcard import of their package
 - event types, wherever they live, since events are how modules are meant to talk
 
@@ -316,7 +316,7 @@ Instead of guessing, the map lists these under **Unclassified**, each with its l
 - **Doesn't nest SQL block comments.** Postgres does, but the map ends a migration's block comment at its first `*/`, so in `/* a /* b */ create table c (…) */` the `create table` counts.
 - **Reads only the project's package directory.** A file elsewhere under `src/main/scala` isn't read.
 - **Doesn't parse syntax newer than scalameta's.** A file using experimental syntax scalameta doesn't support yet, such as `tracked` parameters, is listed as unparseable, and a module whose trait is in that file is left out of the map, so the modules that consume its members warn.
-- **Doesn't resolve types.** A wildcard import counts as a reference to the package, not to each symbol in it. A bus reached through another object, such as `deps.bus.publish(…)`, or inherited from a parent class is matched by its name, so it's found only when the buses that classes declare with that name all have one type. A bus passed as a parameter or matched by a typed pattern is known by its type, and one typed by a type parameter, like `EventBus[E]` in a generic helper, isn't a use. Neither is a bus held in an untyped local `val`, like `val bus = deps.bus`.
+- **Doesn't resolve types.** A wildcard import counts as a reference to the package, not to each symbol in it. A bus reached through another object, such as `deps.bus.publish(…)`, or inherited from a parent class is matched by its name, so it's found only when the buses that classes declare with that name all have one type, written qualified or not. A bus passed as a parameter or matched by a typed pattern is known by its type, and one typed by a type parameter, like `EventBus[E]` in a generic helper, isn't a use. Neither is a bus held in an untyped local `val`, like `val bus = deps.bus`.
 
 ## Template-internal CI workflows
 

@@ -22,7 +22,8 @@ object ExplainedReferences {
       ownership.ownerOf(file.pkg) match {
         case Owner.Module(id) =>
           file.tree.collect {
-            case d: Defn.Class => Definition(id, d.name.value, Layers.of(id, file.pkg), Trees.parentNames(d.templ), signatureTypes(d.templ))
+            case d: Defn.Class =>
+              Definition(id, d.name.value, Layers.of(id, file.pkg), Trees.parentNames(d.templ), signatureTypes(d.templ) ++ fieldTypes(d))
             case d: Defn.Trait => Definition(id, d.name.value, Layers.of(id, file.pkg), Trees.parentNames(d.templ), signatureTypes(d.templ))
           }
         case _ => Nil
@@ -60,6 +61,25 @@ object ExplainedReferences {
         else None
       reference.copy(explainedBy = explanation)
     }
+  }
+
+  private def fieldTypes(cls: Defn.Class): List[String] = {
+    val caseClass = cls.mods.exists {
+      case _: Mod.Case => true
+      case _           => false
+    }
+    typeNames(
+      cls.ctor.paramClauses
+        .flatMap(_.values)
+        .filter(param =>
+          caseClass || param.mods.exists {
+            case _: Mod.ValParam => true
+            case _               => false
+          }
+        )
+        .flatMap(_.decltpe)
+        .toList
+    )
   }
 
   private def signatureTypes(template: Template): List[String] =
