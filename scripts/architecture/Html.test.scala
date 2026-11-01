@@ -248,4 +248,18 @@ class HtmlSuite extends munit.FunSuite {
     assert(page.contains(".graph .muted { color: #5c5b63; }"))
     assert(page.contains("""<input type="checkbox" id="changed-only" autocomplete="off">"""))
   }
+
+  test("the warnings, unclassified and outside-module tables scroll instead of widening the page, and only clickable boxes look clickable") {
+    val head = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+        Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule")
+      )
+    )
+    val page = Html.render(ArchDiff.compare(Fixtures.diffBase, head, "b", "h"))
+    assert(page.contains("""<div class="scroll"><table><thead><tr><th>Kind</th><th>Message</th>"""), "warnings")
+    assert(page.contains(".graph .clickable { cursor: pointer; }"))
+    assert(page.contains("el.classList.add('clickable')"))
+  }
 }

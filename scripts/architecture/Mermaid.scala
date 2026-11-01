@@ -50,12 +50,14 @@ object Mermaid {
               else ""
             s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n\n```mermaid\n${diagram(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
         }
-    val full = compose((if (large.isDefined) "" else section("Outside the modules", outside)) + footerOf(diff))
+    val full = compose((if (large.isDefined) "" else section("Outside the modules", outside)) + footerOf(diff) + findingsOf(diff, Int.MaxValue))
     if (full.length <= MaxText) full
-    else compose("\n_The lists of changes would make this longer than GitHub accepts. Open the HTML for them._\n")
+    else compose("\n_The lists of changes would make this longer than GitHub accepts. Open the HTML for them._\n" + findingsOf(diff, MaxFindings))
   }
 
   private val MaxText = 60000
+
+  private val MaxFindings = 100
 
   def diagram(graph: Graph): String = s"$Theme---\nflowchart LR\n${body(graph)}"
 
@@ -179,11 +181,16 @@ object Mermaid {
     }
   }
 
-  private def footerOf(diff: DiffModel): String = {
+  private def findingsOf(diff: DiffModel, limit: Int): String = {
     val warnings =
       diff.warnings.filter(_.status == WarningStatus.New).map(w => s"- `${w.warning.loc.path}:${w.warning.loc.line}` — ${w.warning.message}")
     val unclassified =
       diff.unclassified.filter(_.status == WarningStatus.New).map(u => s"- `${u.item.loc.path}:${u.item.loc.line}` — ${u.item.description}")
+    def capped(lines: List[String]) = lines.take(limit) ++ Option.when(lines.size > limit)(s"- +${lines.size - limit} more")
+    section("New warnings", capped(warnings)) + section("New unclassified", capped(unclassified))
+  }
+
+  private def footerOf(diff: DiffModel): String = {
     val tasks = diff.tasks.filter(_.status != Status.Unchanged).flatMap { node =>
       node.head.orElse(node.base).map { task =>
         val change = node.status match {
@@ -234,7 +241,7 @@ object Mermaid {
       "Migrations",
       migrations
     ) +
-      section("Tasks", tasks) + section("New warnings", warnings) + section("New unclassified", unclassified)
+      section("Tasks", tasks)
   }
 
   def undrawn(diff: DiffModel, graph: Graph): List[String] = {

@@ -485,4 +485,20 @@ class MermaidSuite extends munit.FunSuite {
     assert(text.length < 65536, text.length.toString)
     assert(text.contains("Open the HTML for them."), text.take(500))
   }
+
+  test("an output longer than GitHub accepts still lists the new warnings and unclassified items, capped") {
+    val publishers              = (1 to 700).map(i => s"class P$i(bus: EventBus[Payload$i]) { def p = bus.publish }").mkString("\n")
+    def project(extra: Boolean) = Extractor.extract(
+      Fixtures.project(
+        List(
+          Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+          Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule")
+        ) ++ Option.when(extra)(Fixtures.src("user/services/Publishers.scala", s"package app.user.services\n$publishers")).toList*
+      )
+    )
+    val text = Mermaid.render(ArchDiff.compare(project(extra = false), project(extra = true), "b", "h"))
+    assert(text.length < 65536, text.length.toString)
+    assert(text.contains("**New unclassified**"), text.take(800))
+    assert(text.contains("+600 more"), text.takeRight(800))
+  }
 }

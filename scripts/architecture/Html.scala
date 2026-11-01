@@ -263,7 +263,7 @@ object Html {
         row(Status.Unchanged, List(if (path.startsWith("main/")) "main" else "platform", s"<code>${escape(path)}</code>"), codeChanged = true)
       )
       """<p class="muted">Files in <code>main/</code> and in platform packages without a module, whose code changed.</p>""" +
-        s"""<table><thead><tr><th>Where</th><th>File</th></tr></thead><tbody>${rows.mkString}</tbody></table>"""
+        s"""<div class="scroll"><table><thead><tr><th>Where</th><th>File</th></tr></thead><tbody>${rows.mkString}</tbody></table></div>"""
     }
 
   private def badge(status: WarningStatus, isDiff: Boolean): String =
@@ -277,18 +277,18 @@ object Html {
   private def warningsList(diff: DiffModel): String =
     if (diff.warnings.isEmpty) """<p class="muted">No warnings.</p>"""
     else
-      "<table><thead><tr><th>Kind</th><th>Message</th><th>Where</th><th></th></tr></thead><tbody>" +
+      """<div class="scroll"><table><thead><tr><th>Kind</th><th>Message</th><th>Where</th><th></th></tr></thead><tbody>""" +
         diff.warnings.map { w =>
           warningRow(w.status, List(escape(w.warning.kind.toString), escape(w.warning.message), locCell(w.warning.loc), badge(w.status, diff.isDiff)))
-        }.mkString + "</tbody></table>"
+        }.mkString + "</tbody></table></div>"
 
   private def unclassifiedList(diff: DiffModel): String =
     if (diff.unclassified.isEmpty) """<p class="muted">Nothing unclassified.</p>"""
     else
-      "<table><thead><tr><th>Key</th><th>What</th><th>Where</th><th></th></tr></thead><tbody>" +
+      """<div class="scroll"><table><thead><tr><th>Key</th><th>What</th><th>Where</th><th></th></tr></thead><tbody>""" +
         diff.unclassified.map { u =>
           warningRow(u.status, List(escape(u.item.key), escape(u.item.description), locCell(u.item.loc), badge(u.status, diff.isDiff)))
-        }.mkString + "</tbody></table>"
+        }.mkString + "</tbody></table></div>"
 
   private val styles: String =
     """
@@ -319,7 +319,7 @@ main { padding: 0 24px 40px; }
 .graph { background: #f5f1ea; color: #1e1e24; min-height: 160px; padding: 12px; }
 .graph svg { max-width: none; height: auto; }
 .graph .muted { color: #5c5b63; }
-.graph g.node, .graph g.cluster { cursor: pointer; }
+.graph .clickable { cursor: pointer; }
 .graph-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 8px; }
 .zoom { margin-left: auto; display: inline-flex; gap: 4px; }
 .zoom button, #show-all { font: inherit; font-size: 13px; min-width: 32px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--fg); cursor: pointer; }
@@ -447,7 +447,9 @@ body.changed-only [data-status="unchanged"] { display: none; }
       graph.querySelectorAll('g.node, g.cluster').forEach(el => {
         const raw = el.classList.contains('cluster') ? el.id : (el.id.match(/^flowchart-(.+)-[0-9]+$/) || [])[1];
         const id = diagrams.ids[raw];
-        if (id) el.addEventListener('click', event => { event.stopPropagation(); focusOn(id, !raw.startsWith('component_')); });
+        if (!id) return;
+        el.classList.add('clickable');
+        el.addEventListener('click', event => { event.stopPropagation(); focusOn(id, !raw.startsWith('component_')); });
       });
     }).catch(error => { if (ticket === drawing) graph.replaceChildren(node('p', `The diagram could not be drawn: ${error.message}`, 'muted')); });
   };
