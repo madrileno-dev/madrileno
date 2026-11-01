@@ -60,10 +60,7 @@ object Trees {
 
   def patNames(pats: List[Pat]): List[String] = pats.collect { case Pat.Var(name) => name.value }
 
-  def unqualified(typeName: String): String = {
-    val base = typeName.takeWhile(_ != '[')
-    base.split('.').last + typeName.drop(base.length)
-  }
+  def unqualified(typeName: String): String = typeName.replaceAll("(?:[A-Za-z_][A-Za-z0-9_]*\\.)+(?=[A-Za-z_])", "")
 
   def collapse(text: String, max: Int): String = {
     val single = text.replaceAll("\\s+", " ").trim

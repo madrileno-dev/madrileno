@@ -381,4 +381,25 @@ class CodeChangesSuite extends munit.FunSuite {
     val diff = ArchDiff.compare(model("UserDeleted"), model("Events.UserDeleted"), "b", "h")
     assertEquals((diff.topics.map(_.status), diff.events.map(_.status)), (List(Status.Unchanged), List(Status.Unchanged)))
   }
+
+  test("writing a member's or a constructor parameter's type qualified changes nothing") {
+    def model(qualified: Boolean) = {
+      val (imports, user, batch) =
+        if (qualified) ("", "app.user.services.UserService", "Batch[Events.Item]")
+        else ("import app.user.services.UserService\n", "UserService", "Batch[Item]")
+      Extractor.extract(
+        Fixtures.project(
+          Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+          Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule {\n  lazy val userService: UserService = ???\n}"),
+          Fixtures.src(
+            "shop/ShopModule.scala",
+            s"package app.shop\n${imports}trait ShopModule {\n  def userService: $user\n  lazy val shopService: ShopService = wire[ShopService]\n}"
+          ),
+          Fixtures.src("shop/services/ShopService.scala", s"package app.shop.services\n${imports}class ShopService(users: $user, batches: $batch)")
+        )
+      )
+    }
+    val diff = ArchDiff.compare(model(qualified = false), model(qualified = true), "b", "h")
+    assertEquals(diff.modules.map(m => m.id -> m.status), List("shop" -> Status.Unchanged, "user" -> Status.Unchanged))
+  }
 }

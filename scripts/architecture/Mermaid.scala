@@ -35,9 +35,10 @@ object Mermaid {
     val outside   = undrawn(diff, graph)
     val unchanged = graph.nodes.forall(_.status == Status.Unchanged) && graph.edges.forall(_.status == Status.Unchanged)
     val large     = if (unchanged) None else tooLarge(graph)
+    val elsewhere = outside.nonEmpty || tasksOutside(diff)
     val heading   = s"### Architecture changes: `${diff.baseLabel}` → `${diff.headLabel}`\n"
     def compose(intro: Option[String], footer: String): String =
-      if (unchanged && outside.isEmpty)
+      if (unchanged && !elsewhere)
         s"No architecture changes between `${diff.baseLabel}` and `${diff.headLabel}`.\n${if (metricsMoved(diff)) metricsSection(diff) else ""}$footer$Credit"
       else if (unchanged) s"$heading${metricsSection(diff)}$footer$Credit"
       else
@@ -51,12 +52,13 @@ object Mermaid {
             s"$heading\n```mermaid\n${diagram(graph)}```\n$note${metricsSection(diff)}$footer$Credit"
         }
     val lists      = (if (large.isDefined) "" else section("Outside the modules", outside)) + footerOf(diff)
-    val pointer    = "\n_The lists of changes would make this longer than GitHub accepts. Open the HTML for them._\n"
+    val pointer    = if (lists.isEmpty) "" else "\n_The lists of changes would make this longer than GitHub accepts. Open the HTML for them._\n"
     val summarised = large.orElse(Some("_The diagram would make this longer than GitHub accepts. Open the HTML for the full picture._"))
     val attempts   = LazyList(
       () => compose(large, lists + findingsOf(diff, Int.MaxValue)),
       () => compose(large, lists + findingsOf(diff, MaxFindings)),
       () => compose(large, pointer + findingsOf(diff, MaxFindings)),
+      () => compose(large, pointer + findingsOf(diff, FewFindings)),
       () => compose(summarised, pointer + findingsOf(diff, MaxFindings)),
       () => compose(summarised, pointer + findingsOf(diff, FewFindings))
     ).map(_())
@@ -254,6 +256,16 @@ object Mermaid {
       section("Tasks", tasks)
   }
 
+  def tasksOutside(diff: DiffModel): Boolean =
+    diff.tasks.exists(node =>
+      node.status != Status.Unchanged && node.head
+        .orElse(node.base)
+        .exists(_.owner match {
+          case Owner.Module(_) => false
+          case _               => true
+        })
+    )
+
   def undrawn(diff: DiffModel, graph: Graph): List[String] = {
     val drawn                                                               = graph.nodes.map(_.key).toSet
     def lines[A](kind: String, nodes: List[NodeDiff[A]])(owner: A => Owner) =
@@ -322,9 +334,10 @@ object Mermaid {
       case (Status.Added, _, Some(after))              => Some(s"now wires `${component.name}` (${kind(after)})")
       case (Status.Removed, Some(_), _)                => Some(s"no longer wires `${component.name}`")
       case (Status.Changed, Some(before), Some(after)) =>
-        val takes   = after.dependencies.diff(before.dependencies).map(d => s"`$d`")
-        val dropped = before.dependencies.diff(after.dependencies).map(d => s"`$d`")
-        val changes =
+        val (was, is) = (before.dependencies.map(Trees.unqualified), after.dependencies.map(Trees.unqualified))
+        val takes     = is.diff(was).map(d => s"`$d`")
+        val dropped   = was.diff(is).map(d => s"`$d`")
+        val changes   =
           Option.when(takes.nonEmpty)(s"now takes ${takes.mkString(", ")}").toList ++
             Option.when(dropped.nonEmpty)(s"no longer takes ${dropped.mkString(", ")}") ++
             Option.when(before.kind != after.kind)(

@@ -556,4 +556,37 @@ class MermaidSuite extends munit.FunSuite {
     val text = Mermaid.render(ArchDiff.compare(model("services"), model("services/pricing"), "b", "h"))
     assert(text.contains("`PriceService` is no longer a service"), text)
   }
+
+  test("an over-long output cuts the findings to 10 before giving up a diagram GitHub can render, and names no lists it doesn't have") {
+    val name    = "x" * 200
+    val modules = (1 to 70).map(i => Fixtures.src(s"m$i$name/M${i}Module.scala", s"package app.m$i$name\ntrait M${i}Module"))
+    val broken  = (1 to 300).map(i =>
+      Fixtures.src(s"m1$name/services/P$i.scala", s"package app.m1$name.services\nclass P$i(bus: EventBus[Payload$i]) { def p = bus.publish }")
+    )
+    val empty = ArchModel("app", Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil, Nil)
+    val text  = Mermaid.render(ArchDiff.compare(empty, Extractor.extract(Fixtures.project((modules ++ broken)*)), "b", "h"))
+    assert(text.length <= 60000, text.length.toString)
+    assert(text.contains("```mermaid"), text.take(400))
+    assert(!text.contains("The lists of changes"), text.take(400))
+  }
+
+  test("a task added outside the modules is an architecture change") {
+    def model(task: Boolean) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule"),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+        Fixtures.src(
+          "utils/sched/Jobs.scala",
+          s"package app.utils.sched\nobject Jobs {\n${if (task) "  val nightly = Task.recurring(\"nightly-vacuum\", Schedule.RecurringWithFixedRate(1.day))(_ => IO.unit)"
+            else ""}\n}"
+        )
+      )
+    )
+    val diff = ArchDiff.compare(model(task = false), model(task = true), "b", "h")
+    val text = Mermaid.render(diff)
+    assert(!text.contains("No architecture changes"), text)
+    assert(text.contains("- added `nightly-vacuum`"), text)
+    val page = Html.render(diff)
+    assert(!page.contains("\"empty\":\"No architecture changes.\""), "the page's empty message")
+  }
 }

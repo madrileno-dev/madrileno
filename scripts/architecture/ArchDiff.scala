@@ -305,7 +305,7 @@ object ArchDiff {
         b,
         a
       ) =>
-        val componentStatus = status(b, a)(c => (c.kind, c.dependencies.sorted))
+        val componentStatus = status(b, a)(c => (c.kind, c.dependencies.map(Trees.unqualified).sorted))
         val fileChanged     = a.exists(component => changedFiles.contains(component.file))
         ComponentDiff(name, componentStatus, b, a, codeChanged = componentStatus == Status.Unchanged && fileChanged)
     }
@@ -314,10 +314,10 @@ object ArchDiff {
     val owner = Owner.Module(module.id)
     ModuleFacts(
       module.mixedIn,
-      module.consumes.map(m => (m.name, m.tpe)).toSet,
-      module.provides.map(m => (m.name, m.tpe)).toSet,
+      module.consumes.map(m => (m.name, Trees.unqualified(m.tpe))).toSet,
+      module.provides.map(m => (m.name, Trees.unqualified(m.tpe))).toSet,
       module.contributions.map(c => (c.registry, c.items)).toSet,
-      module.components.map(c => (c.name, c.kind, c.dependencies.sorted)).toSet,
+      module.components.map(c => (c.name, c.kind, c.dependencies.map(Trees.unqualified).sorted)).toSet,
       model.tables.filter(_.owner == owner).map(_.name).toSet,
       model.topics.filter(_.owner == owner).map(_.name).toSet,
       model.outboxEvents.filter(_.owner == owner).map(_.eventType).toSet,
@@ -329,7 +329,7 @@ object ArchDiff {
   private def members(before: Option[Module], after: Option[Module]): List[MemberDiff] = {
     val baseEntries = memberEntries(before)
     val headEntries = memberEntries(after)
-    keyed(baseEntries, headEntries)(m => s"${m.section}:${m.text}")
+    keyed(baseEntries, headEntries)(m => s"${m.section}:${if (m.section == MemberSection.Contributes) m.text else Trees.unqualified(m.text)}")
       .flatMap {
         (
           _,

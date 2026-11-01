@@ -134,8 +134,8 @@ object Html {
       val message =
         if (GraphView.changes(diff, Level.Everything, collapse = false).nodes.nonEmpty)
           "Nothing to draw at this level of detail: the changes are in tables or events. Choose “with tables and events” to see them."
-        else if (Mermaid.undrawn(diff, GraphView.changes(diff)).nonEmpty)
-          "No module changes to draw. The tables, topics or events that changed outside the modules are listed in the sections below."
+        else if (Mermaid.undrawn(diff, GraphView.changes(diff)).nonEmpty || Mermaid.tasksOutside(diff))
+          "No module changes to draw. The tables, topics, events or tasks that changed outside the modules are listed in the sections below."
         else "No architecture changes."
       "empty" -> ujson.Str(message)
     }
