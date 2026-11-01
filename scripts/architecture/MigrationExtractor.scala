@@ -32,7 +32,7 @@ object MigrationExtractor {
       val temporary = names(Temporary, sql)
       Migration(
         file.packagePath,
-        Trees.hash(normalized(withoutComments(file.content))),
+        Trees.hash(file.content.stripPrefix("\uFEFF").linesIterator.mkString("\n")),
         creates,
         (names(Alter, sql) ++ Rename.findAllMatchIn(sql).map(m => tableName(m.group(2)))).distinct
           .filterNot(creates.contains)
@@ -95,21 +95,10 @@ object MigrationExtractor {
   def tableName(name: String): String =
     Part.findAllMatchIn(name).toList.lastOption.map(part => Option(part.group(1)).getOrElse(part.group(2))).getOrElse(name.trim).toLowerCase
 
-  private def withoutComments(sql: String): String =
-    Comments.replaceAllIn(sql, found => Regex.quoteReplacement(if (found.group(1) != null) found.matched else blank(found.matched)))
-
   private def withoutLiterals(sql: String): String =
     Comments.replaceAllIn(sql, found => Regex.quoteReplacement(if (found.group(1) != null) s"''${blank(found.matched)}" else blank(found.matched)))
 
   private def blank(text: String): String = " " + text.filter(_ == '\n')
-
-  private def normalized(sql: String): String = {
-    val literals = Comments.findAllMatchIn(sql).filter(_.group(1) != null).toList
-    val code     = (0 :: literals.map(_.end)).zip(literals.map(_.start) :+ sql.length).map { (start, end) =>
-      sql.substring(start, end).replaceAll("\\s+", " ").replaceAll(" ?([(),;]) ?", "$1")
-    }
-    code.zipAll(literals.map(_.matched), "", "").map(_ + _).mkString.trim
-  }
 
   private def names(pattern: Regex, sql: String): List[String] =
     pattern.findAllMatchIn(sql).flatMap(_.group(1).split(',').map(tableName)).toList.distinct

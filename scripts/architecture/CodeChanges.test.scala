@@ -206,7 +206,7 @@ class CodeChangesSuite extends munit.FunSuite {
     assert(page.contains("""<tr data-status="added" class="added"><td><code>+ V2__email.sql</code></td><td>alters account</td></tr>"""), page)
   }
 
-  test("a migration whose comments changed is not a change") {
+  test("a migration whose comments changed is a change, since Flyway's checksum changes with them") {
     val v1   = Fixtures.migration("V1__init.sql", "create table account (id uuid primary key);")
     val diff = ArchDiff.compare(
       Extractor.extract(withAccounts(idOnly, List(v1))),
@@ -216,8 +216,8 @@ class CodeChangesSuite extends munit.FunSuite {
       "b",
       "h"
     )
-    assertEquals(diff.migrations.map(_.status), List(Status.Unchanged))
-    assertEquals(diff.tables.map(_.codeChanged), List(false))
+    assertEquals(diff.migrations.map(_.status), List(Status.Changed))
+    assertEquals(diff.tables.map(_.codeChanged), List(true))
   }
 
   test("code changed outside the modules is listed as platform or main") {

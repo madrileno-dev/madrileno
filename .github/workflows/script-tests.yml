@@ -7,11 +7,13 @@ on:
     branches: [ "main" ]
     paths:
       - "scripts/**"
+      - "src/main/**"
       - ".github/workflows/script-tests.yml"
   push:
     branches: [ "main" ]
     paths:
       - "scripts/**"
+      - "src/main/**"
 
 jobs:
   compile-scripts:

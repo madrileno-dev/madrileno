@@ -144,7 +144,7 @@ class TablesSuite extends munit.FunSuite {
     )
   }
 
-  test("a migration's digest ignores comments and formatting, and it knows the tables it creates, alters and drops") {
+  test("a migration knows the tables it creates, alters and drops") {
     val sql = List(
       Fixtures.migration(
         "V1__init.sql",
@@ -163,13 +163,14 @@ class TablesSuite extends munit.FunSuite {
         ("V2__same.sql", List("user_account"), List("auth"), List("old_a", "old_b"))
       )
     )
-    assertEquals(migrations.map(_.digest).distinct.size, 1)
   }
 
-  test("whitespace inside a string literal changes a migration's digest, and outside one it doesn't") {
+  test("any edit to a migration but its line endings changes its digest, as it does Flyway's checksum") {
     val digest = (content: String) => MigrationExtractor.extract(List(Fixtures.migration("V2__seed.sql", content))).map(_.digest)
     assertNotEquals(digest("insert into tags values ('a b');"), digest("insert into tags values ('a    b');"))
-    assertEquals(digest("insert into tags values ('a b');"), digest("insert  into tags\nvalues ( 'a b' ) ;"))
+    assertNotEquals(digest("insert into tags values ('a b');"), digest("insert  into tags values ('a b');"))
+    assertNotEquals(digest("insert into tags values ('a b');"), digest("-- seed\ninsert into tags values ('a b');"))
+    assertEquals(digest("insert into tags values ('a b');\nselect 1;\n"), digest("insert into tags values ('a b');\r\nselect 1;"))
   }
 
   test("a CREATE TABLE in a comment or for a partition is not a migration table, and an unlogged one is") {
