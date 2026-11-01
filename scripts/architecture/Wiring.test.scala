@@ -181,4 +181,19 @@ class WiringSuite extends munit.FunSuite {
     )
     assertEquals(ReferenceExtractor.extract(files, Ownership.of(files), "app"), Nil)
   }
+
+  test("a type that a package outside utils imports from a module is still a dependency for the other modules") {
+    val files = Fixtures.parsed(
+      Fixtures.src("customer/CustomerModule.scala", "package app.customer\ntrait CustomerModule"),
+      Fixtures.src("customer/domain/CustomerId.scala", "package app.customer.domain\nfinal case class CustomerId(v: String)"),
+      Fixtures
+        .src("internal/dto/Probe.scala", "package app.internal.dto\nimport app.customer.domain.CustomerId\nfinal case class Probe(id: CustomerId)"),
+      Fixtures.src("audit/AuditModule.scala", "package app.audit\ntrait AuditModule"),
+      Fixtures.src("audit/services/RequestLog.scala", "package app.audit.services\nimport app.customer.domain.CustomerId\nclass RequestLog")
+    )
+    assertEquals(
+      ReferenceExtractor.extract(files, Ownership.of(files), "app").map(r => (r.from, r.to, r.layer, r.symbol)),
+      List(("audit", "customer", "domain", "CustomerId"))
+    )
+  }
 }

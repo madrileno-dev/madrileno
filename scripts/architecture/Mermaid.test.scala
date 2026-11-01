@@ -382,4 +382,67 @@ class MermaidSuite extends munit.FunSuite {
     assert(modules.startsWith("- **Modules (90):**"), text.take(600))
     assert(!modules.contains("utils/flags"), modules)
   }
+
+  test("a changed task says how its schedule and its callers changed") {
+    def model(every: String, caller: Boolean) = Extractor.extract(
+      Fixtures.project(
+        List(
+          Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends ShopModule"),
+          Fixtures.src(
+            "shop/ShopModule.scala",
+            s"package app.shop\ntrait ShopModule {\n  val sweep = Task.recurring(\"sweep\", Schedule.RecurringWithFixedRate($every))(_ => IO.unit)\n  val send = Task.oneTime(TaskDescriptor[Int](\"send\"))(_ => IO.unit)\n}"
+          )
+        ) ++ Option
+          .when(caller)(
+            Fixtures.src(
+              "shop/services/Sender.scala",
+              "package app.shop.services\nclass Sender {\n  def go = scheduler.schedule(send.instance(\"x\", 1))\n}"
+            )
+          )
+          .toList*
+      )
+    )
+    val text = Mermaid.render(ArchDiff.compare(model("5.minutes", caller = false), model("10.minutes", caller = true), "b", "h"))
+    assert(text.contains("- changed `send`: one-time, in shop; now scheduled from Sender"), text)
+    assert(text.contains("- changed `sweep`: recurring, every `10.minutes`, in shop; was every `5.minutes`"), text)
+  }
+
+  test("a changed module says which classes it wires changed and whether it's mixed in now") {
+    def model(mixedIn: Boolean, params: String) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src(
+          "main/ApplicationLoader.scala",
+          s"package app.main\nclass ApplicationLoader extends UserModule${if (mixedIn) " with HealthModule" else ""}"
+        ),
+        Fixtures.src("user/UserModule.scala", "package app.user\ntrait UserModule"),
+        Fixtures.src(
+          "health/HealthModule.scala",
+          "package app.health\ntrait HealthModule {\n  lazy val healthService: HealthService = wire[HealthService]\n}"
+        ),
+        Fixtures.src("health/services/HealthService.scala", s"package app.health.services\nclass HealthService($params)")
+      )
+    )
+    val text = Mermaid.render(ArchDiff.compare(model(mixedIn = false, ""), model(mixedIn = true, "clock: Clock[IO]"), "b", "h"))
+    assert(text.contains("- health: is now mixed into ApplicationLoader; `HealthService` now takes `Clock[IO]`"), text)
+  }
+
+  test("a wildcard or given import reads as words in the changed modules") {
+    def model(user: String) = Extractor.extract(
+      Fixtures.project(
+        Fixtures.src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends UserModule with ShopModule"),
+        Fixtures.src("user/UserModule.scala", user),
+        Fixtures.src("shop/ShopModule.scala", "package app.shop\ntrait ShopModule"),
+        Fixtures.src("shop/domain/Cart.scala", "package app.shop.domain\nfinal case class Cart(id: String)")
+      )
+    )
+    val text = Mermaid.render(
+      ArchDiff.compare(
+        model("package app.user\nimport app.shop.domain.Cart\ntrait UserModule"),
+        model("package app.user\nimport app.shop.domain.Cart\nimport app.shop.domain.*\nimport app.shop.domain.given\ntrait UserModule"),
+        "b",
+        "h"
+      )
+    )
+    assert(text.contains("- user: now imports everything from shop domain; now imports the givens of shop domain"), text)
+  }
 }

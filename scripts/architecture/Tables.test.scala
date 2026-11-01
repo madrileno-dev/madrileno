@@ -335,4 +335,15 @@ class TablesSuite extends munit.FunSuite {
     )
     assertEquals(migration.map(m => (m.creates, m.alters, m.drops, m.indexes, m.writes)), List((Nil, Nil, Nil, Nil, List("orders"))))
   }
+
+  test("a very long string literal in a migration doesn't overflow the stack") {
+    val long  = "x" * 100000
+    val found = MigrationExtractor.extract(
+      List(
+        Fixtures
+          .migration("V2__seed.sql", s"insert into pages values ('$long');\ninsert into notes values (E'$long\\n');\ncreate table later (id int);")
+      )
+    )
+    assertEquals(found.map(m => (m.creates, m.writes)), List((List("later"), List("pages", "notes"))))
+  }
 }

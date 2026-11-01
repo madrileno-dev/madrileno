@@ -85,6 +85,8 @@ object ExplainedReferences {
       case d: Decl.Def if isPublic(d.mods) => typeNames(d.paramClauseGroups.flatMap(_.paramClauses.flatMap(_.values.flatMap(_.decltpe))) :+ d.decltpe)
       case d: Defn.Val if isPublic(d.mods) => typeNames(d.decltpe.toList)
       case d: Decl.Val if isPublic(d.mods) => typeNames(List(d.decltpe))
+      case d: Defn.Var if isPublic(d.mods) => typeNames(d.decltpe.toList)
+      case d: Decl.Var if isPublic(d.mods) => typeNames(List(d.decltpe))
       case _                               => Nil
     }
 

@@ -20,7 +20,7 @@ object ReferenceExtractor {
       imports(file, from, rootPackage, topPackages) ++ qualified(file, from, rootPackage)
     }
     val platformContract = raw.flatMap {
-      case RawReference(Owner.Platform(_), path, symbol, _) if symbol != "*" && symbol != "given" =>
+      case RawReference(owner @ Owner.Platform(_), path, symbol, _) if owner.inUtils && symbol != "*" && symbol != "given" =>
         ownership.ownerOf(path) match {
           case Owner.Module(id) => Some(id -> locate(id, path, symbol)._2)
           case _                => None

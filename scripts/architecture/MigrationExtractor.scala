@@ -22,7 +22,7 @@ object MigrationExtractor {
     s"""(?i)\\bcopy\\s+($Name)(?:\\s*\\([^)]*\\))?\\s+from\\b"""
   ).map(_.r)
   private val Version  = """V(\d+(?:[._]\d+)*)__.*""".r
-  private val Comments = """(?s)((?<![A-Za-z0-9_])[Ee]'(?:[^'\\]|\\.|'')*'|'(?:[^']|'')*')|--[^\n]*|/\*.*?\*/""".r
+  private val Comments = """(?s)((?<![A-Za-z0-9_])[Ee]'[^'\\]*+(?:(?:\\.|'')[^'\\]*+)*+'|'[^']*+(?:''[^']*+)*+')|--[^\n]*|/\*.*?\*/""".r
   private val Part     = """"([^"]+)"|([A-Za-z0-9_$]+)""".r
 
   def extract(files: List[SourceFile]): List[Migration] =

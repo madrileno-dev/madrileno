@@ -185,7 +185,13 @@ object Mermaid {
           case Status.Removed => "removed"
           case _              => "changed"
         }
-        s"- $change `${task.name}`: ${task.kind.label}${task.schedule.fold("")(schedule => s", ${scheduleText(schedule)}")}, in ${task.owner.label}"
+        val was = for {
+          before <- node.base.toList
+          after  <- node.head.toList
+          change <- taskChanges(before, after)
+        } yield change
+        s"- $change `${task.name}`: ${task.kind.label}${task.schedule.fold("")(schedule => s", ${scheduleText(schedule)}")}, in ${task.owner.label}" +
+          was.map(change => s"; $change").mkString
       }
     }
     val code = diff.modules.filter(m => m.status == Status.Unchanged && m.changedFiles.nonEmpty).map { m =>
@@ -234,6 +240,15 @@ object Mermaid {
     lines("table", diff.tables)(_.owner) ++ lines("topic", diff.topics)(_.owner) ++ lines("event", diff.events)(_.owner)
   }
 
+  private def taskChanges(before: TaskDecl, after: TaskDecl): List[String] = {
+    val callers  = (task: TaskDecl) => task.scheduledFrom.map(_.enclosing).distinct
+    val schedule = Option.when(before.schedule != after.schedule)(s"was ${before.schedule.fold("unscheduled")(scheduleText)}")
+    val added    = callers(after).filterNot(callers(before).contains)
+    val removed  = callers(before).filterNot(callers(after).contains)
+    schedule.toList ++ Option.when(added.nonEmpty)(s"now scheduled from ${added.mkString(", ")}") ++
+      Option.when(removed.nonEmpty)(s"no longer scheduled from ${removed.mkString(", ")}")
+  }
+
   private def changedModules(diff: DiffModel): List[String] = {
     val change = (status: Status) =>
       status match {
@@ -242,15 +257,44 @@ object Mermaid {
         case _              => None
       }
     diff.modules.filter(_.status == Status.Changed).flatMap { m =>
+      val mixedIn = for {
+        before <- m.base
+        after  <- m.head
+        if before.mixedIn != after.mixedIn
+      } yield s"is ${if (after.mixedIn) "now" else "no longer"} mixed into ApplicationLoader"
+      val components = m.components.flatMap(componentChange)
       val members = m.members.flatMap(member => change(member.status).map(when => s"$when ${member.section.toString.toLowerCase} `${member.text}`"))
       val references = diff.references.flatMap { node =>
         node.head.orElse(node.base).filter(_.from == m.id).flatMap { r =>
           change(node.status).map { when =>
-            s"$when ${if (ArchDiff.isUse(r)) "uses" else "imports"} `${r.symbol}` from ${r.to}${if (r.layer == "module") "" else s" ${r.layer}"}"
+            val what = r.symbol match {
+              case "*"     => "everything from"
+              case "given" => "the givens of"
+              case symbol  => s"`$symbol` from"
+            }
+            s"$when ${if (ArchDiff.isUse(r)) "uses" else "imports"} $what ${r.to}${if (r.layer == "module") "" else s" ${r.layer}"}"
           }
         }
       }
-      Option.when((members ++ references).nonEmpty)(s"- ${m.id}: ${(members ++ references).mkString("; ")}")
+      val lines = mixedIn.toList ++ components ++ members ++ references
+      Option.when(lines.nonEmpty)(s"- ${m.id}: ${lines.mkString("; ")}")
+    }
+  }
+
+  private def componentChange(component: ComponentDiff): Option[String] = {
+    val kind = (c: Component) => c.kind.toString.toLowerCase
+    (component.status, component.base, component.head) match {
+      case (Status.Added, _, Some(after))              => Some(s"now wires `${component.name}` (${kind(after)})")
+      case (Status.Removed, Some(_), _)                => Some(s"no longer wires `${component.name}`")
+      case (Status.Changed, Some(before), Some(after)) =>
+        val takes   = after.dependencies.filterNot(before.dependencies.contains).map(d => s"`$d`")
+        val dropped = before.dependencies.filterNot(after.dependencies.contains).map(d => s"`$d`")
+        val changes =
+          Option.when(takes.nonEmpty)(s"now takes ${takes.mkString(", ")}").toList ++
+            Option.when(dropped.nonEmpty)(s"no longer takes ${dropped.mkString(", ")}") ++
+            Option.when(before.kind != after.kind)(s"is now a ${kind(after)}")
+        Option.when(changes.nonEmpty)(s"`${component.name}` ${changes.mkString(" and ")}")
+      case _ => None
     }
   }
 
