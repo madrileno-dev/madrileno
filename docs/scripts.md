@@ -168,17 +168,19 @@ Output on a healthy box:
 ✓ docker available (Docker version 25.0.2, build 29cf629)
 ✓ docker compose services up
     postgres       Up About a minute (healthy)
-    mailpit        Up About a minute (healthy)
-    silo           Up About a minute (healthy)
-    openobserve    Up About a minute (healthy)
+    mailpit        NOT RUNNING (full profile, optional)
+    silo           NOT RUNNING (full profile, optional)
+    openobserve    NOT RUNNING (full profile, optional)
 ✓ postgres reachable (localhost:55432)
-✓ mailpit reachable (http://localhost:58025/api/v1/info → 200)
-✓ silo reachable (http://localhost:59000/minio/health/live → 200)
-✓ openobserve reachable (http://localhost:55080/healthz → 200)
+- mailpit reachable (skipped: mailpit not started; part of the full profile: docker compose --profile full up -d)
+- silo reachable (skipped: silo not started; part of the full profile: docker compose --profile full up -d)
+- openobserve reachable (skipped: openobserve not started; part of the full profile: docker compose --profile full up -d)
 ✓ app responding (http://localhost:9000/v1/health-check → 200)
 
-All 8 checks passed. Happy hacking.
+All 5 checks passed (3 skipped). Happy hacking.
 ```
+
+With `docker compose --profile full up -d` the three skipped lines become real HTTP checks.
 
 On failure, each failed check prints a one-line `Hint:` pointing at the command that fixes it (`cp .env.sample .env`, `docker compose up -d`, `./scripts/app.scala start`, etc.). Failures don't cascade — every independent check runs so you see the full picture in one shot, not iteratively.
 
@@ -188,9 +190,9 @@ The checks:
 | - | ---- | ----- |
 | 1 | `.env` present | Hints `cp .env.sample .env`. |
 | 2 | `docker` CLI available | Skips compose-services check on failure. |
-| 3 | docker-compose services running | Reports each of postgres / mailpit / silo / openobserve and its status. |
+| 3 | docker-compose services running | Fails only when postgres is down. Lists mailpit / silo / openobserve too, marked optional: they belong to the `full` profile. |
 | 4 | Postgres TCP socket open on `PG_PORT` | Reads `.env` for the port (falls back to `.env.sample` if `.env` is missing). |
-| 5–7 | Mailpit / Silo / OpenObserve HTTP health endpoints | `GET /api/v1/info`, `/minio/health/live`, `/healthz` respectively. |
+| 5–7 | Mailpit / Silo / OpenObserve HTTP health endpoints | `GET /api/v1/info`, `/minio/health/live`, `/healthz` respectively. Skipped, not failed, when the service isn't started: the Postgres-only stack is complete. |
 | 8 | App responding | `GET http://localhost:$PORT/v1/health-check`. Hints `./scripts/app.scala start` on failure, or `~reStart` in an sbt shell to rebuild on save. |
 
 ### What it doesn't do

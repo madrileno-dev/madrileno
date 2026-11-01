@@ -17,7 +17,7 @@ import madrileno.utils.featureflag.FeatureFlagModule
 import madrileno.utils.featureflag.routers.FeatureFlagAdminRouter
 import madrileno.utils.http.{ApplicationRouteProvider, Handlers, RateLimiterRuntime}
 import madrileno.utils.lifecycle.LifecycleProvider
-import madrileno.utils.mailer.{MailContext, MailPreviewProvider, MailPreviewRouter, Mailer, MailerConfig, SmtpSender}
+import madrileno.utils.mailer.{MailContext, MailPreviewProvider, MailPreviewRouter, MailSender, Mailer, MailerConfig}
 import madrileno.utils.observability.*
 import madrileno.utils.observability.admin.{ConfigAdminRouter, HeapdumpAdminRouter, LoggersAdminRouter, ThreaddumpAdminRouter}
 import madrileno.utils.resilience.CircuitBreakerRuntime
@@ -108,8 +108,8 @@ class ApplicationLoader(
   val objectStore: ObjectStore                 = objectStoreRuntime.objectStore
 
   protected lazy val mailerConfig: MailerConfig = config.at("mailer").loadOrThrow[MailerConfig]
-  private lazy val smtpSender                   = new SmtpSender(mailerConfig)
-  lazy val mailer: Mailer                       = new Mailer(smtpSender, schedulerClient, mailContext)
+  private lazy val mailSender: MailSender       = MailSender.fromConfig(mailerConfig)
+  lazy val mailer: Mailer                       = new Mailer(mailSender, schedulerClient, mailContext)
 
   private lazy val baklavaHttpRoutes: HttpRoutes[IO] = BaklavaRoutes.routes()
   private val baklavaPathSegments: Set[String]       = Set("openapi", "swagger", "swagger-ui", "docs")

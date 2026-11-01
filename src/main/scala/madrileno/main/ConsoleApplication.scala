@@ -43,7 +43,7 @@ object ConsoleApplication {
     val program: Resource[IO, ApplicationLoader] = for {
       httpClient             <- HttpClientFs2Backend.resource[IO]()
       transactor             <- PgTransactor.resource(pgConfig)
-      objectStoreRuntime     <- ObjectStoreRuntime.s3(storageConfig)
+      objectStoreRuntime     <- ObjectStoreRuntime.fromConfig(storageConfig)
       given Supervisor[IO]   <- Supervisor[IO]
       given SecureRandom[IO] <- Resource.eval(SecureRandom.javaSecuritySecureRandom[IO])
       application = {

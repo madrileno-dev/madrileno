@@ -19,6 +19,11 @@ object ObjectStoreRuntime {
     override val objectStore: ObjectStore = new DiskObjectStore(root, maxFetchBytes)
   }
 
+  def fromConfig(config: StorageConfig): Resource[IO, ObjectStoreRuntime] = config.backend match {
+    case ObjectStorageBackend.Disk => Resource.pure(disk(FsPath(config.disk.root), config.maxFetchBytes))
+    case ObjectStorageBackend.S3   => s3(config)
+  }
+
   def s3(config: StorageConfig): Resource[IO, ObjectStoreRuntime] = {
     val s3Config = config.objectStorage
     for {

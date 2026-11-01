@@ -64,7 +64,8 @@ The dev setup leaves three kinds of background processes. Each has its own stop 
 | --- | --- | --- |
 | App JVM | `./scripts/app.scala start`, or a `~reStart` loop | `./scripts/app.scala stop`, or `reStop` in that sbt shell |
 | sbt server | the first `sbt --client` call | `sbt --client shutdown` (also stops an app started by `reStart`, not one started by the launcher) |
-| Postgres, Mailpit, OpenObserve, Silo | `docker compose up -d` | `docker compose stop` (`docker compose down -v` also wipes their data) |
+| Postgres | `docker compose up -d` | `docker compose stop` (`docker compose down -v` also wipes its data) |
+| Mailpit, OpenObserve, Silo (optional) | `docker compose --profile full up -d` | `docker compose stop mailpit openobserve silo` |
 
 `sbt --client reStart` and `reStop` still work in an sbt shell. How a coding assistant is expected to use it is in [ai-assisted-dev.md](ai-assisted-dev.md#how-the-assistant-runs-the-app).
 
@@ -184,7 +185,7 @@ You've opted into `SBT_TPOLECAT_DEV=true` and the local build is in relaxed mode
 You edited a migration that's already been applied. Either roll back the file change or `runMain madrileno.main.MigrateMain clean` your dev DB and re-migrate (only on dev — never on shared environments).
 
 **OpenObserve traces tab is empty.**
-Streams are created on first ingest; hit the app a few times, refresh, give it a moment. If it's still empty, check `OTEL_EXPORTER_OTLP_*` in `.env`.
+Streams are created on first ingest; hit the app a few times, refresh, give it a moment. If it's still empty, check that `.env` has `OTEL_SDK_DISABLED=false` (the stock value is `true`, for the Postgres-only stack) and the `OTEL_EXPORTER_OTLP_*` endpoints.
 
 **`/v1/auth/firebase` returns 503 (`provider-unavailable`).**
 Firebase auth is only enabled when `FIREBASE_PROJECT_ID` is set; the stock `.env` leaves it blank, so the app boots but Firebase login is off. Set it to your Firebase project id — or, in dev, use `POST /v1/auth/dev` with `{"email":"you@example.com"}` (see below), which logs you in (creating the user) with no provider config at all.

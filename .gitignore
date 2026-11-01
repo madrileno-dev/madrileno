@@ -33,3 +33,6 @@ project/local-plugins.sbt
 
 # metals specific
 project/metals.sbt
+
+# disk object store (OBJECT_STORAGE=disk)
+uploads/

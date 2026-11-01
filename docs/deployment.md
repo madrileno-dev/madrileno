@@ -56,9 +56,9 @@ The container needs environment variables for every `${?VAR}` substitution in `a
 - **HTTP** — `INTERFACE`, `PORT`, `BASE_URL`, `MAX_REQUEST_SIZE`. Bind to `0.0.0.0` inside the container; expose the port via your load balancer, reverse proxy or orchestrator.
 - **Postgres** — `PG_HOST`, `PG_PORT`, `PG_DATABASE`, `PG_USER`, `PG_PASSWORD`. Self-hosted or managed (RDS, Cloud SQL, …) — the app only needs a connection. Leave `PG_TELEMETRY_CAPTURE_PARAMETERS` unset: it puts bound query parameters on spans and is a dev-only knob ([observability.md](observability.md#postgres-query-telemetry)).
 - **OpenTelemetry** — `OTEL_*` per [observability.md](observability.md). Point at your real OTLP receiver.
-- **Mailer** — `MAILER_HOST`, `MAILER_PORT`, `MAILER_USERNAME`, `MAILER_PASSWORD`, `MAILER_FROM_ADDRESS`, `MAILER_TLS=true`. SES, SendGrid, internal SMTP relay — anything that speaks SMTP.
+- **Mailer** — `MAILER_HOST`, `MAILER_PORT`, `MAILER_USERNAME`, `MAILER_PASSWORD`, `MAILER_FROM_ADDRESS`, `MAILER_TLS=true`. SES, SendGrid, internal SMTP relay — anything that speaks SMTP. Leave `MAILER_SENDER` unset: its default is `smtp`, and `log` (the dev value) would drop every mail into the log.
 - **Auth** — `JWT_SECRET` (real secret; inject from your secrets manager, never bake into the image). `FIREBASE_PROJECT_ID` if you use Firebase login — that's just the project id (not a secret); ID-token verification fetches Google's public certs. Leave it unset to disable Firebase auth.
-- **Object storage** — `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. Point at real S3 or any S3-compatible store.
+- **Object storage** — `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. Point at real S3 or any S3-compatible store. Leave `OBJECT_STORAGE` unset: its default is `s3`; `disk` (the dev value) writes to the container's filesystem.
 - **Admin auth** — `ADMIN_USER`, `ADMIN_PASSWORD`. Gates `/admin/*` (health, jobs UI, mail previews in dev). Strong password.
 
 The dev-stack `.env` is *not* a production template; it's a local-development convenience. For real deploys, generate the env from your platform's secrets store + non-secret config map.

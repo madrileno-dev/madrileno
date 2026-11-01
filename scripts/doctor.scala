@@ -72,9 +72,9 @@ object Doctor {
       dockerCheck,
       composeCheck,
       checkPostgresReachable(pgPort),
-      checkHttp("mailpit reachable", s"http://localhost:$mailpitUiPort/api/v1/info", "docker compose up -d mailpit"),
-      checkHttp("silo reachable", s"http://localhost:$siloApiPort/minio/health/live", "docker compose up -d silo"),
-      checkHttp("openobserve reachable", s"http://localhost:$openobservePort/healthz", "docker compose up -d openobserve"),
+      checkFullProfileHttp("mailpit reachable", "mailpit", s"http://localhost:$mailpitUiPort/api/v1/info"),
+      checkFullProfileHttp("silo reachable", "silo", s"http://localhost:$siloApiPort/minio/health/live"),
+      checkFullProfileHttp("openobserve reachable", "openobserve", s"http://localhost:$openobservePort/healthz"),
       checkHttp(
         "app responding",
         s"http://localhost:$appPort/$apiVersion/health-check",
@@ -89,7 +89,8 @@ object Doctor {
     val skippedCount = results.count(_.outcome.isSkip)
 
     println()
-    if (failedCount == 0) println(s"${Green}All $passedCount checks passed. Happy hacking.${Reset}")
+    if (failedCount == 0)
+      println(s"${Green}All $passedCount checks passed${if (skippedCount > 0) s" ($skippedCount skipped)" else ""}. Happy hacking.${Reset}")
     else
       println(
         s"${Red}$failedCount of ${results.size} checks failed${Reset}${if (skippedCount > 0) s" ($skippedCount skipped)" else ""}. See hints above."
@@ -113,38 +114,50 @@ object Doctor {
     }
 
   // Compose *service* names (top-level keys in docker-compose.yml), not container names.
-  private val ExpectedServices: List[String] =
-    List("postgres", "mailpit", "silo", "openobserve")
+  private val RequiredServices: List[String]    = List("postgres")
+  private val FullProfileServices: List[String] = List("mailpit", "silo", "openobserve")
+  private val FullProfileHint: String           = "docker compose --profile full up -d"
 
-  private def checkComposeServices(): Check = {
-    runCmd("docker", "compose", "ps", "--format", "{{.Service}}\t{{.Status}}") match {
+  private lazy val composeStatus: Either[String, Map[String, String]] =
+    runCmd("docker", "compose", "ps", "--all", "--format", "{{.Service}}\t{{.Status}}").map { out =>
+      out.linesIterator
+        .map(_.split('\t').toList)
+        .collect { case name :: status :: _ => name -> status }
+        .toMap
+    }
+
+  private def serviceUp(service: String): Boolean = composeStatus.exists(_.get(service).exists(_.startsWith("Up")))
+
+  private def checkComposeServices(): Check =
+    composeStatus match {
       case Left(err) =>
         Check(
           "docker compose services up",
           Outcome.Fail(detail = err.trim.linesIterator.take(1).mkString, hint = "run from project root: docker compose up -d")
         )
-      case Right(out) =>
-        val rows: Map[String, String] = out.linesIterator
-          .map(_.split('\t').toList)
-          .collect { case name :: status :: _ => name -> status }
-          .toMap
-        val missing = ExpectedServices.filterNot(rows.contains)
-        val notUp   = rows.filterNot { case (_, status) => status.startsWith("Up") }.keys.toList.filter(ExpectedServices.contains)
-        val sub     = ExpectedServices.map { svc =>
-          rows.get(svc) match {
-            case Some(status) => f"$svc%-14s $status"
-            case None         => f"$svc%-14s NOT RUNNING"
-          }
+      case Right(rows) =>
+        def line(svc: String, note: String): String = rows.get(svc) match {
+          case Some(status) => f"$svc%-14s $status"
+          case None         => f"$svc%-14s NOT RUNNING$note"
         }
-        if (missing.isEmpty && notUp.isEmpty) Check("docker compose services up", Outcome.Pass(), sub)
+        val requiredDown = RequiredServices.filterNot(serviceUp)
+        val sub          = RequiredServices.map(line(_, "")) ++ FullProfileServices.map(line(_, " (full profile, optional)"))
+        if (requiredDown.isEmpty) Check("docker compose services up", Outcome.Pass(), sub)
         else
           Check(
             "docker compose services up",
-            Outcome.Fail(detail = s"${missing.size + notUp.size} of ${ExpectedServices.size} not running", hint = "docker compose up -d"),
+            Outcome.Fail(detail = s"${requiredDown.mkString(", ")} not running", hint = "docker compose up -d"),
             sub
           )
     }
-  }
+
+  private def checkFullProfileHttp(
+    name: String,
+    service: String,
+    url: String
+  ): Check =
+    if (serviceUp(service)) checkHttp(name, url, FullProfileHint)
+    else Check(name, Outcome.Skip(s"$service not started; part of the full profile: $FullProfileHint"))
 
   private def checkPostgresReachable(port: Int): Check = {
     val r = tcpReachable("localhost", port, timeoutMs = 1000)
