@@ -14,11 +14,7 @@ object ReferenceExtractor {
     ownership: Ownership,
     rootPackage: String
   ): List[Reference] = {
-    val topPackages = files.map(_.pkg.split('/').head).filter(_.nonEmpty).toSet
-    val raw         = files.flatMap { file =>
-      val from = ownership.ownerOf(file.pkg)
-      imports(file, from, rootPackage, topPackages) ++ qualified(file, from, rootPackage)
-    }
+    val raw              = rawReferences(files, ownership, rootPackage)
     val platformContract = raw.flatMap {
       case RawReference(owner @ Owner.Platform(_), path, symbol, _) if owner.inUtils && symbol != "*" && symbol != "given" =>
         ownership.ownerOf(path) match {
@@ -39,6 +35,69 @@ object ReferenceExtractor {
       .distinctBy(r => (r.from, r.to, r.layer, r.symbol))
       .sortBy(r => (r.from, r.to, r.layer, r.symbol))
   }
+
+  def outsideImports(
+    files: List[ParsedFile],
+    ownership: Ownership,
+    rootPackage: String
+  ): Map[String, List[OutsideImport]] = {
+    val outside = files.filter(file =>
+      ownership.ownerOf(file.pkg) match {
+        case Owner.Module(_) => false
+        case _               => true
+      }
+    )
+    val packages  = outside.groupBy(_.pkg)
+    val names     = outside.map(file => file -> Trees.topLevelDefinitions(file.tree).map(_._1).distinct).toMap
+    val definedIn =
+      outside.flatMap(file => names(file).map(name => (file.pkg, name) -> OutsideImport(file.source.packagePath, name))).groupMap(_._1)(_._2)
+    val byPath = files.map(file => file.source.projectPath -> file).toMap
+    rawReferences(files, ownership, rootPackage)
+      .collect { case ref @ RawReference(Owner.Module(_), _, _, _) => ref }
+      .groupBy(_.loc.path)
+      .toList
+      .flatMap { (path, refs) =>
+        lazy val used = byPath(path).tree.collect { case name: Name => name.value }.toSet
+        refs.flatMap { ref =>
+          val segments = ref.targetPath.split('/').toList.filter(_.nonEmpty) ++ Option.unless(ref.symbol == "*" || ref.symbol == "given")(ref.symbol)
+          packagesOf(ref.targetPath, ref.symbol).find(packages.contains).toList.flatMap { pkg =>
+            val imported = segments.drop(pkg.split('/').count(_.nonEmpty)).headOption match {
+              case Some(name)                    => definedIn.getOrElse(pkg -> name, Nil)
+              case None if ref.symbol == "given" => packages(pkg).flatMap(file => names(file).map(OutsideImport(file.source.packagePath, _)))
+              case None                          =>
+                packages(pkg).flatMap(file => names(file).filter(used).map(OutsideImport(file.source.packagePath, _)))
+            }
+            imported.map(ref.from -> _)
+          }
+        }
+      }
+      .collect { case (Owner.Module(id), imported) => id -> imported }
+      .groupMap(_._1)(_._2)
+      .view
+      .mapValues(_.distinct.sortBy(imported => (imported.path, imported.name)))
+      .toMap
+  }
+
+  private def rawReferences(
+    files: List[ParsedFile],
+    ownership: Ownership,
+    rootPackage: String
+  ): List[RawReference] = {
+    val topPackages = files.map(_.pkg.split('/').head).filter(_.nonEmpty).toSet
+    files.flatMap { file =>
+      val from = ownership.ownerOf(file.pkg)
+      imports(file, from, rootPackage, topPackages) ++ qualified(file, from, rootPackage)
+    }
+  }
+
+  private def packagesOf(path: String, symbol: String): List[String] = {
+    val segments = path.split('/').toList.filter(_.nonEmpty)
+    val pkg      = segments.takeWhile(isPackageName)
+    val named    = Option.when(pkg == segments && symbol != "*" && symbol != "given" && isPackageName(symbol))(pkg :+ symbol)
+    (named.toList :+ pkg).map(_.mkString("/"))
+  }
+
+  private def isPackageName(segment: String): Boolean = !segment.headOption.exists(_.isUpper)
 
   private def locate(
     moduleId: String,

@@ -47,7 +47,13 @@ final case class Metrics(
   eventsOwned: Int)
     derives ReadWriter
 
-final case class FileDigest(path: String, digest: String) derives ReadWriter
+final case class FileDigest(
+  path: String,
+  digest: String,
+  definitions: Map[String, String] = Map.empty)
+    derives ReadWriter
+
+final case class OutsideImport(path: String, name: String) derives ReadWriter
 
 @serializeDefaults(true)
 final case class Module(
@@ -60,7 +66,8 @@ final case class Module(
   components: List[Component],
   metrics: Metrics,
   loc: Loc,
-  files: List[FileDigest] = Nil)
+  files: List[FileDigest] = Nil,
+  outsideImports: List[OutsideImport] = Nil)
     derives ReadWriter
 
 enum Provider derives ReadWriter {

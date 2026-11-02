@@ -290,18 +290,18 @@ git worktree remove /tmp/arch-at
 ### Blast radius
 
 With `--diff`, the line under the heading of the Mermaid output, and the first card in the HTML page's metrics, says how far the change reaches and whether it's hard to undo, so a reviewer can decide how closely to read it:
-- **High:** at least half of the other modules depend on what changed, or something is hard to undo.
-- **Medium:** some other modules depend on what changed.
-- **Low:** no other module does.
+- **High:** the changed modules and the modules that depend on what changed make up at least half of all modules, or something is hard to undo.
+- **Medium:** another module depends on what changed, or two or more modules changed.
+- **Low:** at most one module changed, and no other module depends on what changed.
 
-What changed means the added, removed and changed modules, including those whose code alone changed, and the changed tables, topics and events. A module depends on a changed module when it imports from it or takes wiring from it, directly or through other modules, and on a changed table, topic or event when it uses, publishes or subscribes to it. Code that changed outside the modules is mentioned but not counted, since the map doesn't trace who uses it.
+What changed means the removed and changed modules, including those whose code alone changed, the changed tables, topics and events, and the changed code outside the modules. A module depends on a changed module when it imports from it or takes wiring from it. Only direct dependents count: in an app whose modules form a cycle, following dependents of dependents would reach nearly every module from any change. A module depends on a changed table, topic or event when it uses, publishes or subscribes to it, and on changed code outside the modules when it imports a definition there that changed: a class, trait, object, enum, type, method or value declared at the top level of a file. With a wildcard import, that's the definitions the importing file names. Added modules are named but not counted, since no code depended on them before. Changed code that no module imports, such as the wiring in `main/`, is mentioned but not counted.
 
 Hard to undo:
 - an added migration that drops or renames a table, drops, renames or changes the type of a column, or updates, deletes, truncates or merges rows, in a table it doesn't create itself
 - an edited or removed migration, since a database may already have run it
 - a changed payload type of an outbox event, meaning the type's definition or its companion object, since the events already stored keep the old shape
 
-Adding tables, columns and indexes, and inserting rows, isn't. The level measures how far a change reaches, not whether it's right: a one-line change to a calculation in a module nothing depends on is low. In the JSON, it's under `blastRadius`, with the changed and reached modules and the reasons.
+Adding tables, columns and indexes, and inserting rows, isn't. The level measures how far a change reaches, not whether it's right: a one-line change to a calculation in a module nothing depends on is low. In the JSON, it's under `blastRadius`, with the changed, added and reached modules, the reasons, and the changed files whose changes no module imports.
 
 ### Warnings
 

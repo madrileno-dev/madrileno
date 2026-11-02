@@ -28,7 +28,7 @@ object ModuleGraph {
 
   def of(model: ArchModel): ModuleGraph = of(model.modules, model.wirings, model.references)
 
-  def reach(
+  private def reach(
     frontier: Set[String],
     edges: Map[String, Set[String]],
     seen: Set[String]

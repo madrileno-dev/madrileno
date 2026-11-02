@@ -17,18 +17,31 @@ class BlastRadiusSuite extends munit.FunSuite {
     )
   }
 
+  private def leaves(sizes: (String, String)*): ProjectInput = Fixtures.project(
+    (Fixtures.src(
+      "main/ApplicationLoader.scala",
+      s"package app.main\nclass ApplicationLoader extends ${sizes.map((id, _) => traitOf(id)).mkString(" with ")}"
+    ) +:
+      sizes.flatMap((id, size) =>
+        List(
+          Fixtures.src(s"$id/${traitOf(id)}.scala", s"package app.$id\ntrait ${traitOf(id)}"),
+          Fixtures.src(s"$id/domain/Thing.scala", s"package app.$id.domain\nclass Thing {\n  def size = $size\n}")
+        )
+      ))*
+  )
+
   private def compare(base: ProjectInput, head: ProjectInput): DiffModel =
     ArchDiff.compare(Extractor.extract(base), Extractor.extract(head), "main", "working tree")
 
-  test("a code change in a module that half or more of the others depend on is high, and names them") {
+  test("a code change that reaches half or more of the modules with the changed one is high, and names them") {
     val others = List("b" -> List("a"), "c" -> List("a"), "d" -> Nil)
     val diff   = compare(modules("1", others*), modules("2", others*))
     val radius = diff.blastRadius.get
-    assertEquals((radius.level, radius.changed, radius.reached, radius.others), (BlastLevel.High, List("a"), List("b", "c"), 3))
+    assertEquals((radius.level, radius.changed, radius.reached, radius.modules), (BlastLevel.High, List("a"), List("b", "c"), 4))
     val text = Mermaid.render(diff)
     assert(
       text.startsWith(
-        "No architecture changes between `main` and `working tree`.\n\n**Blast radius: high.** 2 of the 3 other modules depend on what changed: `b`, `c`.\n"
+        "No architecture changes between `main` and `working tree`.\n\n**Blast radius: high.** It changes `a`. 2 of the 3 other modules depend on what changed: `b`, `c`.\n"
       ),
       text
     )
@@ -36,30 +49,94 @@ class BlastRadiusSuite extends munit.FunSuite {
       Html
         .render(diff)
         .contains(
-          """<div class="metrics"><div class="metric"><div class="metric-name">Blast radius</div><div class="metric-value">High</div><div class="muted">2 of the 3 other modules depend on what changed: <code>b</code>, <code>c</code>.</div></div>"""
+          """<div class="metrics"><div class="metric"><div class="metric-name">Blast radius</div><div class="metric-value">High</div><div class="muted">It changes <code>a</code>. 2 of the 3 other modules depend on what changed: <code>b</code>, <code>c</code>.</div></div>"""
         )
     )
   }
 
-  test("modules that depend on a dependent are reached too, and fewer than half of the others is medium") {
+  test("a module that depends only on a dependent isn't reached, and reaching fewer than half of the modules is medium") {
     val others = List("b" -> List("a"), "c" -> List("b"), "d" -> Nil, "e" -> Nil, "f" -> Nil)
     val radius = compare(modules("1", others*), modules("2", others*)).blastRadius.get
-    assertEquals((radius.level, radius.reached, radius.others), (BlastLevel.Medium, List("b", "c"), 5))
+    assertEquals((radius.level, radius.reached, radius.modules), (BlastLevel.Medium, List("b"), 6))
   }
 
-  test("a change no other module depends on is low, and code outside the modules is mentioned but not counted") {
+  test("the changed modules count toward the share, and two changed modules are medium even when nothing depends on them") {
+    val ids                   = List("a", "b", "c", "d", "e", "f")
+    def app(changed: String*) = leaves(ids.map(id => id -> (if (changed.contains(id)) "2" else "1"))*)
+    val three                 = compare(app(), app("a", "b", "c"))
+    assertEquals((three.blastRadius.get.level, three.blastRadius.get.changed), (BlastLevel.High, List("a", "b", "c")))
+    assert(
+      Mermaid
+        .render(three)
+        .contains("**Blast radius: high.** It changes 3 of the 6 modules (`a`, `b`, `c`). No other module depends on what changed.\n"),
+      Mermaid.render(three)
+    )
+    assertEquals(compare(app(), app("a", "b")).blastRadius.get.level, BlastLevel.Medium)
+    assertEquals(compare(app(), app("a")).blastRadius.get.level, BlastLevel.Low)
+  }
+
+  test("a change to every module says so instead of saying that no other module depends on it") {
+    val all = compare(leaves("a" -> "1", "b" -> "1", "c" -> "1"), leaves("a" -> "2", "b" -> "2", "c" -> "2"))
+    assertEquals(all.blastRadius.get.level, BlastLevel.High)
+    assert(Mermaid.render(all).contains("**Blast radius: high.** It changes every module.\n"), Mermaid.render(all))
+  }
+
+  test("an added module is named but not counted, since nothing depended on it before") {
+    val diff   = compare(leaves("a" -> "1", "b" -> "1", "c" -> "1"), leaves("a" -> "1", "b" -> "1", "c" -> "1", "n" -> "1"))
+    val radius = diff.blastRadius.get
+    assertEquals((radius.level, radius.changed, radius.added, radius.reached), (BlastLevel.Low, Nil, List("n"), Nil))
+    assert(Mermaid.render(diff).contains("**Blast radius: low.** It adds `n`. No other module depends on what changed."), Mermaid.render(diff))
+  }
+
+  test("a module that imports code outside the modules depends on the definitions it imports, not the rest of their files") {
+    def app(handle: String, retries: String = "3") = Fixtures.project(
+      Fixtures
+        .src("main/ApplicationLoader.scala", "package app.main\nclass ApplicationLoader extends AModule with BModule with CModule with DModule"),
+      Fixtures.src("a/AModule.scala", "package app.a\nimport app.utils.http.Handlers\ntrait AModule"),
+      Fixtures.src("b/BModule.scala", "package app.b\ntrait BModule {\n  def h = app.utils.http.Handlers.handle\n}"),
+      Fixtures.src("c/CModule.scala", "package app.c\nimport app.utils.http.*\ntrait CModule {\n  def s = Error.status\n}"),
+      Fixtures.src("d/DModule.scala", "package app.d\nimport app.utils.json.Codecs.given\ntrait DModule"),
+      Fixtures.src(
+        "utils/http/Handlers.scala",
+        s"package app.utils.http\nobject Handlers {\n  def handle = $handle\n}\nobject Retry {\n  def times = $retries\n}"
+      ),
+      Fixtures.src("utils/http/Error.scala", "package app.utils.http\nobject Error {\n  def status = 400\n}"),
+      Fixtures.src("utils/json/Codecs.scala", "package app.utils.json\nobject Codecs")
+    )
+    val handlers = OutsideImport("utils/http/Handlers.scala", "Handlers")
+    assertEquals(
+      Extractor.extract(app("1")).modules.map(m => m.id -> m.outsideImports).toMap,
+      Map(
+        "a" -> List(handlers),
+        "b" -> List(handlers),
+        "c" -> List(OutsideImport("utils/http/Error.scala", "Error")),
+        "d" -> List(OutsideImport("utils/json/Codecs.scala", "Codecs"))
+      )
+    )
+    val diff   = compare(app("1"), app("2"))
+    val radius = diff.blastRadius.get
+    assertEquals((radius.level, radius.changed, radius.reached, radius.untraced), (BlastLevel.High, Nil, List("a", "b"), Nil))
+    assert(
+      Mermaid.render(diff).contains("**Blast radius: high.** No module changed. 2 of the 4 modules depend on what changed: `a`, `b`.\n"),
+      Mermaid.render(diff)
+    )
+    val unimported = compare(app("1"), app("1", retries = "5")).blastRadius.get
+    assertEquals((unimported.level, unimported.reached, unimported.untraced), (BlastLevel.Low, Nil, List("utils/http/Handlers.scala")))
+  }
+
+  test("a change no other module depends on is low, and code no module imports is mentioned but not counted") {
     def app(size: String, retries: String) = Fixtures.project(
-      (modules(size, "b" -> Nil).scalaFiles :+ Fixtures
+      (modules(size, "b" -> Nil, "c" -> Nil).scalaFiles :+ Fixtures
         .src("utils/task/Scheduler.scala", s"package app.utils.task\nclass Scheduler {\n  def retries = $retries\n}"))*
     )
     val diff   = compare(app("1", "3"), app("2", "5"))
     val radius = diff.blastRadius.get
-    assertEquals((radius.level, radius.reached, radius.outsideChanged), (BlastLevel.Low, Nil, true))
+    assertEquals((radius.level, radius.reached, radius.untraced), (BlastLevel.Low, Nil, List("utils/task/Scheduler.scala")))
     assert(
       Mermaid
         .render(diff)
         .contains(
-          "**Blast radius: low.** No other module depends on what changed. Code outside the modules changed too, which this doesn't trace.\n"
+          "**Blast radius: low.** It changes `a`. No other module depends on what changed. Code that no module imports changed too, which this doesn't trace.\n"
         ),
       Mermaid.render(diff)
     )
