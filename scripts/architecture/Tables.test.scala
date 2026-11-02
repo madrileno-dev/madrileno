@@ -165,12 +165,13 @@ class TablesSuite extends munit.FunSuite {
     )
   }
 
-  test("any edit to a migration but its line endings changes its digest, as it does Flyway's checksum") {
+  test("any edit to a migration but its line breaks changes its digest, as it does Flyway's checksum") {
     val digest = (content: String) => MigrationExtractor.extract(List(Fixtures.migration("V2__seed.sql", content))).map(_.digest)
     assertNotEquals(digest("insert into tags values ('a b');"), digest("insert into tags values ('a    b');"))
     assertNotEquals(digest("insert into tags values ('a b');"), digest("insert  into tags values ('a b');"))
     assertNotEquals(digest("insert into tags values ('a b');"), digest("-- seed\ninsert into tags values ('a b');"))
     assertEquals(digest("insert into tags values ('a b');\nselect 1;\n"), digest("insert into tags values ('a b');\r\nselect 1;"))
+    assertEquals(digest("insert into tags values ('a b');\nselect 1;\n"), digest("insert into tags values ('a b');\n\nselect 1;\n\n"))
   }
 
   test("a CREATE TABLE in a comment or for a partition is not a migration table, and an unlogged one is") {

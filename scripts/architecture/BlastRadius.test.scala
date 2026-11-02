@@ -92,6 +92,13 @@ class BlastRadiusSuite extends munit.FunSuite {
     )
   }
 
+  test("when every other module depends on what changed, the summary says so") {
+    val two = compare(modules("1", "b" -> List("a")), modules("2", "b" -> List("a")))
+    assert(Mermaid.render(two).contains("It changes `a`. The other module depends on what changed: `b`.\n"), Mermaid.render(two))
+    val all = compare(modules("1", "b" -> List("a"), "c" -> List("a")), modules("2", "b" -> List("a"), "c" -> List("a")))
+    assert(Mermaid.render(all).contains("It changes `a`. All 2 other modules depend on what changed: `b`, `c`.\n"), Mermaid.render(all))
+  }
+
   test("a change to every module says so instead of saying that no other module depends on it") {
     val all = compare(leaves("a" -> "1", "b" -> "1", "c" -> "1"), leaves("a" -> "2", "b" -> "2", "c" -> "2"))
     assertEquals(all.blastRadius.get.level, BlastLevel.High)
@@ -137,8 +144,17 @@ class BlastRadiusSuite extends munit.FunSuite {
       Mermaid.render(diff).contains("**Blast radius: high.** No module changed. 2 of the 4 modules depend on what changed: `a`, `b`.\n"),
       Mermaid.render(diff)
     )
-    val unimported = compare(app("1"), app("1", retries = "5")).blastRadius.get
-    assertEquals((unimported.level, unimported.reached, unimported.untraced), (BlastLevel.Low, Nil, List("utils/http/Handlers.scala")))
+    val unimported = compare(app("1"), app("1", retries = "5"))
+    assertEquals(
+      (unimported.blastRadius.get.level, unimported.blastRadius.get.reached, unimported.blastRadius.get.untraced),
+      (BlastLevel.Low, Nil, List("utils/http/Handlers.scala"))
+    )
+    assert(
+      Mermaid
+        .render(unimported)
+        .contains("**Blast radius: low.** No module changed. Code that no module imports changed, which this doesn't trace.\n"),
+      Mermaid.render(unimported)
+    )
   }
 
   test("a module that imports a package's givens depends on its givens, anonymous ones too, and not on the rest of the package") {
@@ -159,6 +175,24 @@ class BlastRadiusSuite extends munit.FunSuite {
       Fixtures.src("utils/ext/StrExt.scala", "package app.utils.ext\nextension (x: String) def show = x")
     )
     assertEquals(compare(ext("x.toString"), ext("s\"#$x\"")).blastRadius.get.reached, List("a"))
+  }
+
+  test("a module depends on what the definitions it imports extend outside the modules") {
+    def http(version: String, json: String = "1") = app("a", "b", "c", "d")(
+      Fixtures.src("a/routers/ARouter.scala", "package app.a.routers\nimport app.utils.http.BaseRouter\nclass ARouter extends BaseRouter"),
+      Fixtures.src(
+        "utils/http/BaseRouter.scala",
+        "package app.utils.http\nimport app.utils.json.JsonProtocol\ntrait BaseRouter extends JsonProtocol with Directives with ApiVersionDirectives"
+      ),
+      Fixtures.src(
+        "utils/http/ApiVersionDirectives.scala",
+        s"package app.utils.http\ntrait ApiVersionDirectives {\n  def version = $version\n}\nobject ApiVersionDirectives extends ApiVersionDirectives"
+      ),
+      Fixtures.src("utils/json/JsonProtocol.scala", s"package app.utils.json\ntrait JsonProtocol {\n  def printer = $json\n}")
+    )
+    val version = compare(http("1"), http("2")).blastRadius.get
+    assertEquals((version.reached, version.untraced), (List("a"), Nil))
+    assertEquals(compare(http("1"), http("1", json = "2")).blastRadius.get.reached, List("a"))
   }
 
   test("a definition moved unchanged to another file of its package reaches no module") {
@@ -303,6 +337,19 @@ class BlastRadiusSuite extends munit.FunSuite {
     )
   }
 
+  test("a function a migration creates doesn't run, so its body destroys and writes nothing, while a do block's does") {
+    val sql = List(
+      "create or replace function purge() returns void as $$ delete from sessions where expires_at < now(); $$ language sql;",
+      "create function bump() returns trigger language plpgsql as $body$ begin update account set version = version + 1; return new; end $body$;",
+      "do $$ begin update account set nick = 'x; drop table account'; end $$;"
+    ).mkString("\n")
+    val migrations = MigrationExtractor.extract(List(Fixtures.migration("V8__functions.sql", sql)))
+    assertEquals(
+      (migrations.flatMap(_.destructive), migrations.flatMap(_.writes)),
+      (List(Destructive("updates rows in", "account")), List("account"))
+    )
+  }
+
   test("an edited or removed migration is hard to undo, and an added one for what it destroys") {
     def app(migrations: SourceFile*) = Fixtures.projectWithMigrations(modules("1", "b" -> Nil).scalaFiles, migrations.toList)
     val v1                           = Fixtures.migration("V1__init.sql", "create table account (id uuid primary key, email text);")
@@ -350,6 +397,10 @@ class BlastRadiusSuite extends munit.FunSuite {
       List(Irreversible.Migrated("R__views.sql", "deletes rows from", "account"))
     )
     assertEquals(compare(app("id", cleanup), app("id, email", cleanup)).blastRadius.get.irreversible, Nil)
+    assertEquals(
+      compare(app("id", cleanup), app("id", cleanup + "delete from account where id is null;\n")).blastRadius.get.irreversible,
+      List(Irreversible.Migrated("R__views.sql", "deletes rows from", "account"))
+    )
   }
 
   test("an outbox event whose payload type or companion changed is hard to undo, and a change elsewhere in its file isn't") {

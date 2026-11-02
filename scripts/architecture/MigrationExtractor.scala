@@ -25,8 +25,10 @@ object MigrationExtractor {
   private val RenameColumn = s"""(?i)(?:^|,)\\s*rename\\s+(?!to\\b|constraint\\b)(?:column\\s+)?($Name)\\s+to\\b""".r
   private val RetypeColumn = s"""(?i)(?:^|,)\\s*alter\\s+(?:column\\s+)?($Name)\\s+(?:set\\s+data\\s+)?type\\b""".r
   private val Version      = """V(\d+(?:[._]\d+)*)__.*""".r
-  private val Comments     = """(?s)((?<![A-Za-z0-9_])[Ee]'[^'\\]*+(?:(?:\\.|'')[^'\\]*+)*+'|'[^']*+(?:''[^']*+)*+')|--[^\n]*|/\*.*?\*/""".r
-  private val Part         = """"([^"]+)"|([A-Za-z0-9_$]+)""".r
+  private val Comments     =
+    """(?s)(?<![A-Za-z0-9_$])(\$([A-Za-z_][A-Za-z0-9_]*+|)\$(.*?)\$\2\$)|((?<![A-Za-z0-9_])[Ee]'[^'\\]*+(?:(?:\\.|'')[^'\\]*+)*+'|'[^']*+(?:''[^']*+)*+')|--[^\n]*|/\*.*?\*/""".r
+  private val Do   = """(?is).*\bdo(?:\s+language\s+[A-Za-z_]+)?\s*""".r
+  private val Part = """"([^"]+)"|([A-Za-z0-9_$]+)""".r
 
   def extract(files: List[SourceFile]): List[Migration] =
     inVersionOrder(files)(_.packagePath).map { file =>
@@ -35,7 +37,7 @@ object MigrationExtractor {
       val temporary = names(Temporary, sql)
       Migration(
         file.packagePath,
-        Trees.hash(file.content.stripPrefix("\uFEFF").linesIterator.mkString("\n")),
+        Trees.hash(file.content.stripPrefix("\uFEFF").linesIterator.mkString),
         creates,
         (names(Alter, sql) ++ Rename.findAllMatchIn(sql).map(m => tableName(m.group(2)))).distinct
           .filterNot(creates.contains)
@@ -129,7 +131,15 @@ object MigrationExtractor {
     Part.findAllMatchIn(name).toList.lastOption.map(part => Option(part.group(1)).getOrElse(part.group(2))).getOrElse(name.trim).toLowerCase
 
   private def withoutLiterals(sql: String): String =
-    Comments.replaceAllIn(sql, found => Regex.quoteReplacement(if (found.group(1) != null) s"''${blank(found.matched)}" else blank(found.matched)))
+    Comments.replaceAllIn(
+      sql,
+      found =>
+        Regex.quoteReplacement(
+          if (found.group(1) != null && Do.matches(found.before)) s" ${withoutLiterals(found.group(3))} "
+          else if (found.group(4) != null) s"''${blank(found.matched)}"
+          else blank(found.matched)
+        )
+    )
 
   private def blank(text: String): String = " " + text.filter(_ == '\n')
 

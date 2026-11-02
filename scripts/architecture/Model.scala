@@ -51,7 +51,8 @@ final case class FileDigest(
   path: String,
   pkg: String,
   digest: String,
-  definitions: Map[String, String] = Map.empty)
+  definitions: Map[String, String] = Map.empty,
+  parents: Map[String, List[OutsideImport]] = Map.empty)
     derives ReadWriter
 
 final case class OutsideImport(pkg: String, name: String) derives ReadWriter

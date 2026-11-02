@@ -41,12 +41,7 @@ object ReferenceExtractor {
     ownership: Ownership,
     rootPackage: String
   ): Map[String, List[OutsideImport]] = {
-    val outside = files.filter(file =>
-      ownership.ownerOf(file.pkg) match {
-        case Owner.Module(_) => false
-        case _               => true
-      }
-    )
+    val outside     = outsideFiles(files, ownership)
     val packages    = outside.groupBy(_.pkg)
     val definitions = outside.map(file => file -> Trees.topLevelDefinitions(file.tree)).toMap
     val names       = definitions.view.mapValues(_.map(_._1).distinct).toMap
@@ -76,6 +71,46 @@ object ReferenceExtractor {
       .view
       .mapValues(_.distinct.sortBy(imported => (imported.pkg, imported.name)))
       .toMap
+  }
+
+  def outsideParents(
+    files: List[ParsedFile],
+    ownership: Ownership,
+    rootPackage: String
+  ): Map[String, Map[String, List[OutsideImport]]] = {
+    val outside    = outsideFiles(files, ownership)
+    val defined    = outside.flatMap(file => Trees.topLevelDefinitions(file.tree).map(file.pkg -> _._1)).toSet
+    val references = rawReferences(files, ownership, rootPackage).groupBy(_.loc.path)
+    outside.map { file =>
+      val imported                                 = references.getOrElse(file.source.projectPath, Nil)
+      def importedAs(symbol: String, name: String) = imported.collectFirst {
+        case ref if ref.symbol == symbol && defined(ref.targetPath -> name) => ref.targetPath
+      }
+      def resolve(name: String): Option[OutsideImport] =
+        Option.when(defined(file.pkg -> name))(file.pkg).orElse(importedAs(name, name)).orElse(importedAs("*", name)).map(OutsideImport(_, name))
+      file.source.packagePath -> Trees
+        .topLevelDefinitions(file.tree)
+        .groupMap(_._1)(_._2)
+        .map((name, stats) => name -> stats.flatMap(parentNames).distinct.flatMap(resolve).filterNot(_ == OutsideImport(file.pkg, name)))
+        .filter(_._2.nonEmpty)
+    }.toMap
+  }
+
+  private def outsideFiles(files: List[ParsedFile], ownership: Ownership): List[ParsedFile] =
+    files.filter(file =>
+      ownership.ownerOf(file.pkg) match {
+        case Owner.Module(_) => false
+        case _               => true
+      }
+    )
+
+  private def parentNames(stat: Stat): List[String] = stat match {
+    case d: Defn.Class  => Trees.parentNames(d.templ)
+    case d: Defn.Trait  => Trees.parentNames(d.templ)
+    case d: Defn.Object => Trees.parentNames(d.templ)
+    case d: Defn.Enum   => Trees.parentNames(d.templ)
+    case d: Defn.Given  => Trees.parentNames(d.templ)
+    case _              => Nil
   }
 
   private def rawReferences(

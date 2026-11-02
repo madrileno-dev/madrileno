@@ -23,6 +23,7 @@ object Extractor {
     val tasks      = TaskExtractor.extract(files, ownership)
     val tableDecls = tables.value
     val imports    = ReferenceExtractor.outsideImports(files, ownership, input.rootPackage)
+    val parents    = ReferenceExtractor.outsideParents(files, ownership, input.rootPackage)
 
     ArchModel(
       rootPackage = input.rootPackage,
@@ -50,7 +51,7 @@ object Extractor {
       outsideModules = digestsOf(files, ownership, input.rootPackage) {
         case Owner.Module(_) => false
         case _               => true
-      }(definitionDigests(_, input.rootPackage))
+      }(definitionDigests(_, input.rootPackage)).map(file => file.copy(parents = parents.getOrElse(file.path, Map.empty)))
     )
   }
 
