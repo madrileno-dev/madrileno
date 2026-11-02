@@ -49,11 +49,12 @@ final case class Metrics(
 
 final case class FileDigest(
   path: String,
+  pkg: String,
   digest: String,
   definitions: Map[String, String] = Map.empty)
     derives ReadWriter
 
-final case class OutsideImport(path: String, name: String) derives ReadWriter
+final case class OutsideImport(pkg: String, name: String) derives ReadWriter
 
 @serializeDefaults(true)
 final case class Module(
@@ -109,7 +110,8 @@ final case class BusTopic(
   publishers: List[Site],
   subscribers: List[Site],
   loc: Loc,
-  definedIn: Option[String] = None)
+  definedIn: Option[String] = None,
+  payloadDigest: Option[String] = None)
     derives ReadWriter
 
 final case class OutboxSubscriber(consumer: String, site: Site) derives ReadWriter

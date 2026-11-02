@@ -67,7 +67,7 @@ object Extractor {
   ): List[FileDigest] =
     files
       .filter(file => owned(ownership.ownerOf(file.pkg)))
-      .map(file => FileDigest(file.source.packagePath, Trees.codeDigest(file.tree, rootPackage), definitions(file)))
+      .map(file => FileDigest(file.source.packagePath, file.pkg, Trees.codeDigest(file.tree, rootPackage), definitions(file)))
       .sortBy(_.path)
 
   private def definitionDigests(file: ParsedFile, rootPackage: String): Map[String, String] =

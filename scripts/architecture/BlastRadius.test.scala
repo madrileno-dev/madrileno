@@ -30,6 +30,11 @@ class BlastRadiusSuite extends munit.FunSuite {
       ))*
   )
 
+  private def app(ids: String*)(files: SourceFile*): ProjectInput = Fixtures.project(
+    (Fixtures.src("main/ApplicationLoader.scala", s"package app.main\nclass ApplicationLoader extends ${ids.map(traitOf).mkString(" with ")}") +:
+      (ids.map(id => Fixtures.src(s"$id/${traitOf(id)}.scala", s"package app.$id\ntrait ${traitOf(id)}")) ++ files))*
+  )
+
   private def compare(base: ProjectInput, head: ProjectInput): DiffModel =
     ArchDiff.compare(Extractor.extract(base), Extractor.extract(head), "main", "working tree")
 
@@ -103,14 +108,14 @@ class BlastRadiusSuite extends munit.FunSuite {
       Fixtures.src("utils/http/Error.scala", "package app.utils.http\nobject Error {\n  def status = 400\n}"),
       Fixtures.src("utils/json/Codecs.scala", "package app.utils.json\nobject Codecs")
     )
-    val handlers = OutsideImport("utils/http/Handlers.scala", "Handlers")
+    val handlers = OutsideImport("utils/http", "Handlers")
     assertEquals(
       Extractor.extract(app("1")).modules.map(m => m.id -> m.outsideImports).toMap,
       Map(
         "a" -> List(handlers),
         "b" -> List(handlers),
-        "c" -> List(OutsideImport("utils/http/Error.scala", "Error")),
-        "d" -> List(OutsideImport("utils/json/Codecs.scala", "Codecs"))
+        "c" -> List(OutsideImport("utils/http", "Error")),
+        "d" -> List(OutsideImport("utils/json", "Codecs"))
       )
     )
     val diff   = compare(app("1"), app("2"))
@@ -122,6 +127,81 @@ class BlastRadiusSuite extends munit.FunSuite {
     )
     val unimported = compare(app("1"), app("1", retries = "5")).blastRadius.get
     assertEquals((unimported.level, unimported.reached, unimported.untraced), (BlastLevel.Low, Nil, List("utils/http/Handlers.scala")))
+  }
+
+  test("a module that imports a package's givens depends on its givens, anonymous ones too, and not on the rest of the package") {
+    def codecs(encoder: String, width: String = "80") = app("a", "b", "c", "d")(
+      Fixtures.src("a/services/Json.scala", "package app.a.services\nimport app.utils.json.given\nclass Json"),
+      Fixtures.src("b/services/Json.scala", "package app.b.services\nimport app.utils.json.*\nclass Json"),
+      Fixtures.src("utils/json/Codecs.scala", s"package app.utils.json\ngiven Encoder[Instant] = $encoder\nobject Printer {\n  def width = $width\n}")
+    )
+    assertEquals(compare(codecs("x"), codecs("y")).blastRadius.get.reached, List("a"))
+    val printer = compare(codecs("x"), codecs("x", width = "120")).blastRadius.get
+    assertEquals((printer.reached, printer.untraced), (Nil, List("utils/json/Codecs.scala")))
+  }
+
+  test("a definition moved unchanged to another file of its package reaches no module") {
+    def handlers(file: String, handle: String = "1") = app("a", "b", "c", "d")(
+      Fixtures.src("a/services/Http.scala", "package app.a.services\nimport app.utils.http.Handlers\nclass Http"),
+      Fixtures.src(s"utils/http/$file", s"package app.utils.http\nobject Handlers {\n  def handle = $handle\n}")
+    )
+    val moved = compare(handlers("Handlers.scala"), handlers("Http.scala")).blastRadius.get
+    assertEquals((moved.level, moved.reached, moved.untraced), (BlastLevel.Low, Nil, Nil))
+    assertEquals(compare(handlers("Handlers.scala"), handlers("Http.scala", handle = "2")).blastRadius.get.reached, List("a"))
+  }
+
+  test("a module that starts using a table or subscribing to an event doesn't reach the modules already on it") {
+    def shop(uses: Boolean) = app("user", "shop", "c", "d", "e")(
+      Fixtures.src(
+        "user/repositories/AccountTable.scala",
+        "package app.user.repositories\nobject AccountTable extends Table[Account](\"account\") {\n  val id = column(\"id\", uuid)\n}"
+      ),
+      Fixtures.src("user/repositories/UserRepository.scala", "package app.user.repositories\nclass UserRepository {\n  def f = AccountTable\n}"),
+      Fixtures.src(
+        "user/domain/UserDeleted.scala",
+        "package app.user.domain\nfinal case class UserDeleted(id: Id)\nobject UserDeleted {\n  given DomainEventDescriptor[UserDeleted] = DomainEventDescriptor(\"user-deleted.v1\", \"user\", _.id)\n}"
+      ),
+      Fixtures.src(
+        "user/services/UserService.scala",
+        "package app.user.services\nclass UserService(outbox: Outbox) {\n  def d(id: Id) = outbox.publishTransactionally(UserDeleted(id))\n}"
+      ),
+      Fixtures.src(
+        "shop/services/ShopService.scala",
+        if (uses)
+          "package app.shop.services\nimport app.user.domain.UserDeleted\nimport app.user.repositories.AccountTable\nclass ShopService {\n  def f = AccountTable\n  val s = OutboxSubscription[UserDeleted](\"shop\")(e => ???)\n}"
+        else "package app.shop.services\nclass ShopService"
+      )
+    )
+    val diff = compare(shop(false), shop(true))
+    assertEquals(
+      (diff.tables.map(_.status), diff.events.map(_.status), diff.blastRadius.get.reached),
+      (List(Status.Changed), List(Status.Changed), Nil)
+    )
+    assertEquals(compare(shop(true), shop(false)).blastRadius.get.reached, Nil)
+  }
+
+  test("a topic or event reaches its publishers and subscribers when its type changes, not when another type in its file does") {
+    def events(user: String, audit: String = "x: Int") = app("user", "shop", "c", "d", "e", "f")(
+      Fixtures.src(
+        "utils/events/Events.scala",
+        s"package app.utils.events\nfinal case class UserDeleted($user)\nobject UserDeleted {\n  given DomainEventDescriptor[UserDeleted] = DomainEventDescriptor(\"user-deleted.v1\", \"user\", _.id)\n}\nfinal case class UserEvent($user)\nfinal case class Audit($audit)"
+      ),
+      Fixtures.src(
+        "user/services/UserService.scala",
+        "package app.user.services\nimport app.utils.events.UserDeleted\nclass UserService(outbox: Outbox) {\n  def d(id: Id) = outbox.publishTransactionally(UserDeleted(id))\n}"
+      ),
+      Fixtures.src(
+        "user/services/Bus.scala",
+        "package app.user.services\nimport app.utils.events.UserEvent\nobject Bus {\n  lazy val bus: EventBus[UserEvent] = eventBusRuntime.topic[UserEvent](\"users\", maxQueued = 8)\n}"
+      ),
+      Fixtures.src(
+        "shop/services/ShopService.scala",
+        "package app.shop.services\nimport app.utils.events.{UserDeleted, UserEvent}\nclass ShopService(bus: EventBus[UserEvent]) {\n  def ws = bus.subscribeAwait\n  val s = OutboxSubscription[UserDeleted](\"shop\")(e => ???)\n}"
+      )
+    )
+    val audit = compare(events("id: Id"), events("id: Id", audit = "x: Long")).blastRadius.get
+    assertEquals((audit.level, audit.reached, audit.untraced), (BlastLevel.Low, Nil, List("utils/events/Events.scala")))
+    assertEquals(compare(events("id: Id"), events("id: Id, reason: String")).blastRadius.get.reached, List("shop", "user"))
   }
 
   test("a change no other module depends on is low, and code no module imports is mentioned but not counted") {
@@ -225,6 +305,18 @@ class BlastRadiusSuite extends munit.FunSuite {
         ),
       Mermaid.render(diff)
     )
+  }
+
+  test("an edited repeatable migration isn't hard to undo, since it's meant to run again") {
+    def app(columns: String) = Fixtures.projectWithMigrations(
+      modules("1", "b" -> Nil, "c" -> Nil).scalaFiles,
+      List(
+        Fixtures.migration("V1__init.sql", "create table account (id uuid primary key, email text);"),
+        Fixtures.migration("R__views.sql", s"create or replace view contacts as select $columns from account;")
+      )
+    )
+    val radius = compare(app("id"), app("id, email")).blastRadius.get
+    assertEquals((radius.level, radius.irreversible), (BlastLevel.Low, Nil))
   }
 
   test("an outbox event whose payload type or companion changed is hard to undo, and a change elsewhere in its file isn't") {

@@ -47,11 +47,12 @@ object ReferenceExtractor {
         case _               => true
       }
     )
-    val packages  = outside.groupBy(_.pkg)
-    val names     = outside.map(file => file -> Trees.topLevelDefinitions(file.tree).map(_._1).distinct).toMap
-    val definedIn =
-      outside.flatMap(file => names(file).map(name => (file.pkg, name) -> OutsideImport(file.source.packagePath, name))).groupMap(_._1)(_._2)
-    val byPath = files.map(file => file.source.projectPath -> file).toMap
+    val packages    = outside.groupBy(_.pkg)
+    val definitions = outside.map(file => file -> Trees.topLevelDefinitions(file.tree)).toMap
+    val names       = definitions.view.mapValues(_.map(_._1).distinct).toMap
+    val givens      = definitions.view.mapValues(_.collect { case (name, stat) if isGiven(stat) => name }.distinct).toMap
+    val defined     = outside.flatMap(file => names(file).map(file.pkg -> _)).toSet
+    val byPath      = files.map(file => file.source.projectPath -> file).toMap
     rawReferences(files, ownership, rootPackage)
       .collect { case ref @ RawReference(Owner.Module(_), _, _, _) => ref }
       .groupBy(_.loc.path)
@@ -62,19 +63,18 @@ object ReferenceExtractor {
           val segments = ref.targetPath.split('/').toList.filter(_.nonEmpty) ++ Option.unless(ref.symbol == "*" || ref.symbol == "given")(ref.symbol)
           packagesOf(ref.targetPath, ref.symbol).find(packages.contains).toList.flatMap { pkg =>
             val imported = segments.drop(pkg.split('/').count(_.nonEmpty)).headOption match {
-              case Some(name)                    => definedIn.getOrElse(pkg -> name, Nil)
-              case None if ref.symbol == "given" => packages(pkg).flatMap(file => names(file).map(OutsideImport(file.source.packagePath, _)))
-              case None                          =>
-                packages(pkg).flatMap(file => names(file).filter(used).map(OutsideImport(file.source.packagePath, _)))
+              case Some(name)                    => Option.when(defined(pkg -> name))(name).toList
+              case None if ref.symbol == "given" => packages(pkg).flatMap(givens)
+              case None                          => packages(pkg).flatMap(names).filter(used)
             }
-            imported.map(ref.from -> _)
+            imported.map(name => ref.from -> OutsideImport(pkg, name))
           }
         }
       }
       .collect { case (Owner.Module(id), imported) => id -> imported }
       .groupMap(_._1)(_._2)
       .view
-      .mapValues(_.distinct.sortBy(imported => (imported.path, imported.name)))
+      .mapValues(_.distinct.sortBy(imported => (imported.pkg, imported.name)))
       .toMap
   }
 
@@ -98,6 +98,12 @@ object ReferenceExtractor {
   }
 
   private def isPackageName(segment: String): Boolean = !segment.headOption.exists(_.isUpper)
+
+  private def isGiven(stat: Stat): Boolean = stat match {
+    case _: Defn.Given | _: Defn.GivenAlias => true
+    case member: Stat.WithMods              => member.mods.exists(_.is[Mod.Implicit])
+    case _                                  => false
+  }
 
   private def locate(
     moduleId: String,

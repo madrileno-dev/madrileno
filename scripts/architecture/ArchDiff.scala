@@ -121,7 +121,7 @@ object ArchDiff {
     val changedOutside = outsideChanges(base, head, was, is)
     val changedPaths   = (modules.flatMap(_.changedFiles) ++ changedOutside).toSet
     val migrations     = MigrationExtractor.inVersionOrder(nodes(base.migrations, head.migrations)(_.path)(_.digest))(_.key)
-    val migrated       = migrations.filter(_.status != Status.Unchanged).flatMap(m => (m.base.toList ++ m.head.toList).flatMap(_.tables)).toSet
+    val migrated       = migratedTables(migrations)
     val diff           = DiffModel(
       isDiff = true,
       baseLabel = baseLabel,
@@ -165,6 +165,9 @@ object ArchDiff {
     )
     diff.copy(blastRadius = Some(BlastRadius.of(diff, base, head)))
   }
+
+  def migratedTables(migrations: List[NodeDiff[Migration]]): Set[String] =
+    migrations.filter(_.status != Status.Unchanged).flatMap(m => (m.base.toList ++ m.head.toList).flatMap(_.tables)).toSet
 
   def columnChanges(table: NodeDiff[TableDecl]): List[(Status, List[String])] = {
     val was   = table.base.toList.flatMap(_.columns).map(c => c.name -> c.codec).toMap

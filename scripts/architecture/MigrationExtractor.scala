@@ -120,7 +120,7 @@ object MigrationExtractor {
     ordered.map(_._2) ++ versions.collect { case (None, item) => item }
   }
 
-  private def versionOf(path: String): Option[List[BigInt]] = path.split('/').last match {
+  def versionOf(path: String): Option[List[BigInt]] = path.split('/').last match {
     case Version(version) => Some(version.split("[._]").map(BigInt(_)).toList)
     case _                => None
   }

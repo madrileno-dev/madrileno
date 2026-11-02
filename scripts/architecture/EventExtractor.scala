@@ -181,7 +181,10 @@ object EventExtractor {
     Extracted(
       (
         mergedTopics
-          .map(topic => topic.copy(definedIn = definitionOf(types, topic.eventType, topic.loc.path, topic.owner).map(_.file)))
+          .map { topic =>
+            val payload = definitionOf(types, topic.eventType, topic.loc.path, topic.owner)
+            topic.copy(definedIn = payload.map(_.file), payloadDigest = payload.map(_.digest))
+          }
           .sortBy(_.name),
         events
           .map { event =>
