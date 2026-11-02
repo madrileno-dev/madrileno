@@ -2,6 +2,8 @@ package architecture
 
 import scala.meta.{Member as _, *}
 
+import scala.annotation.tailrec
+
 object EventExtractor {
   private enum Role {
     case Publishes, Subscribes
@@ -226,11 +228,31 @@ object EventExtractor {
         }
         .map { (defn, name) =>
           val outer     = Trees.ancestors(defn).collect { case o: Defn.Object => o.name.value }.reverse
-          val companion = defn.parent.toList.flatMap(_.children).collect { case o: Defn.Object if o.name.value == name => o }
-          val digest    = Trees.hash((defn :: companion).map(Trees.codeDigest(_, rootPackage)).mkString)
+          val siblings  = defn.parent.toList.flatMap(_.children)
+          val companion = siblings.collect { case o: Defn.Object if o.name.value == name => o }
+          val digest    = Trees.hash((defn :: companion ++ subtypes(name, siblings)).map(Trees.codeDigest(_, rootPackage)).mkString)
           TypeDefinition(name, outer, file.source.projectPath, file.source.packagePath, ownership.ownerOf(file.pkg), digest)
         }
     }
+
+  private def subtypes(name: String, siblings: List[Tree]): List[Tree] = {
+    val parents = siblings.collect {
+      case d: Defn.Class  => d.name.value -> Trees.parentNames(d.templ)
+      case d: Defn.Trait  => d.name.value -> Trees.parentNames(d.templ)
+      case d: Defn.Object => d.name.value -> Trees.parentNames(d.templ)
+    }
+    @tailrec def descendants(names: Set[String]): Set[String] = {
+      val next = names ++ parents.collect { case (child, of) if of.exists(names) => child }
+      if (next == names) names else descendants(next)
+    }
+    val children = descendants(Set(name)) - name
+    siblings.filter {
+      case d: Defn.Class  => children(d.name.value)
+      case d: Defn.Trait  => children(d.name.value)
+      case d: Defn.Object => children(d.name.value)
+      case _              => false
+    }
+  }
 
   private def definitionOf(
     types: List[TypeDefinition],

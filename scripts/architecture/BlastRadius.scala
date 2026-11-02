@@ -46,12 +46,12 @@ object BlastRadius {
           .filter(differs(_)(event => (Trees.unqualified(event.typeName), event.owner, event.payloadDigest)))
           .flatMap(modulesOn(_)(event => event.publishers ++ event.subscribers.map(_.site)))
     val (was, is)    = (definitions(base), definitions(head))
-    val redefined    = changes(was.values.flatten.toMap, is.values.flatten.toMap)
+    val redefined    = changes(byName(was), byName(is))
     val imports      = (base.modules ++ head.modules).flatMap(module => module.outsideImports.map(module.id -> _))
     val importers    = imports.collect { case (id, imported) if redefined(imported) => id }
     val dependents   = (ModuleGraph.of(base).pairs ++ ModuleGraph.of(head).pairs).collect { case (from, to) if changed.contains(to) => from }
     val reached      = ((touched ++ importers ++ dependents).toSet -- changed -- added).toList.sorted
-    val modules      = (existing ++ head.modules.map(_.id)).size
+    val modules      = existing.size
     val affected     = changed.size + reached.size
     val irreversible = migrationChanges(diff.migrations) ++ payloadChanges(diff.events)
     val level        =
@@ -64,7 +64,7 @@ object BlastRadius {
   }
 
   def summary(radius: BlastRadius, code: String => String): String = {
-    val existing = radius.modules - radius.added.size
+    val existing = radius.modules
     val others   = existing - radius.changed.size
     val changes  = List(
       Option.when(radius.changed.nonEmpty)(radius.changed match {
@@ -105,6 +105,9 @@ object BlastRadius {
   private def definitions(model: ArchModel): Map[String, Map[OutsideImport, String]] =
     model.outsideModules.map(file => file.path -> file.definitions.map((name, digest) => OutsideImport(file.pkg, name) -> digest)).toMap
 
+  private def byName(definitions: Map[String, Map[OutsideImport, String]]): Map[OutsideImport, List[String]] =
+    definitions.values.flatten.toList.groupMap(_._1)(_._2).view.mapValues(_.sorted).toMap
+
   private def changes[K, V](was: Map[K, V], is: Map[K, V]): Set[K] = (was.keySet ++ is.keySet).filter(key => was.get(key) != is.get(key))
 
   private def differs[A, D](node: NodeDiff[A])(definition: A => D): Boolean = node.base.map(definition) != node.head.map(definition)
@@ -115,9 +118,11 @@ object BlastRadius {
   private def migrationChanges(migrations: List[NodeDiff[Migration]]): List[Irreversible] =
     migrations.flatMap { migration =>
       migration.status match {
-        case Status.Added   => migration.head.toList.flatMap(_.destructive).map(d => Irreversible.Migrated(migration.key, d.verb, d.target))
-        case Status.Changed => Option.when(MigrationExtractor.versionOf(migration.key).isDefined)(Irreversible.EditedMigration(migration.key)).toList
-        case Status.Removed => List(Irreversible.RemovedMigration(migration.key))
+        case Status.Changed if MigrationExtractor.versionOf(migration.key).isDefined => List(Irreversible.EditedMigration(migration.key))
+        case Status.Added | Status.Changed                                           =>
+          val before = migration.base.toList.flatMap(_.destructive)
+          migration.head.toList.flatMap(_.destructive).filterNot(before.contains).map(d => Irreversible.Migrated(migration.key, d.verb, d.target))
+        case Status.Removed   => List(Irreversible.RemovedMigration(migration.key))
         case Status.Unchanged => Nil
       }
     }
