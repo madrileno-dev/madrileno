@@ -37,15 +37,20 @@ object BlastRadius {
     head: ArchModel
   ): BlastRadius = {
     val existing         = base.modules.map(_.id).toSet
-    val (changed, added) = diff.modules.filter(m => m.status != Status.Unchanged || m.changedFiles.nonEmpty).map(_.id).partition(existing)
-    val migrated         = ArchDiff.migratedTables(diff.migrations)
-    val touched          =
+    val (changed, added) = diff.modules
+      .filter(m =>
+        m.status == Status.Added || m.status == Status.Removed || m.changedFiles.nonEmpty || m.base.map(_.mixedIn) != m.head.map(_.mixedIn)
+      )
+      .map(_.id)
+      .partition(existing)
+    val migrated = ArchDiff.migratedTables(diff.migrations)
+    val touched  =
       diff.tables.filter(t => differs(t)(_.owner) || ArchDiff.columnChanges(t).nonEmpty || migrated(t.key)).flatMap(modulesOn(_)(_.users)) ++
         diff.topics
-          .filter(differs(_)(topic => (Trees.unqualified(topic.eventType), topic.owner, topic.payloadDigest)))
+          .filter(topic => differs(topic)(t => (Trees.unqualified(t.eventType), t.owner)) || redigested(topic)(_.payloadDigest))
           .flatMap(modulesOn(_)(topic => topic.publishers ++ topic.subscribers)) ++
         diff.events
-          .filter(differs(_)(event => (Trees.unqualified(event.typeName), event.owner, event.payloadDigest)))
+          .filter(event => differs(event)(e => (Trees.unqualified(e.typeName), e.owner)) || redigested(event)(_.payloadDigest))
           .flatMap(modulesOn(_)(event => event.publishers ++ event.subscribers.map(_.site)))
     val (was, is)    = (definitions(base), definitions(head))
     val parents      = (parentsOf(base), parentsOf(head))
@@ -140,6 +145,9 @@ object BlastRadius {
 
   private def differs[A, D](node: NodeDiff[A])(definition: A => D): Boolean = node.base.map(definition) != node.head.map(definition)
 
+  private def redigested[A](node: NodeDiff[A])(digest: A => Option[String]): Boolean =
+    node.base.flatMap(digest).zip(node.head.flatMap(digest)).exists(_ != _)
+
   private def modulesOn[A](node: NodeDiff[A])(sites: A => List[Site]): List[String] =
     (node.base.toList ++ node.head.toList).flatMap(sites).collect { case Site(Owner.Module(id), _, _) => id }.distinct
 
@@ -157,9 +165,8 @@ object BlastRadius {
 
   private def payloadChanges(events: List[NodeDiff[OutboxEvent]]): List[Irreversible] =
     events.collect {
-      case NodeDiff(key, _, Some(before), Some(after), _)
-          if before.payloadDigest.zip(after.payloadDigest).exists(_ != _) || Trees
-            .unqualified(before.typeName) != Trees.unqualified(after.typeName) =>
+      case event @ NodeDiff(key, _, Some(before), Some(after), _)
+          if redigested(event)(_.payloadDigest) || Trees.unqualified(before.typeName) != Trees.unqualified(after.typeName) =>
         Irreversible.Payload(key)
     }
 }

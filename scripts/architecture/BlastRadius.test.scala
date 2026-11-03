@@ -99,6 +99,31 @@ class BlastRadiusSuite extends munit.FunSuite {
     assert(Mermaid.render(all).contains("It changes `a`. All 2 other modules depend on what changed: `b`, `c`.\n"), Mermaid.render(all))
   }
 
+  test("a module changes when its code changes or ApplicationLoader stops mixing it in, not when platform code reclassifies its references") {
+    def users(auth: Boolean, mixed: List[String] = List("user", "shop", "bill", "c", "d", "e")) = Fixtures.project(
+      (List(
+        Fixtures.src("main/ApplicationLoader.scala", s"package app.main\nclass ApplicationLoader extends ${mixed.map(traitOf).mkString(" with ")}"),
+        Fixtures.src("user/domain/UserId.scala", "package app.user.domain\nfinal case class UserId(value: String)"),
+        Fixtures.src(
+          "shop/services/ShopService.scala",
+          "package app.shop.services\nimport app.user.domain.UserId\nclass ShopService {\n  def f(id: UserId) = id\n}"
+        ),
+        Fixtures.src(
+          "bill/services/BillService.scala",
+          "package app.bill.services\nimport app.user.domain.UserId\nclass BillService {\n  def f(id: UserId) = id\n}"
+        )
+      ) ++ List("user", "shop", "bill", "c", "d", "e")
+        .map(id => Fixtures.src(s"$id/${traitOf(id)}.scala", s"package app.$id\ntrait ${traitOf(id)}")) ++
+        Option.when(auth)(
+          Fixtures.src("utils/http/Auth.scala", "package app.utils.http\nimport app.user.domain.UserId\nobject Auth {\n  def who: UserId = ???\n}")
+        ))*
+    )
+    val reclassified = compare(users(auth = false), users(auth = true))
+    assertEquals(reclassified.modules.filter(_.status == Status.Changed).map(_.id), List("bill", "shop"))
+    assertEquals((reclassified.blastRadius.get.level, reclassified.blastRadius.get.changed), (BlastLevel.Low, Nil))
+    assertEquals(compare(users(auth = false), users(auth = false, mixed = List("user", "shop", "bill", "d", "e"))).blastRadius.get.changed, List("c"))
+  }
+
   test("a change to every module says so instead of saying that no other module depends on it") {
     val all = compare(leaves("a" -> "1", "b" -> "1", "c" -> "1"), leaves("a" -> "2", "b" -> "2", "c" -> "2"))
     assertEquals(all.blastRadius.get.level, BlastLevel.High)
@@ -263,6 +288,23 @@ class BlastRadiusSuite extends munit.FunSuite {
     val user = compare(events("id: Id"), events("id: Id, reason: String"))
     assertEquals(user.modules.flatMap(_.head).map(m => m.id -> m.outsideImports).filter(_._2.nonEmpty), Nil)
     assertEquals(user.blastRadius.get.reached, List("c", "shop", "user"))
+  }
+
+  test("a topic whose type a same-named class elsewhere makes ambiguous hasn't changed") {
+    def events(dto: Boolean) = app("user", "shop", "c", "d", "e", "f")(
+      (List(
+        Fixtures.src("utils/events/Events.scala", "package app.utils.events\nfinal case class UserEvent(id: Int)"),
+        Fixtures.src(
+          "user/services/Bus.scala",
+          "package app.user.services\nobject Bus {\n  lazy val bus: EventBus[UserEvent] = eventBusRuntime.topic[UserEvent](\"users\", maxQueued = 8)\n}"
+        ),
+        Fixtures
+          .src("c/services/CService.scala", "package app.c.services\nclass CService(bus: EventBus[UserEvent]) {\n  def ws = bus.subscribeAwait\n}")
+      ) ++ Option.when(dto)(Fixtures.src("shop/domain/UserEvent.scala", "package app.shop.domain\nfinal case class UserEvent(x: Long)")))*
+    )
+    val diff = compare(events(false), events(true))
+    assertEquals(diff.topics.map(t => (t.base.flatMap(_.payloadDigest).isDefined, t.head.flatMap(_.payloadDigest).isDefined)), List((true, false)))
+    assertEquals(diff.blastRadius.get.reached, Nil)
   }
 
   test("a change no other module depends on is low, and code no module imports is mentioned but not counted") {

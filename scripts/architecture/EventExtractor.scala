@@ -31,7 +31,7 @@ object EventExtractor {
     ownership: Ownership,
     rootPackage: String
   ): Extracted[(List[BusTopic], List[OutboxEvent])] = {
-    val types      = typeDefinitions(files, ownership, rootPackage)
+    val types      = typeDefinitions(files, ownership)
     val scopes     = definitionScopes(files)
     val typeOwners = files.map(file => file -> typeOwnerIn(file, scopes, ownership, rootPackage)).toMap
     val declared   = files.flatMap(topicsIn(_, ownership))
@@ -185,7 +185,7 @@ object EventExtractor {
         mergedTopics
           .map { topic =>
             val payload = definitionOf(types, topic.eventType, topic.loc.path, topic.owner)
-            topic.copy(definedIn = payload.map(_.file), payloadDigest = payload.map(_.digest))
+            topic.copy(definedIn = payload.map(_.file), payloadDigest = payload.map(digestOf(_, rootPackage)))
           }
           .sortBy(_.name),
         events
@@ -193,7 +193,7 @@ object EventExtractor {
             val payload = definitionOf(types, event.typeName, event.loc.path, event.owner)
             event.copy(
               definedIn = payload.map(_.file).orElse(files.find(_.source.projectPath == event.loc.path).map(_.source.packagePath)),
-              payloadDigest = payload.map(_.digest)
+              payloadDigest = payload.map(digestOf(_, rootPackage))
             )
           }
           .sortBy(_.eventType)
@@ -212,13 +212,9 @@ object EventExtractor {
     path: String,
     file: String,
     owner: Owner,
-    digest: String)
+    defn: Defn)
 
-  private def typeDefinitions(
-    files: List[ParsedFile],
-    ownership: Ownership,
-    rootPackage: String
-  ): List[TypeDefinition] =
+  private def typeDefinitions(files: List[ParsedFile], ownership: Ownership): List[TypeDefinition] =
     files.flatMap { file =>
       file.tree
         .collect {
@@ -227,13 +223,16 @@ object EventExtractor {
           case d: Defn.Enum  => d -> d.name.value
         }
         .map { (defn, name) =>
-          val outer     = Trees.ancestors(defn).collect { case o: Defn.Object => o.name.value }.reverse
-          val siblings  = defn.parent.toList.flatMap(_.children)
-          val companion = siblings.collect { case o: Defn.Object if o.name.value == name => o }
-          val digest    = Trees.hash((defn :: companion ++ subtypes(name, siblings)).map(Trees.codeDigest(_, rootPackage)).mkString)
-          TypeDefinition(name, outer, file.source.projectPath, file.source.packagePath, ownership.ownerOf(file.pkg), digest)
+          val outer = Trees.ancestors(defn).collect { case o: Defn.Object => o.name.value }.reverse
+          TypeDefinition(name, outer, file.source.projectPath, file.source.packagePath, ownership.ownerOf(file.pkg), defn)
         }
     }
+
+  private def digestOf(definition: TypeDefinition, rootPackage: String): String = {
+    val siblings  = definition.defn.parent.toList.flatMap(_.children)
+    val companion = siblings.collect { case o: Defn.Object if o.name.value == definition.name => o }
+    Trees.hash((definition.defn :: companion ++ subtypes(definition.name, siblings)).map(Trees.codeDigest(_, rootPackage)).mkString)
+  }
 
   private def subtypes(name: String, siblings: List[Tree]): List[Tree] = {
     val parents = siblings.collect {
