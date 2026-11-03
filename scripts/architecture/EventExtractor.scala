@@ -2,6 +2,8 @@ package architecture
 
 import scala.meta.{Member as _, *}
 
+import scala.annotation.tailrec
+
 object EventExtractor {
   private enum Role {
     case Publishes, Subscribes
@@ -180,14 +182,20 @@ object EventExtractor {
 
     Extracted(
       (
-        mergedTopics.map(topic => topic.copy(definedIn = fileOf(types, topic.eventType, topic.loc.path, topic.owner))).sortBy(_.name),
+        mergedTopics
+          .map { topic =>
+            val payload = definitionOf(types, topic.eventType, topic.loc.path, topic.owner)
+            topic.copy(definedIn = payload.map(_.file), payloadDigest = payload.map(digestOf(_, rootPackage)))
+          }
+          .sortBy(_.name),
         events
-          .map(event =>
-            event.copy(definedIn =
-              fileOf(types, event.typeName, event.loc.path, event.owner)
-                .orElse(files.find(_.source.projectPath == event.loc.path).map(_.source.packagePath))
+          .map { event =>
+            val payload = definitionOf(types, event.typeName, event.loc.path, event.owner)
+            event.copy(
+              definedIn = payload.map(_.file).orElse(files.find(_.source.projectPath == event.loc.path).map(_.source.packagePath)),
+              payloadDigest = payload.map(digestOf(_, rootPackage))
             )
-          )
+          }
           .sortBy(_.eventType)
       ),
       warnings,
@@ -203,7 +211,8 @@ object EventExtractor {
     outer: List[String],
     path: String,
     file: String,
-    owner: Owner)
+    owner: Owner,
+    defn: Defn)
 
   private def typeDefinitions(files: List[ParsedFile], ownership: Ownership): List[TypeDefinition] =
     files.flatMap { file =>
@@ -215,21 +224,48 @@ object EventExtractor {
         }
         .map { (defn, name) =>
           val outer = Trees.ancestors(defn).collect { case o: Defn.Object => o.name.value }.reverse
-          TypeDefinition(name, outer, file.source.projectPath, file.source.packagePath, ownership.ownerOf(file.pkg))
+          TypeDefinition(name, outer, file.source.projectPath, file.source.packagePath, ownership.ownerOf(file.pkg), defn)
         }
     }
 
-  private def fileOf(
+  private def digestOf(definition: TypeDefinition, rootPackage: String): String = {
+    val siblings  = definition.defn.parent.toList.flatMap(_.children)
+    val companion = siblings.collect { case o: Defn.Object if o.name.value == definition.name => o }
+    Trees.hash((definition.defn :: companion ++ subtypes(definition.name, siblings)).map(Trees.codeDigest(_, rootPackage)).mkString)
+  }
+
+  private def subtypes(name: String, siblings: List[Tree]): List[Tree] = {
+    val parents = siblings.collect {
+      case d: Defn.Class  => d.name.value -> Trees.parentNames(d.templ)
+      case d: Defn.Trait  => d.name.value -> Trees.parentNames(d.templ)
+      case d: Defn.Object => d.name.value -> Trees.parentNames(d.templ)
+      case d: Defn.Enum   => d.name.value -> Trees.parentNames(d.templ)
+    }
+    @tailrec def descendants(names: Set[String]): Set[String] = {
+      val next = names ++ parents.collect { case (child, of) if of.exists(names) => child }
+      if (next == names) names else descendants(next)
+    }
+    val children = descendants(Set(name)) - name
+    siblings.filter {
+      case d: Defn.Class  => children(d.name.value)
+      case d: Defn.Trait  => children(d.name.value)
+      case d: Defn.Object => children(d.name.value)
+      case d: Defn.Enum   => children(d.name.value)
+      case _              => false
+    }
+  }
+
+  private def definitionOf(
     types: List[TypeDefinition],
     typeName: String,
     declaredIn: String,
     owner: Owner
-  ): Option[String] = {
+  ): Option[TypeDefinition] = {
     val named      = types.filter(_.name == simpleName(typeName))
     val qualifier  = typeName.takeWhile(_ != '[').split('.').toList.dropRight(1)
     val nested     = named.filter(t => qualifier.nonEmpty && t.outer.endsWith(qualifier))
     val candidates = if (nested.nonEmpty) nested else named
-    List(candidates.filter(_.path == declaredIn), candidates.filter(_.owner == owner), candidates).collectFirst { case List(only) => only.file }
+    List(candidates.filter(_.path == declaredIn), candidates.filter(_.owner == owner), candidates).collectFirst { case List(only) => only }
   }
 
   private def simpleName(typeName: String): String = typeName.takeWhile(_ != '[').split('.').last

@@ -22,12 +22,19 @@ object Extractor {
     val tables     = TableExtractor.extract(files, input.migrations, ownership)
     val tasks      = TaskExtractor.extract(files, ownership)
     val tableDecls = tables.value
+    val imports    = ReferenceExtractor.outsideImports(files, ownership, input.rootPackage)
+    val uses       = ReferenceExtractor.moduleImports(files, ownership, input.rootPackage)
+    val parents    = ReferenceExtractor.outsideParents(files, ownership, input.rootPackage)
 
     ArchModel(
       rootPackage = input.rootPackage,
       modules = modules.value.map(module =>
         withOwnedCounts(module, topics, outboxEvents, tableDecls)
-          .copy(files = digestsOf(files, ownership, input.rootPackage)(_ == Owner.Module(module.id)))
+          .copy(
+            files = digestsOf(files, ownership, input.rootPackage)(_ == Owner.Module(module.id))(_ => Map.empty),
+            outsideImports = imports.getOrElse(module.id, Nil),
+            moduleImports = uses.getOrElse(module.id, Nil)
+          )
       ),
       wirings = wiring.value,
       references = references,
@@ -46,7 +53,7 @@ object Extractor {
       outsideModules = digestsOf(files, ownership, input.rootPackage) {
         case Owner.Module(_) => false
         case _               => true
-      }
+      }(definitionDigests(_, input.rootPackage)).map(file => file.copy(parents = parents.getOrElse(file.path, Map.empty)))
     )
   }
 
@@ -58,11 +65,21 @@ object Extractor {
     rootPackage: String
   )(
     owned: Owner => Boolean
+  )(
+    definitions: ParsedFile => Map[String, String]
   ): List[FileDigest] =
     files
       .filter(file => owned(ownership.ownerOf(file.pkg)))
-      .map(file => FileDigest(file.source.packagePath, Trees.codeDigest(file.tree, rootPackage)))
+      .map(file => FileDigest(file.source.packagePath, file.pkg, Trees.codeDigest(file.tree, rootPackage), definitions(file)))
       .sortBy(_.path)
+
+  private def definitionDigests(file: ParsedFile, rootPackage: String): Map[String, String] =
+    Trees
+      .topLevelDefinitions(file.tree)
+      .groupMap(_._1)(_._2)
+      .view
+      .mapValues(stats => Trees.hash(stats.map(Trees.codeDigest(_, rootPackage)).mkString))
+      .toMap
 
   private def withOwnedCounts(
     module: Module,

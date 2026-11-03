@@ -47,7 +47,15 @@ final case class Metrics(
   eventsOwned: Int)
     derives ReadWriter
 
-final case class FileDigest(path: String, digest: String) derives ReadWriter
+final case class FileDigest(
+  path: String,
+  pkg: String,
+  digest: String,
+  definitions: Map[String, String] = Map.empty,
+  parents: Map[String, List[OutsideImport]] = Map.empty)
+    derives ReadWriter
+
+final case class OutsideImport(pkg: String, name: String) derives ReadWriter
 
 @serializeDefaults(true)
 final case class Module(
@@ -60,7 +68,9 @@ final case class Module(
   components: List[Component],
   metrics: Metrics,
   loc: Loc,
-  files: List[FileDigest] = Nil)
+  files: List[FileDigest] = Nil,
+  outsideImports: List[OutsideImport] = Nil,
+  moduleImports: List[String] = Nil)
     derives ReadWriter
 
 enum Provider derives ReadWriter {
@@ -102,7 +112,8 @@ final case class BusTopic(
   publishers: List[Site],
   subscribers: List[Site],
   loc: Loc,
-  definedIn: Option[String] = None)
+  definedIn: Option[String] = None,
+  payloadDigest: Option[String] = None)
     derives ReadWriter
 
 final case class OutboxSubscriber(consumer: String, site: Site) derives ReadWriter
@@ -115,7 +126,8 @@ final case class OutboxEvent(
   publishers: List[Site],
   subscribers: List[OutboxSubscriber],
   loc: Loc,
-  definedIn: Option[String] = None)
+  definedIn: Option[String] = None,
+  payloadDigest: Option[String] = None)
     derives ReadWriter
 
 enum TaskKind derives ReadWriter {
@@ -157,7 +169,8 @@ final case class Migration(
   alters: List[String] = Nil,
   drops: List[String] = Nil,
   indexes: List[String] = Nil,
-  writes: List[String] = Nil)
+  writes: List[String] = Nil,
+  destructive: List[Destructive] = Nil)
     derives ReadWriter {
   def tables: List[String] = (creates ++ alters ++ drops ++ indexes ++ writes).distinct
 
@@ -166,6 +179,8 @@ final case class Migration(
       .collect { case (verb, tables) if tables.nonEmpty => s"$verb ${tables.map(name).mkString(", ")}" }
       .mkString(", ")
 }
+
+final case class Destructive(verb: String, target: String) derives ReadWriter
 
 final case class MigrationTable(name: String, loc: Loc) derives ReadWriter
 

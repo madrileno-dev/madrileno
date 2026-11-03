@@ -9,7 +9,27 @@ import scala.annotation.tailrec
 object Trees {
   def topLevel(source: Source): List[Stat] = flatten(source.stats)
 
+  def topLevelDefinitions(source: Source): List[(String, Stat)] =
+    topLevel(source)
+      .flatMap {
+        case d: Defn.Class          => List(d.name.value -> d)
+        case d: Defn.Trait          => List(d.name.value -> d)
+        case d: Defn.Object         => List(d.name.value -> d)
+        case d: Defn.Enum           => List(d.name.value -> d)
+        case d: Defn.Type           => List(d.name.value -> d)
+        case d: Defn.Def            => List(d.name.value -> d)
+        case d: Defn.Val            => patNames(d.pats).map(_ -> d)
+        case d: Defn.Var            => patNames(d.pats).map(_ -> d)
+        case d: Defn.Given          => List(givenName(d.name, d.templ.inits.map(_.tpe.syntax).mkString(" with ")) -> d)
+        case d: Defn.GivenAlias     => List(givenName(d.name, d.decltpe.syntax) -> d)
+        case d: Defn.ExtensionGroup => d.body.collect { case method: Defn.Def => method.name.value -> d }
+        case _                      => Nil
+      }
+      .filter(_._1.nonEmpty)
+
   def members(template: Template): List[Stat] = template.body.stats
+
+  private def givenName(name: Name, tpe: String): String = if (name.value.isEmpty) s"given $tpe" else name.value
 
   def typeName(tpe: Type): String = tpe match {
     case Type.Name(name)                 => name
