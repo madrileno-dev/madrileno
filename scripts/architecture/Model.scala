@@ -69,7 +69,8 @@ final case class Module(
   metrics: Metrics,
   loc: Loc,
   files: List[FileDigest] = Nil,
-  outsideImports: List[OutsideImport] = Nil)
+  outsideImports: List[OutsideImport] = Nil,
+  moduleImports: List[String] = Nil)
     derives ReadWriter
 
 enum Provider derives ReadWriter {

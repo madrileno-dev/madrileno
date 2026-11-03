@@ -23,6 +23,7 @@ object Extractor {
     val tasks      = TaskExtractor.extract(files, ownership)
     val tableDecls = tables.value
     val imports    = ReferenceExtractor.outsideImports(files, ownership, input.rootPackage)
+    val uses       = ReferenceExtractor.moduleImports(files, ownership, input.rootPackage)
     val parents    = ReferenceExtractor.outsideParents(files, ownership, input.rootPackage)
 
     ArchModel(
@@ -31,7 +32,8 @@ object Extractor {
         withOwnedCounts(module, topics, outboxEvents, tableDecls)
           .copy(
             files = digestsOf(files, ownership, input.rootPackage)(_ == Owner.Module(module.id))(_ => Map.empty),
-            outsideImports = imports.getOrElse(module.id, Nil)
+            outsideImports = imports.getOrElse(module.id, Nil),
+            moduleImports = uses.getOrElse(module.id, Nil)
           )
       ),
       wirings = wiring.value,

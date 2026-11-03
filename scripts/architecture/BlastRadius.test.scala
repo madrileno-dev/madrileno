@@ -59,6 +59,20 @@ class BlastRadiusSuite extends munit.FunSuite {
     )
   }
 
+  test("a module depends on a changed module it imports from, even through a type the platform imports too") {
+    def users(id: String) = app("user", "shop", "c", "d", "e")(
+      Fixtures.src("user/domain/UserId.scala", s"package app.user.domain\nfinal case class UserId($id)"),
+      Fixtures.src(
+        "shop/services/ShopService.scala",
+        "package app.shop.services\nimport app.user.domain.UserId\nclass ShopService {\n  def f(id: UserId) = id\n}"
+      ),
+      Fixtures.src("utils/http/Auth.scala", "package app.utils.http\nimport app.user.domain.UserId\nobject Auth {\n  def who: UserId = ???\n}")
+    )
+    val diff = compare(users("value: String"), users("value: String, tenant: String"))
+    assertEquals(diff.references.flatMap(r => r.base.toList ++ r.head.toList).filter(_.to == "user"), Nil)
+    assertEquals((diff.blastRadius.get.changed, diff.blastRadius.get.reached), (List("user"), List("shop")))
+  }
+
   test("a module that depends only on a dependent isn't reached, and reaching fewer than half of the modules is medium") {
     val others = List("b" -> List("a"), "c" -> List("b"), "d" -> Nil, "e" -> Nil, "f" -> Nil)
     val radius = compare(modules("1", others*), modules("2", others*)).blastRadius.get
@@ -86,6 +100,11 @@ class BlastRadiusSuite extends munit.FunSuite {
     val diff   = compare(leaves(base*), leaves(head*))
     val radius = diff.blastRadius.get
     assertEquals((radius.level, radius.modules), (BlastLevel.High, 5))
+    val six = List("a", "b", "c", "d", "e", "f").map(_ -> "1")
+    assertEquals(
+      compare(leaves(six*), leaves((six.map((id, size) => id -> (if (Set("a", "b")(id)) "2" else size)) :+ ("n" -> "1"))*)).blastRadius.get.level,
+      BlastLevel.Medium
+    )
     assert(
       Mermaid.render(diff).contains("**Blast radius: high.** It changes 3 of the 5 modules (`a`, `b`, `c`) and adds 2 modules (`n1`, `n2`)."),
       Mermaid.render(diff)
@@ -361,6 +380,8 @@ class BlastRadiusSuite extends munit.FunSuite {
       "delete from sessions;",
       "truncate audit;",
       "insert into account values (1);",
+      "grant select, insert, update, delete, truncate on all tables in schema public to app_user;",
+      "revoke truncate on account from app_user;",
       "delete from note;",
       "create index on account (nick);"
     ).mkString("\n")
@@ -493,6 +514,8 @@ class BlastRadiusSuite extends munit.FunSuite {
       payload
     )
     assertEquals(compare(events("id: Id"), events("id: Id", rest = "class Helper")).blastRadius.get.irreversible, Nil)
+    def phase(at: String) = s"enum Phase extends UserEvent {\n  case Started(at: $at)\n}"
+    assertEquals(compare(events("id: Id", rest = phase("Int")), events("id: Id", rest = phase("Long"))).blastRadius.get.irreversible, payload)
   }
 
   test("the full map has no blast radius") {

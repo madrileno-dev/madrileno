@@ -239,6 +239,7 @@ object EventExtractor {
       case d: Defn.Class  => d.name.value -> Trees.parentNames(d.templ)
       case d: Defn.Trait  => d.name.value -> Trees.parentNames(d.templ)
       case d: Defn.Object => d.name.value -> Trees.parentNames(d.templ)
+      case d: Defn.Enum   => d.name.value -> Trees.parentNames(d.templ)
     }
     @tailrec def descendants(names: Set[String]): Set[String] = {
       val next = names ++ parents.collect { case (child, of) if of.exists(names) => child }
@@ -249,6 +250,7 @@ object EventExtractor {
       case d: Defn.Class  => children(d.name.value)
       case d: Defn.Trait  => children(d.name.value)
       case d: Defn.Object => children(d.name.value)
+      case d: Defn.Enum   => children(d.name.value)
       case _              => false
     }
   }

@@ -52,15 +52,16 @@ object BlastRadius {
         diff.events
           .filter(event => differs(event)(e => (Trees.unqualified(e.typeName), e.owner)) || redigested(event)(_.payloadDigest))
           .flatMap(modulesOn(_)(event => event.publishers ++ event.subscribers.map(_.site)))
-    val (was, is)    = (definitions(base), definitions(head))
-    val parents      = (parentsOf(base), parentsOf(head))
-    val redefined    = changes(inherited(byName(was), parents._1), inherited(byName(is), parents._2))
-    val imports      = (base.modules ++ head.modules).flatMap(module => module.outsideImports.map(module.id -> _))
-    val importers    = imports.collect { case (id, imported) if redefined(imported) => id }
-    val dependents   = (ModuleGraph.of(base).pairs ++ ModuleGraph.of(head).pairs).collect { case (from, to) if changed.contains(to) => from }
-    val reached      = ((touched ++ importers ++ dependents).toSet -- changed -- added).toList.sorted
-    val modules      = existing.size
-    val affected     = changed.size + reached.size
+    val (was, is)  = (definitions(base), definitions(head))
+    val parents    = (parentsOf(base), parentsOf(head))
+    val redefined  = changes(inherited(byName(was), parents._1), inherited(byName(is), parents._2))
+    val imports    = (base.modules ++ head.modules).flatMap(module => module.outsideImports.map(module.id -> _))
+    val importers  = imports.collect { case (id, imported) if redefined(imported) => id }
+    val usages     = (base.modules ++ head.modules).flatMap(module => module.moduleImports.map(module.id -> _))
+    val dependents = (ModuleGraph.of(base).pairs ++ ModuleGraph.of(head).pairs ++ usages).collect { case (from, to) if changed.contains(to) => from }
+    val reached    = ((touched ++ importers ++ dependents).toSet -- changed -- added).toList.sorted
+    val modules    = existing.size
+    val affected   = changed.size + reached.size
     val irreversible = migrationChanges(diff.migrations) ++ payloadChanges(diff.events)
     val level        =
       if (irreversible.nonEmpty || (affected > 0 && affected * 2 >= modules)) BlastLevel.High

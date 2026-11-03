@@ -73,6 +73,24 @@ object ReferenceExtractor {
       .toMap
   }
 
+  def moduleImports(
+    files: List[ParsedFile],
+    ownership: Ownership,
+    rootPackage: String
+  ): Map[String, List[String]] =
+    rawReferences(files, ownership, rootPackage)
+      .flatMap { ref =>
+        (ref.from, ownership.ownerOf(ref.targetPath)) match {
+          case (Owner.Module(from), Owner.Module(to)) if from != to => Some(from -> to)
+          case _                                                    => None
+        }
+      }
+      .distinct
+      .groupMap(_._1)(_._2)
+      .view
+      .mapValues(_.sorted)
+      .toMap
+
   def outsideParents(
     files: List[ParsedFile],
     ownership: Ownership,

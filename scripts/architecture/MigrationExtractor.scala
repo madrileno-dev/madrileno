@@ -15,7 +15,7 @@ object MigrationExtractor {
     s"""(?i)\\bcreate\\s+(?:unique\\s+)?index\\s+(?:concurrently\\s+)?(?:if\\s+not\\s+exists\\s+)?(?:$Name\\s+)?on\\s+(?:only\\s+)?($Name)""".r
   private val Update   = s"""(?i)\\bupdate\\s+(?:only\\s+)?($Name)(?:\\s+(?:as\\s+)?[A-Za-z_][A-Za-z0-9_]*)?\\s+set\\b""".r
   private val Delete   = s"""(?i)\\bdelete\\s+from\\s+(?:only\\s+)?($Name)""".r
-  private val Truncate = s"""(?i)\\btruncate\\s+(?:table\\s+)?(?:only\\s+)?($Name(?:\\s*,\\s*$Name)*)""".r
+  private val Truncate = s"""(?i)\\btruncate\\s+(?!on\\b)(?:table\\s+)?(?:only\\s+)?($Name(?:\\s*,\\s*$Name)*)""".r
   private val Merge    = s"""(?i)\\bmerge\\s+into\\s+(?:only\\s+)?($Name)""".r
   private val Writes   =
     List(s"""(?i)\\binsert\\s+into\\s+($Name)""".r, Update, Delete, Truncate, Merge, s"""(?i)\\bcopy\\s+($Name)(?:\\s*\\([^)]*\\))?\\s+from\\b""".r)
