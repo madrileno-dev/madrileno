@@ -21,6 +21,7 @@
 
 import mainargs.{ParserForMethods, arg, main}
 
+import java.util.regex.Pattern
 import scala.util.matching.Regex
 
 object ScaffoldModule {
@@ -78,7 +79,7 @@ object ScaffoldModule {
     // The Flyway runner would catch this eventually, but catching it here keeps the
     // failure on the script side (no files written, no migration shipped).
     val createTableRegex =
-      s"""(?i)CREATE\\s+TABLE\\s+(IF\\s+NOT\\s+EXISTS\\s+)?"?${java.util.regex.Pattern.quote(singular)}"?\\s*\\(""".r
+      s"""(?i)CREATE\\s+TABLE\\s+(IF\\s+NOT\\s+EXISTS\\s+)?"?${Pattern.quote(singular)}"?\\s*\\(""".r
     val tableCollision = os.list(migrationDest).filter(os.isFile(_)).find { f =>
       createTableRegex.findFirstIn(os.read(f)).isDefined
     }
