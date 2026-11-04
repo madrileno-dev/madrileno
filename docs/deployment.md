@@ -63,6 +63,8 @@ The container needs environment variables for every `${?VAR}` substitution in `a
 
 The dev-stack `.env` is *not* a production template; it's a local-development convenience. For real deploys, generate the env from your platform's secrets store + non-secret config map.
 
+Outside `dev` this is enforced, not just advised. With `APP_ENVIRONMENT` set to `test`, `staging` or `prod`, the app refuses to boot — before it binds the port — if any credential is still a shipped default (`JWT_SECRET`, `FINGERPRINT_SECRET`, `ADMIN_PASSWORD`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`) or if `DEV_AUTH_ENABLED` is on (dev auth mints a session for any email). The startup error names each offending setting and the env var to override. Only `dev` may run on the stock values.
+
 ## Migrations are a separate step
 
 The app does **not** auto-migrate on startup. Run them as a discrete deploy step before rolling out the new image:
