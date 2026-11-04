@@ -6,14 +6,17 @@ import org.scalatest.funspec.AnyFunSpec
 import org.scalatest.matchers.should.Matchers
 import pl.iterators.stir.server.Directives.*
 import pl.iterators.stir.server.{ExceptionHandler, Route}
-import pl.iterators.stir.testkit.ScalatestRouteTest
+import pl.iterators.stir.testkit.{RouteTestTimeout, ScalatestRouteTest}
 
 import java.time.format.DateTimeFormatter
 import java.time.{Instant, ZoneOffset}
+import scala.concurrent.duration.DurationInt
 
 class ApiVersionDirectivesSpec extends AnyFunSpec with Matchers with ScalatestRouteTest {
 
   override implicit def runtime: IORuntime = IORuntime.global
+
+  given RouteTestTimeout = RouteTestTimeout(5.seconds)
 
   import ApiVersionDirectives.*
 

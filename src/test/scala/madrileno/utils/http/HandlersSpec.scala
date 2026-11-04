@@ -16,11 +16,15 @@ import org.typelevel.ci.CIString
 import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.trace.Tracer
 import pl.iterators.stir.server.Route
-import pl.iterators.stir.testkit.ScalatestRouteTest
+import pl.iterators.stir.testkit.{RouteTestTimeout, ScalatestRouteTest}
+
+import scala.concurrent.duration.DurationInt
 
 class HandlersSpec extends AnyFunSpec with Matchers with ScalatestRouteTest {
 
   override implicit def runtime: IORuntime = IORuntime.global
+
+  given RouteTestTimeout = RouteTestTimeout(5.seconds)
 
   given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
