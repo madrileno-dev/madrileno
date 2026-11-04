@@ -219,7 +219,9 @@ Test / verifyErrorCodes := Def.uncached {
 
 Test / sourceGenerators += Def.task {
   val inputs = ((Compile / unmanagedSources).value ++ (Test / unmanagedSources).value ++
-    ((Compile / resourceDirectory).value / "db" / "migration" ** "*.sql").get()).sortBy(_.getPath)
+    ((Compile / resourceDirectory).value / "db" / "migration" ** "*.sql").get() ++
+    (baseDirectory.value / ".agents" ** "*.md").get() ++ (baseDirectory.value / "docs" * "*.md").get() ++
+    Seq(baseDirectory.value / "AGENTS.md").filter(_.exists())).sortBy(_.getPath)
   val sha256 = java.security.MessageDigest.getInstance("SHA-256")
   inputs.foreach { file =>
     sha256.update(IO.relativize(baseDirectory.value, file).getOrElse(file.getPath).getBytes("UTF-8"))

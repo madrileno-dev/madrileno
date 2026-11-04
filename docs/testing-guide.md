@@ -238,12 +238,13 @@ Delivery timing (`at`/`in` parameters) is a scheduler concern, not SMTP. Test de
 
 Specs in `madrileno.sourcechecks` read the project's own Scala files instead of running its code. `ProjectSources` parses `src/main/scala` and `src/test/scala` with scalameta once per test run, and every source check reads the same parsed trees. A file that doesn't parse fails the checks, with its line.
 
-`sbt test` only re-runs suites whose own classes or dependencies changed, and an edited repository isn't a dependency of a source check. So the build generates `SourcesDigest`, a hash of every Scala source and migration, and `ProjectSources` depends on it. Any edit to a source changes the digest, and `sbt test` re-runs the source checks with the suites the edit touches.
+`sbt test` only re-runs suites whose own classes or dependencies changed, and an edited repository isn't a dependency of a source check. So the build generates `SourcesDigest`, a hash of every Scala source and migration, `AGENTS.md`, the skills and the docs, and `ProjectSources` and `AgentInstructions` depend on it. Any edit to a source changes the digest, and `sbt test` re-runs the source checks with the suites the edit touches.
 
 | Spec | Fails on |
 |---|---|
 | `HandWrittenSqlSpec` | a table or column written as text in a `sql"…"` string under `src/main/scala` (see [database.md](database.md#hand-written-sql)) |
 | `QualifiedNamesSpec` | a name written out from its top-level package, like `java.time.Instant.now()`, in main or test sources |
+| `AgentInstructionsSpec` | a skill whose name isn't its folder or lacks the `backend-` prefix, a doc a skill names that doesn't exist, `AGENTS.md` and `.agents/skills/` listing different skills, a missing `.claude/skills` link (see [ai-assisted-dev.md](ai-assisted-dev.md#skills)) |
 
 `QualifiedNamesSpec` counts a name written from a top-level package down to a class or object. The top-level packages are `java`, `javax`, `scala`, the project's own and the first segment of every top-level import. It leaves alone:
 
