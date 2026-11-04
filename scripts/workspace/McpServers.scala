@@ -1,10 +1,12 @@
 package workspace
 
+import scala.util.Try
+
 final case class McpServer(name: String, config: ujson.Value)
 
 object McpServers {
   def read(dir: String, json: String): Either[String, List[McpServer]] =
-    scala.util.Try(ujson.read(json)).toEither.left.map(e => s"$dir/.mcp.json: ${e.getMessage}").flatMap { doc =>
+    Try(ujson.read(json)).toEither.left.map(e => s"$dir/.mcp.json: ${e.getMessage}").flatMap { doc =>
       doc.objOpt.flatMap(_.get("mcpServers")) match {
         case None                    => Right(Nil)
         case Some(ujson.Obj(values)) => Right(values.toList.map((name, config) => McpServer(name, config)))
@@ -20,10 +22,7 @@ object McpServers {
   }
 
   def mergeJson(existing: Option[String], servers: List[McpServer]): Either[String, String] =
-    scala.util
-      .Try(existing.map(ujson.read(_)).getOrElse(ujson.Obj()))
-      .toEither
-      .left
+    Try(existing.map(ujson.read(_)).getOrElse(ujson.Obj())).toEither.left
       .map(e => s".mcp.json at the root: ${e.getMessage}")
       .map { doc =>
         val current = doc.obj.getOrElseUpdate("mcpServers", ujson.Obj())

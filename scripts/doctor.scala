@@ -19,12 +19,13 @@
 import mainargs.{ParserForMethods, main}
 
 import java.io.File
-import java.net.{InetSocketAddress, Socket, URI}
+import java.net.{ConnectException, InetSocketAddress, Socket, URI}
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.nio.file.{Files, Paths}
 import java.time.Duration
 import scala.jdk.CollectionConverters.*
 import scala.util.{Try, Using}
+import workspace.{AgentsMd, Plan}
 
 object Doctor {
 
@@ -165,10 +166,10 @@ object Doctor {
     val name     = "workspace root up to date"
     val root     = os.pwd / os.up
     val agentsMd = root / "AGENTS.md"
-    if (!os.isFile(agentsMd) || !os.read(agentsMd).contains(workspace.AgentsMd.Begin))
+    if (!os.isFile(agentsMd) || !os.read(agentsMd).contains(AgentsMd.Begin))
       Check(name, Outcome.Skip("the parent directory is not a generated workspace"))
     else
-      workspace.Plan.changes(root, os.pwd.last) match {
+      Plan.changes(root, os.pwd.last) match {
         case Right(Nil)     => Check(name, Outcome.Pass(root.toString))
         case Right(changes) =>
           Check(name, Outcome.Fail(detail = s"stale: ${changes.map(_.path).mkString(", ")}", hint = "./scripts/workspace.scala generate"))
@@ -250,8 +251,8 @@ object Doctor {
       val req = HttpRequest.newBuilder(URI.create(url)).GET().timeout(Duration.ofSeconds(3)).build()
       http.send(req, HttpResponse.BodyHandlers.discarding()).statusCode()
     }.toEither.left.map {
-      case e: java.net.ConnectException => "connection refused"
-      case e                            => Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
+      case e: ConnectException => "connection refused"
+      case e                   => Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
     }
 
   private def printCheck(c: Check): Unit = {
