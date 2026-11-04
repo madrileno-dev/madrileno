@@ -2,6 +2,7 @@ package app
 
 import java.net.ServerSocket
 import java.util.concurrent.atomic.AtomicBoolean
+import scala.util.Try
 
 class HttpProbeSuite extends munit.FunSuite {
   private def server(statusLine: String)(check: (Int, AtomicBoolean) => Unit): Unit = {
@@ -16,7 +17,7 @@ class HttpProbeSuite extends munit.FunSuite {
       out.write(s"$statusLine\r\nContent-Length: 2\r\n\r\nok".getBytes)
       out.flush()
       conn.setSoTimeout(2000)
-      clientClosed.set(scala.util.Try(in.read()).toOption.contains(-1))
+      clientClosed.set(Try(in.read()).toOption.contains(-1))
       conn.close()
     })
     thread.setDaemon(true)

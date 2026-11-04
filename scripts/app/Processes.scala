@@ -1,6 +1,6 @@
 package app
 
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{TimeUnit, TimeoutException}
 import scala.concurrent.duration.FiniteDuration
 import scala.jdk.OptionConverters.*
 
@@ -22,7 +22,7 @@ object Processes {
           exited.get(grace.toMillis, TimeUnit.MILLISECONDS)
           Stopped
         } catch {
-          case _: java.util.concurrent.TimeoutException =>
+          case _: TimeoutException =>
             handle.destroyForcibly()
             exited.get()
             Killed

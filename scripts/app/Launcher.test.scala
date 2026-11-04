@@ -1,5 +1,6 @@
 package app
 
+import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.*
 
 class LauncherSuite extends munit.FunSuite {
@@ -11,7 +12,7 @@ class LauncherSuite extends munit.FunSuite {
     stopResult: Processes.StopOutcome = Processes.Stopped,
     migrateResult: Either[String, Int] = Right(0))
       extends Launcher.System {
-    val actions                                 = scala.collection.mutable.ListBuffer.empty[String]
+    val actions                                 = ListBuffer.empty[String]
     def currentState(): AppState                = state
     def compile(): Either[String, Unit]         = { actions += "compile"; compileResult }
     def spawn(): Either[String, Long]           = { actions += "spawn"; spawnResult }
