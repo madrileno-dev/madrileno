@@ -4,6 +4,7 @@
 //> using jvm 21
 //> using toolkit default
 //> using dep com.lihaoyi::mainargs:0.7.8
+//> using file workspace
 //> using mainClass Doctor
 
 // Smoke-test the dev setup. Diagnose only — does not start anything for you.
@@ -79,7 +80,8 @@ object Doctor {
         "app responding",
         s"http://localhost:$appPort/$apiVersion/health-check",
         "./scripts/app.scala start (or ~reStart in an sbt shell to rebuild on save)"
-      )
+      ),
+      checkWorkspace()
     )
 
     results.foreach(printCheck)
@@ -158,6 +160,21 @@ object Doctor {
   ): Check =
     if (serviceUp(service)) checkHttp(name, url, FullProfileHint)
     else Check(name, Outcome.Skip(s"$service not started; part of the full profile: $FullProfileHint"))
+
+  private def checkWorkspace(): Check = {
+    val name     = "workspace root up to date"
+    val root     = os.pwd / os.up
+    val agentsMd = root / "AGENTS.md"
+    if (!os.isFile(agentsMd) || !os.read(agentsMd).contains(workspace.AgentsMd.Begin))
+      Check(name, Outcome.Skip("the parent directory is not a generated workspace"))
+    else
+      workspace.Plan.changes(root, os.pwd.last) match {
+        case Right(Nil)     => Check(name, Outcome.Pass(root.toString))
+        case Right(changes) =>
+          Check(name, Outcome.Fail(detail = s"stale: ${changes.map(_.path).mkString(", ")}", hint = "./scripts/workspace.scala generate"))
+        case Left(error) => Check(name, Outcome.Fail(detail = error, hint = "fix that file, then ./scripts/workspace.scala generate"))
+      }
+  }
 
   private def checkPostgresReachable(port: Int): Check = {
     val r = tcpReachable("localhost", port, timeoutMs = 1000)

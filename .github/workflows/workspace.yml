@@ -1,0 +1,42 @@
+# Template-internal: `scripts/init-project.scala` deletes this workflow on init.
+name: Workspace
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "scripts/workspace.scala"
+      - "scripts/workspace/**"
+      - ".agents/**"
+      - ".github/workflows/workspace.yml"
+  push:
+    branches: [ "main" ]
+    paths:
+      - "scripts/workspace.scala"
+      - "scripts/workspace/**"
+      - ".agents/**"
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  generate-with-the-apps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: VirtusLab/scala-cli-setup@d320e01a605bf27128a5657575382668f83ef34e # v1
+      - name: Unit-test the workspace generator
+        run: scala-cli test scripts/workspace.scala
+      - name: Generate a workspace with the web and mobile apps, then check it
+        run: |
+          set -e
+          git clone --depth 1 https://github.com/madrileno-dev/madrileno-frontend.git ../madrileno-frontend
+          git clone --depth 1 https://github.com/madrileno-dev/madrileno-mobile.git ../madrileno-mobile
+          ./scripts/workspace.scala generate
+          ./scripts/workspace.scala check
+          for app in madrileno-frontend madrileno-mobile; do
+            grep -qF "| \`$app/\` |" ../AGENTS.md || { echo "$app is not in the generated workspace table"; exit 1; }
+          done
+          test -L ../.claude/skills
+          test -f ../.agents/skills/backend-add-module/SKILL.md

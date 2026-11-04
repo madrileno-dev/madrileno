@@ -75,6 +75,10 @@ Codex reads `.agents/skills/`; Claude Code reads `.claude/skills/`, which is a s
 
 A skill works without the docs, which `init-project` deletes by default: it carries the steps, the rules that are easy to get wrong and the check that ends it, and names a doc for depth, read through `madrileno_doc` (see [mcp.md](mcp.md)). Add one when assistants keep rebuilding the same procedure from existing code. `AgentInstructionsSpec` fails when a skill's name doesn't match its folder or lacks the `backend-` prefix, when it names a doc that doesn't exist, when `AGENTS.md` and `.agents/skills/` list different skills, or when the `.claude/skills` link is missing.
 
+## Working from a parent directory
+
+Started in a directory that holds this backend and its apps, an assistant finds none of the above: instructions, skills and MCP config are read from where it starts, not from below. `./scripts/workspace.scala generate` writes them at that parent; see [workspace.md](workspace.md).
+
 ## Reviewing what the assistant built
 
 An assistant can hand over a large change faster than anyone can read it. Start the review from the architecture rather than the line diff. `./scripts/architecture.scala --diff main` writes an HTML map of what the branch changed:

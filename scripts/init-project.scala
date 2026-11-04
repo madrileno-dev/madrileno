@@ -101,6 +101,7 @@ object InitProject {
       root / ".github" / "workflows" / "link-check.yml",
       root / ".github" / "workflows" / "script-tests.yml",
       root / ".github" / "workflows" / "site-dispatch.yml",
+      root / ".github" / "workflows" / "workspace.yml",
       root / "scripts" / "check-links.scala"
     ).filter(os.exists)
     templateCiFiles.foreach(os.remove)
@@ -218,7 +219,9 @@ object InitProject {
     println(s"Package: $packageName")
     println(s"Deleted: ${deleted.size} auction-related paths")
     if (templateCiFiles.nonEmpty)
-      println(s"Deleted: ${templateCiFiles.size} template-internal CI files (link-check + script-tests + site-dispatch workflows, check-links.scala)")
+      println(
+        s"Deleted: ${templateCiFiles.size} template-internal CI files (link-check + script-tests + site-dispatch + workspace workflows, check-links.scala)"
+      )
     if (licenseDeleted) println("Deleted: LICENSE (the template's Apache-2.0 — generated projects may relicense freely)")
     if (docsDeleted) println("Deleted: docs/ (pass --keep-docs to retain a local copy; the MCP server serves them from the pinned ref)")
     println(s"Updated: $totalUpdated files")
