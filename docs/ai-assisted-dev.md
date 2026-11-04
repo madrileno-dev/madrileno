@@ -1,6 +1,6 @@
 # AI-assisted development
 
-Driving this codebase with an AI assistant (Claude Code) works best with two MCP servers running. They're complementary:
+Driving this codebase with an AI assistant (Claude Code or Codex) works best with two MCP servers running. They're complementary:
 
 | Server                          | Gives the assistant                                                                 | Scope                  |
 | ------------------------------- | ----------------------------------------------------------------------------------- | ---------------------- |
@@ -9,7 +9,7 @@ Driving this codebase with an AI assistant (Claude Code) works best with two MCP
 
 Both are optional — the project builds and runs without them. They earn their keep when you're pairing with Claude: Metals gives it a real compile/test loop instead of guessing, and madrileno lets it copy non-obvious patterns from the reference modules (see [mcp.md](mcp.md)).
 
-Both listen on `localhost` and are wired in the project-scoped `.mcp.json` at the repo root, which is [committed by design](https://code.claude.com/docs/en/mcp#project-scope) — every clone gets the wiring for free.
+Both listen on `localhost` and are wired in the project-scoped `.mcp.json` (Claude Code) and `.codex/config.toml` (Codex) at the repo root, which are [committed by design](https://code.claude.com/docs/en/mcp#project-scope) — every clone gets the wiring for free.
 
 ## Why Metals matters here
 
@@ -49,6 +49,31 @@ The committed `.mcp.json` already points at both:
 ```
 
 Claude Code reads it automatically and prompts once to approve project-scoped servers (run `claude mcp reset-project-choices` to redo the prompt). Start the servers, then ask Claude *"compile the project"* (Metals) or *"call `madrileno_overview`"* (madrileno) to confirm both are live.
+
+## How Codex connects
+
+Codex reads the same two servers from the committed `.codex/config.toml`, but only in a project you have trusted: accept the prompt on the first interactive run, or add the project to your own `~/.codex/config.toml`:
+
+```toml
+[projects."/path/to/your/project"]
+trust_level = "trusted"
+```
+
+`codex mcp list`, run from the project root, shows both servers once the project is trusted. Codex reads `AGENTS.md` itself; it has no `CLAUDE.md` equivalent to set up.
+
+## Skills
+
+`AGENTS.md` holds what applies to every task. Procedures that only some tasks need are skills under `.agents/skills/<name>/SKILL.md`, which the assistant loads when a task matches the skill's description:
+
+| Skill | For |
+| --- | --- |
+| `backend-add-module` | a new aggregate with its own table and endpoints, starting from `scaffold-module` |
+| `backend-schema-change` | a migration and the `Row`, `Table` and repository code that read it |
+| `backend-add-endpoint` | a route, its DTOs and error codes, and the router spec behind the contract |
+
+Codex reads `.agents/skills/`; Claude Code reads `.claude/skills/`, which is a symlink to it, so there is one copy. On Windows, a checkout without symlink support (`core.symlinks=false`) turns that link into a text file and Claude Code finds no skills: enable symlinks in Git for Windows, or copy `.agents/skills` to `.claude/skills` by hand.
+
+A skill works without the docs, which `init-project` deletes by default: it carries the steps, the rules that are easy to get wrong and the check that ends it, and names a doc for depth, read through `madrileno_doc` (see [mcp.md](mcp.md)). Add one when assistants keep rebuilding the same procedure from existing code. `AgentInstructionsSpec` fails when a skill's name doesn't match its folder or lacks the `backend-` prefix, when it names a doc that doesn't exist, when `AGENTS.md` and `.agents/skills/` list different skills, or when the `.claude/skills` link is missing.
 
 ## Reviewing what the assistant built
 

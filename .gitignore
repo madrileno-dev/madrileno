@@ -5,6 +5,14 @@
 !.env.sample
 !.jvmopts
 !.mcp.json
+!.agents
+!.agents/**
+!.claude
+.claude/*
+!.claude/skills
+!.codex
+.codex/*
+!.codex/config.toml
 !.github
 !.github/**
 

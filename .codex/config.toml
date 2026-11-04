@@ -1,0 +1,5 @@
+[mcp_servers.metals]
+url = "http://localhost:8911/mcp"
+
+[mcp_servers.madrileno]
+url = "http://localhost:8910/mcp"
