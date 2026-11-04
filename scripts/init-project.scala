@@ -231,7 +231,7 @@ object InitProject {
     // make another unused (cascading). One-time cost on init; bundling it here means the user
     // gets a green `sbt testFull` on the very next command.
     println("Running scalafix to clean up auction-leftover imports (this takes a minute on first run)...")
-    val scalafix = os.proc("sbt", "scalafixAll", "scalafixAll").call(cwd = root, check = false, stdout = os.Inherit, stderr = os.Inherit)
+    val scalafix = os.proc("sbt", "scalafixAll; scalafixAll").call(cwd = root, check = false, stdout = os.Inherit, stderr = os.Inherit)
     if (scalafix.exitCode != 0) {
       println()
       println("⚠ scalafix didn't complete cleanly. The rename + auction deletion still applied; you can re-run scalafix manually:")
