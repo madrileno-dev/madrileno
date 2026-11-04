@@ -32,17 +32,13 @@ description: Add or change an HTTP endpoint in this backend, the route, its requ
    per status the route can answer, every error code included:
 
    ```scala
-   private val returnable = TestData.randomLoanId()
-
    path("/v1/loans/{loanId}/return")(
      supports(PATCH, description = "Return a loan", securitySchemes = Seq(bearerScheme),
        pathParameters = p[LoanId]("loanId"), tags = Seq("Loans"))(
-       onRequest(security = bearer.apply(validJwt(authContext)), pathParameters = returnable)
+       withSetup(seedLoan())
+         .request(loan => onRequest(security = bearer.apply(validJwt(authContext)), pathParameters = loan.id))
          .respondsWith[EmptyBody](NoContent, description = "Returned")
-         .assert { ctx =>
-           application.transactor.inSession(loanRepository.save(TestData.loan(id = returnable))).unsafeRunSync()
-           ctx.performRequest(allRoutes)
-         },
+         .assert { case (ctx, _) => ctx.performRequest(allRoutes) },
        onRequest(security = bearer.apply(validJwt(authContext)), pathParameters = TestData.randomLoanId())
          .respondsWith[Error[Unit]](NotFound, description = "Loan not found")
          .assert(ctx => ctx.performRequest(allRoutes))
@@ -50,11 +46,12 @@ description: Add or change an HTTP endpoint in this backend, the route, its requ
    )
    ```
 
+   * `seedLoan()` builds a loan owned by `authContext`'s user and saves it
+     through `application.loanRepository`, like the `seed<Aggregate>()` the
+     scaffold generates
    * `body`, `pathParameters` and `security` are evaluated when the class is
-     built: give each case its own id `val` at class level, never compute one
-     inside `.assert`
-   * the spec seeds through its own repository instance
-     (`new LoanRepository`), since the module's members are private
+     built: a case that needs a seeded row gets it through
+     `withSetup(...).request(row => onRequest(...))`, not inside `.assert`
    * query parameters: `queryParameters = q[Option[String]]("status")` on
      `supports` and a value per `onRequest`; several are a tuple on both
      sides: `(q[Option[Int]]("limit"), q[Option[String]]("status"))`,
@@ -66,8 +63,10 @@ description: Add or change an HTTP endpoint in this backend, the route, its requ
 Done when:
 
 * `sbt --client "testOnly *<Name>RouterSpec"` passes
-* `sbt --client Test/verifyErrorCodes` passes: it fails on any error code a
-  router can answer with that no router spec exercises
+* `sbt --client "testFull; Test/verifyErrorCodes"` passes: it fails on any
+  error code a router can answer with that no router spec exercises. It reads
+  the contract of all suites, so after only `testOnly` on a fresh checkout it
+  reports every other router's codes as missing
 
 Detail: doc `http` (routing, the error helper, pagination), doc
 `error-handling`, doc `testing-guide` (router specs).

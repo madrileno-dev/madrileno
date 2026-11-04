@@ -36,7 +36,9 @@ description: Add a new module to this backend, an aggregate with its own table, 
 Done when:
 
 * `grep -rn SCAFFOLD-TODO src` prints nothing
-* `sbt --client "testOnly <pkg>.<aggregate>.*"` passes
+* `sbt --client "testOnly <pkg>.<aggregate>.*"` passes, with the package in
+  lower case (`madrileno.loan.*`): a pattern that matches nothing passes too,
+  with no tests run
 * `./scripts/architecture.scala --diff main --mermaid` lists no new warnings
 
 Detail: doc `adding-a-module` (the eight steps and the sharp edges), doc
