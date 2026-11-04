@@ -39,4 +39,6 @@ jobs:
             grep -qF "| \`$app/\` |" ../AGENTS.md || { echo "$app is not in the generated workspace table"; exit 1; }
           done
           test -L ../.claude/skills
-          test -f ../.agents/skills/backend-add-module/SKILL.md
+          for skill in backend-add-module frontend-use-api mobile-use-api; do
+            test -f "../.claude/skills/$skill/SKILL.md" || { echo "$skill is not linked at the workspace root"; exit 1; }
+          done
