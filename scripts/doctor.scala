@@ -4,6 +4,7 @@
 //> using jvm 21
 //> using toolkit default
 //> using dep com.lihaoyi::mainargs:0.7.8
+//> using file workspace
 //> using mainClass Doctor
 
 // Smoke-test the dev setup. Diagnose only — does not start anything for you.
@@ -18,12 +19,13 @@
 import mainargs.{ParserForMethods, main}
 
 import java.io.File
-import java.net.{InetSocketAddress, Socket, URI}
+import java.net.{ConnectException, InetSocketAddress, Socket, URI}
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.nio.file.{Files, Paths}
 import java.time.Duration
 import scala.jdk.CollectionConverters.*
 import scala.util.{Try, Using}
+import workspace.{AgentsMd, Plan}
 
 object Doctor {
 
@@ -79,7 +81,8 @@ object Doctor {
         "app responding",
         s"http://localhost:$appPort/$apiVersion/health-check",
         "./scripts/app.scala start (or ~reStart in an sbt shell to rebuild on save)"
-      )
+      ),
+      checkWorkspace()
     )
 
     results.foreach(printCheck)
@@ -159,6 +162,21 @@ object Doctor {
     if (serviceUp(service)) checkHttp(name, url, FullProfileHint)
     else Check(name, Outcome.Skip(s"$service not started; part of the full profile: $FullProfileHint"))
 
+  private def checkWorkspace(): Check = {
+    val name     = "workspace root up to date"
+    val root     = os.pwd / os.up
+    val agentsMd = root / "AGENTS.md"
+    if (!os.isFile(agentsMd) || !os.read(agentsMd).contains(AgentsMd.Begin))
+      Check(name, Outcome.Skip("the parent directory is not a generated workspace"))
+    else
+      Plan.changes(root, os.pwd.last) match {
+        case Right(Nil)     => Check(name, Outcome.Pass(root.toString))
+        case Right(changes) =>
+          Check(name, Outcome.Fail(detail = s"stale: ${changes.map(_.path).mkString(", ")}", hint = "./scripts/workspace.scala generate"))
+        case Left(error) => Check(name, Outcome.Fail(detail = error, hint = "fix that file, then ./scripts/workspace.scala generate"))
+      }
+  }
+
   private def checkPostgresReachable(port: Int): Check = {
     val r = tcpReachable("localhost", port, timeoutMs = 1000)
     if (r) Check("postgres reachable", Outcome.Pass(s"localhost:$port"))
@@ -233,8 +251,8 @@ object Doctor {
       val req = HttpRequest.newBuilder(URI.create(url)).GET().timeout(Duration.ofSeconds(3)).build()
       http.send(req, HttpResponse.BodyHandlers.discarding()).statusCode()
     }.toEither.left.map {
-      case e: java.net.ConnectException => "connection refused"
-      case e                            => Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
+      case e: ConnectException => "connection refused"
+      case e                   => Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
     }
 
   private def printCheck(c: Check): Unit = {

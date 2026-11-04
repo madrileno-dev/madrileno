@@ -32,6 +32,8 @@ Clone it next to this repo and follow its README. The backend needs no changes:
 - **CORS doesn't apply**: a native app isn't a browser, so `CORS_ALLOWED_ORIGINS` (see [`configuration.md`](configuration.md)) is irrelevant to it.
 - **Cleartext HTTP** is allowed only for non-production builds pointed at an `http://` API; production builds need an `https://` backend.
 
+To work on both from the directory above them, run `./scripts/workspace.scala generate` here; see [`workspace.md`](workspace.md).
+
 ## Starting a real project
 
 The app ships the same "delete the demo" escape hatch as the backend's [`init-project`](scripts.md) and the frontend's:

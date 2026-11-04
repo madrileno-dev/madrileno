@@ -176,8 +176,9 @@ Output on a healthy box:
 - silo reachable (skipped: silo not started; part of the full profile: docker compose --profile full up -d)
 - openobserve reachable (skipped: openobserve not started; part of the full profile: docker compose --profile full up -d)
 ✓ app responding (http://localhost:9000/v1/health-check → 200)
+- workspace root up to date (skipped: the parent directory is not a generated workspace)
 
-All 5 checks passed (3 skipped). Happy hacking.
+All 5 checks passed (4 skipped). Happy hacking.
 ```
 
 With `docker compose --profile full up -d` the three skipped lines become real HTTP checks.
@@ -194,6 +195,7 @@ The checks:
 | 4 | Postgres TCP socket open on `PG_PORT` | Reads `.env` for the port (falls back to `.env.sample` if `.env` is missing). |
 | 5–7 | Mailpit / Silo / OpenObserve HTTP health endpoints | `GET /api/v1/info`, `/minio/health/live`, `/healthz` respectively. Skipped, not failed, when the service isn't started: the Postgres-only stack is complete. |
 | 8 | App responding | `GET http://localhost:$PORT/v1/health-check`. Hints `./scripts/app.scala start` on failure, or `~reStart` in an sbt shell to rebuild on save. |
+| 9 | Workspace root up to date | Runs `workspace.scala check` on the parent directory when it holds a generated `AGENTS.md`; skipped otherwise. Hints `./scripts/workspace.scala generate`. See [workspace.md](workspace.md). |
 
 ### What it doesn't do
 
@@ -376,9 +378,20 @@ Exit codes: 0 ok, 1 the app is not in the asked-for state or failed to get there
 - It doesn't start the compose stack or create the database. `doctor.scala` tells you what is missing.
 - It doesn't manage the sbt server. `sbt --client shutdown` still stops that one, and no longer takes the app down with it.
 
+## `workspace.scala`
+
+Writes the instructions, skill links and MCP config an assistant needs when it starts in the directory above the backend and its apps, from the `.agents/workspace.md` each of them keeps. The full story is in [workspace.md](workspace.md).
+
+```bash
+./scripts/workspace.scala generate               # the root is the parent directory; --root to pick another
+./scripts/workspace.scala check                  # exit 1 when the root is out of date
+```
+
+Exit codes: 0 written or up to date, 1 `check` found the root out of date, 2 not run from a backend root, or a member file or root entry it cannot work with.
+
 ## Template-internal CI workflows
 
-The repo ships four GitHub Actions. `.github/workflows/scala.yml` is the project's own CI (format check, scalafix, compile, test) — kept on init like any other project file. The other three are **template-internal**: they validate template content and are deleted by `init-project.scala` (along with `scripts/check-links.scala`, which only the link-check workflow uses):
+The repo ships five GitHub Actions. `.github/workflows/scala.yml` is the project's own CI (format check, scalafix, compile, test) — kept on init like any other project file. The other four are **template-internal**: they validate template content and are deleted by `init-project.scala` (along with `scripts/check-links.scala`, which only the link-check workflow uses):
 
 - **`.github/workflows/link-check.yml`** — runs `scripts/check-links.scala` on PRs touching markdown. The script walks every `.md`, extracts `[text](target)` links, verifies internal targets exist (relative paths + `#anchor` heading slugs). Externals + `mailto:` / `tel:` are skipped. Code spans + fenced blocks are stripped first so Scala signatures inside code samples don't trip the regex.
 - **`.github/workflows/script-tests.yml`** — runs on PRs touching `scripts/` or `src/main/`, since the init, scaffold and architecture checks depend on the app's code too. Six jobs:
@@ -388,6 +401,7 @@ The repo ships four GitHub Actions. `.github/workflows/scala.yml` is the project
   - `run-doctor` — smoke-runs `scripts/doctor.scala`, accepts exit `0` or `1` (CI has no dev stack so doctor's "checks failed" exit is expected; anything else is a real crash)
   - `test-init-project` — `git clone`s the repo into a temp dir, runs `./scripts/init-project.scala wine-cellar`, asserts the rename / auction-drop / workflow-cleanup happened, runs `./scripts/architecture.scala --strict` on the result, then `sbt compile`s
   - `test-scaffold-module` — same shape, runs `./scripts/scaffold-module.scala Wine wines`, asserts generated files exist + `WineModule` is wired into `ApplicationLoader`, then `sbt compile`s
+- **`.github/workflows/workspace.yml`** — on PRs touching `workspace.scala`, `scripts/workspace/` or `.agents/`, and nightly: runs the generator's unit tests, clones the web and mobile apps' `main` next to the checkout, runs `generate` and `check`, and fails unless both apps are in the generated table. Nightly, because a change in either app can break the workspace without a PR here.
 - **`.github/workflows/site-dispatch.yml`** — on a push to `main` touching `docs/**` or `README.md`, sends a `docs-updated` repository dispatch to `madrileno-dev/madrileno-dev.github.io` so the website rebuilds. Needs the `SITE_DISPATCH_TOKEN` secret (a fine-grained PAT scoped to the site repo, Contents read/write).
 
 All workflows verify template content (our docs, our scripts). A forked project that wants the same auto-checks can re-add a workflow themselves; `doctor.scala` and the other scripts stay on init as user-facing tools. `check-links.scala` goes — without our `docs/` tree it has nothing meaningful to walk.
@@ -397,8 +411,9 @@ All workflows verify template content (our docs, our scripts). A forked project 
 - `init-project.scala` — standalone, no companion files
 - `scaffold-module.scala` + `templates/module/` — generator + templates
 - `dev-console.scala` — wrapper. The REPL predef is embedded as a string inside the wrapper (top of the file), written to a temp file at launch and passed to scala-cli's REPL. One file, at the cost of no syntax highlighting on the predef section in most editors.
-- `doctor.scala` — standalone, no companion files
+- `doctor.scala` — standalone apart from `workspace/`, which it includes for the workspace check
 - `mcp-server.scala` — standalone, no companion files
 - `architecture.scala` + `architecture/` — entry point (CLI) + the extractor, diff and renderers it includes; `architecture/*.test.scala` are its unit tests (`scala-cli test scripts/architecture.scala`)
 - `app.scala` + `app/` — launcher. The decisions (`.env` parsing, what the pid file and the health check add up to, when to give up, what each command does in each state) are plain functions with munit tests: `scala-cli test scripts/app.scala`
+- `workspace.scala` + `workspace/` — entry point + reading the members, the `AGENTS.md` block, the MCP config merge and the plan of what to change at the root; munit tests: `scala-cli test scripts/workspace.scala`. `doctor.scala` includes `workspace/` for its check
 - `check-links.scala` — standalone; template-only, deleted on init

@@ -66,6 +66,8 @@ Clone it next to this repo, point its `sync-contracts` at `../madrileno/target/b
 - **In dev**, the frontend's Vite proxy makes the API same-origin, so there is no CORS to configure and nothing to change here.
 - **In production**, if the frontend is served from a different origin, set this backend's `CORS_ALLOWED_ORIGINS` (see [`configuration.md`](configuration.md)) — its existing env contract, not a new frontend coupling.
 
+To work on both from the directory above them, run `./scripts/workspace.scala generate` here; see [`workspace.md`](workspace.md).
+
 ## Starting a real project
 
 The frontend ships the same "delete the demo" escape hatch as the backend's [`init-project`](scripts.md):
