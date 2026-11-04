@@ -32,6 +32,7 @@ object Main extends IOApp.Simple with LoggingSupport {
     (for {
       config    <- Resource.eval(IO.delay(ConfigSource.default))
       appConfig <- Resource.eval(IO.delay(config.at("app").loadOrThrow[AppConfig]))
+      _         <- Resource.eval(StartupSecurityCheck.enforce(appConfig.environment, config))
       otel      <- OtelJava.autoConfigured[IO]()
       given TracerProvider[IO] = otel.tracerProvider
       given Tracer[IO] <- Resource.eval(summon[TracerProvider[IO]].get(appConfig.name))

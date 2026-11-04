@@ -25,10 +25,8 @@ object SeedMain extends IOApp.Simple {
       config    <- IO.delay(ConfigSource.default)
       appConfig <- IO.delay(config.at("app").loadOrThrow[AppConfig])
       pgConfig  <- IO.delay(config.at("pg").loadOrThrow[PgConfig])
-      _         <- IO.raiseUnless(appConfig.environment == Environment.Dev)(
-             new IllegalStateException(s"SeedMain refuses to run with app.environment=${appConfig.environment}. Dev only.")
-           )
-      _ <- PgTransactor.resource(pgConfig).use { transactor =>
+      _         <- IO(StartupSecurityCheck.requireDev(appConfig.environment, "SeedMain", "run"))
+      _         <- PgTransactor.resource(pgConfig).use { transactor =>
              seed(transactor, new UserRepository, new UserAuthRepository)
            }
     } yield ()
