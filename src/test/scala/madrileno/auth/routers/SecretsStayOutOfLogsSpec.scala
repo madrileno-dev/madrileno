@@ -66,7 +66,9 @@ class SecretsStayOutOfLogsSpec extends AnyFunSpec with Matchers with TestApplica
       }
 
       status shouldBe Status.Ok
-      val requestLine = logged.find(_.contains("POST /v1/auth/refresh-token")).getOrElse(fail("no request line was logged"))
+      val requestLine = logged
+        .find(line => line.contains("POST /v1/auth/refresh-token") && line.contains("\"padding\":"))
+        .getOrElse(fail("no request line was logged"))
       requestLine should include("\"padding\":\"ppp")
       requestLine should include(s" ... (${body.length} bytes total)")
       requestLine should not include secret.take(8)
