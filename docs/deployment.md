@@ -99,16 +99,22 @@ What the template doesn't do is undo a migration. If one fails partway, Flyway r
 The state to back up is the Postgres database, plus the object storage bucket if the app stores files (the S3 bucket behind `S3_BUCKET`, or the `uploads` directory with `OBJECT_STORAGE=disk`). A database dump alone restores rows that point at files it doesn't contain. Managed Postgres (RDS, Cloud SQL, …) and S3 have their own snapshots and point-in-time recovery; use those where you have them, and the commands below where you run Postgres yourself or want a portable copy.
 
 ```bash
+# libpq reads PGPASSWORD, not the app's PG_PASSWORD.
+export PGPASSWORD="$PG_PASSWORD"
+DUMP=madrileno-$(date +%F).dump
+
 # Dump: custom format, compressed, restorable selectively with pg_restore.
-pg_dump --format=custom --no-owner -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" > madrileno-$(date +%F).dump
+pg_dump --format=custom --no-owner -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -f "$DUMP"
 
 # Restore into a new, empty database, then check its schema matches this image's migrations.
 createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" madrileno_restored
-pg_restore --no-owner --exit-on-error -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d madrileno_restored madrileno-2026-11-05.dump
+pg_restore --no-owner --exit-on-error -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d madrileno_restored "$DUMP"
 PG_DATABASE=madrileno_restored bin/migrate-main validate
 ```
 
-Against the dev stack, run the same tools inside the compose container: `docker compose exec -T postgres pg_dump --format=custom --no-owner -U postgres -d madrileno > madrileno.dump`, and `pg_restore` with `docker compose exec -T postgres pg_restore … < madrileno.dump`. Use client tools of the server's major version or newer (the compose file runs `postgres:18`). Restore into a fresh database rather than over the live one, and check the copy before switching the app to it: `validate` fails if the dump is from an older schema than the image expects, in which case run `bin/migrate-main` against it first. A backup you have never restored is a guess; rehearse the restore.
+Run the restore as the role the app connects with: `--no-owner` makes the restoring role own every table. If that role can't create databases (common on managed Postgres), have an admin run `createdb -O "$PG_USER" madrileno_restored` instead.
+
+Against the dev stack, run the same tools inside the compose container: `docker compose exec -T postgres pg_dump --format=custom --no-owner -U postgres -d madrileno > madrileno.dump`, and restore with `docker compose exec postgres createdb -U postgres madrileno_restored` followed by `docker compose exec -T postgres pg_restore --no-owner --exit-on-error -U postgres -d madrileno_restored < madrileno.dump`. Use client tools of the server's major version or newer (the compose file runs `postgres:18`). Restore into a fresh database rather than over the live one, and check the copy before switching the app to it: `validate` fails if the dump is from an older schema than the image expects, in which case run `bin/migrate-main` against it first. A backup you have never restored is a guess; rehearse the restore.
 
 ## Graceful shutdown
 
