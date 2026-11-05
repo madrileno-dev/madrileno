@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:latest
+    image: postgres:18 # the tests run on the same version: TestPostgres.image
     environment:
       POSTGRES_DB: madrileno
       POSTGRES_USER: postgres

@@ -43,7 +43,7 @@ Extend `AsyncWordSpec with AsyncIOSpec with Matchers` (or `AnyWordSpec with Matc
 
 ### Layer 2: Repository and Service Integration Tests
 
-Real PostgreSQL via Testcontainers. Flyway runs all migrations on startup. Each test suite gets a shared container.
+Real PostgreSQL via Testcontainers, on the image pinned in `TestPostgres.image` (keep it on the same version as `docker-compose.yml`). Flyway runs all migrations on startup. Each test suite gets a shared container.
 
 Extend `AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor`.
 

@@ -19,7 +19,6 @@ import madrileno.utils.mailer.MailerConfig
 import madrileno.utils.observability.TelemetryContext
 import madrileno.utils.resilience.CircuitBreakerRuntime
 import madrileno.utils.task.{Scheduler, SchedulerConfig}
-import org.flywaydb.core.Flyway
 import org.scalatest.Suite
 import org.typelevel.otel4s.metrics.{Meter, MeterProvider}
 import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
@@ -32,11 +31,7 @@ trait TestApplicationLoader extends TestContainersForAll with TestMailpit { self
 
   override type Containers = PostgreSQLContainer
 
-  override def startContainers(): PostgreSQLContainer = {
-    val container = PostgreSQLContainer.Def().start()
-    Flyway.configure().dataSource(container.jdbcUrl, container.username, container.password).load().migrate()
-    container
-  }
+  override def startContainers(): PostgreSQLContainer = TestPostgres.start()
 
   given TracerProvider[IO] = TracerProvider.noop[IO]
   given MeterProvider[IO]  = MeterProvider.noop[IO]
