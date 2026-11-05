@@ -60,6 +60,10 @@ class ContentNegotiationDirectivesSpec extends AnyFunSpec with Matchers {
       chosen(Some("text/html;level=1, application/json;q=0.5")) shouldBe "application/json"
     }
 
+    it("lets the higher quality decide between ranges that are equally specific, as stir's own check does") {
+      chosen(Some("application/json;q=0, application/json, text/html;q=0.1")) shouldBe "application/json"
+    }
+
     it("answers 406 when the request accepts none of the representations") {
       run(Some("image/png")).status shouldBe Status.NotAcceptable
     }

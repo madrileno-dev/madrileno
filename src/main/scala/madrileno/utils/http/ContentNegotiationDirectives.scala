@@ -15,7 +15,7 @@ trait ContentNegotiationDirectives { self: BaseRouter =>
           val ranked = available.zipWithIndex.flatMap { case (mediaType, order) =>
             accept.values.toList
               .filter(range => matches(range.mediaRange, mediaType))
-              .maxByOption(range => specificity(range.mediaRange))
+              .maxByOption(range => (specificity(range.mediaRange), range.qValue.thousandths))
               .map(range => (mediaType, range.qValue.thousandths, order))
           }
           ranked.filter(_._2 > 0).sortBy { case (_, quality, order) => (-quality, order) }.headOption.map(_._1)
