@@ -1,0 +1,26 @@
+package madrileno.ticket
+
+import cats.effect.{Clock, IO}
+import com.softwaremill.macwire.*
+import madrileno.auth.domain.AuthContext
+import madrileno.ticket.repositories.TicketRepository
+import madrileno.ticket.routers.TicketRouter
+import madrileno.ticket.services.TicketService
+import madrileno.utils.db.transactor.Transactor
+import madrileno.utils.http.AuthRouteProvider
+import madrileno.utils.observability.TelemetryContext
+import pl.iterators.stir.server.Route
+
+trait TicketModule extends AuthRouteProvider {
+  val clock: Clock[IO]
+  val transactor: Transactor
+  given telemetryContext: TelemetryContext
+  lazy val ticketRepository: TicketRepository = wire[TicketRepository]
+
+  private val ticketService = wire[TicketService]
+  private val ticketRouter  = wire[TicketRouter]
+
+  override abstract def route(auth: AuthContext): Route = {
+    super.route(auth) ~ ticketRouter.authedRoutes(auth)
+  }
+}

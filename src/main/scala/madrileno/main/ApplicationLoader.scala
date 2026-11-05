@@ -8,6 +8,7 @@ import com.typesafe.config.Config
 import madrileno.auction.AuctionModule
 import madrileno.auth.AuthModule
 import madrileno.healthcheck.HealthCheckModule
+import madrileno.ticket.TicketModule
 import madrileno.user.UserModule
 import madrileno.utils.cache.CacheRuntime
 import madrileno.utils.db.transactor.Transactor
@@ -95,6 +96,7 @@ class ApplicationLoader(
     with UserModule
     with AuctionModule
     with FeatureFlagModule
+    with TicketModule
     with HealthCheckModule
     with OutboxModule {
   lazy val httpConfig: HttpConfig              = config.at("http").loadOrThrow[HttpConfig]
