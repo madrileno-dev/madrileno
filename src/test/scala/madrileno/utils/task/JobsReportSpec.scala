@@ -45,7 +45,7 @@ class JobsReportSpec extends AnyWordSpec with Matchers {
     JobsReport(List(nightly), List(sendMail), Nil, rows.toList, config, now)
 
   "JobsReport" should {
-    "call a registered recurring task with no row Missing, which means no scheduler has started with it" in {
+    "call a registered recurring task with no row Missing" in {
       val built = report()
       built.recurring.map(job => job.name -> job.health) shouldBe List("nightly-cleanup" -> JobHealth.Missing)
       built.status shouldBe JobsStatus.Unhealthy

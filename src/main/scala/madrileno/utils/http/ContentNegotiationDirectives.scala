@@ -14,7 +14,7 @@ trait ContentNegotiationDirectives { self: BaseRouter =>
         case Some(accept) =>
           val ranked = available.zipWithIndex.flatMap { case (mediaType, order) =>
             accept.values.toList
-              .filter(_.mediaRange.satisfiedBy(mediaType))
+              .filter(range => matches(range.mediaRange, mediaType))
               .maxByOption(range => specificity(range.mediaRange))
               .map(range => (mediaType, range.qValue.thousandths, order))
           }
@@ -26,6 +26,12 @@ trait ContentNegotiationDirectives { self: BaseRouter =>
           val rejected: Directive1[MediaType] = reject(UnacceptedResponseContentTypeRejection(available.map(`Content-Type`(_)).toSet))
           rejected
       }
+    }
+
+  private def matches(range: MediaRange, mediaType: MediaType): Boolean =
+    range.satisfiedBy(mediaType) && range.extensions.forall {
+      case ("charset", _) => true
+      case (key, value)   => mediaType.extensions.get(key).contains(value)
     }
 
   private def specificity(range: MediaRange): Int = range match {

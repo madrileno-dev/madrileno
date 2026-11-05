@@ -224,7 +224,7 @@ trait MyModule extends RecurringTaskProvider with OneTimeTaskProvider {
 
 ## The admin UI
 
-`/admin/jobs` (Basic-Auth gated, GET-only) reports on the scheduler, as an HTML page for people and as JSON for monitors. Both are rendered from the same `JobsReport`, so they always show the same values; which one you get follows the request's `Accept` header (a browser gets HTML, `Accept: application/json` or no `Accept` at all gets JSON, anything else 406):
+`/admin/jobs` (Basic-Auth gated, GET-only) reports on the scheduler, as an HTML page for people and as JSON for monitors. Both are rendered from the same `JobsReport`, so they always show the same values; which one you get follows the request's `Accept` header (a browser gets HTML; `Accept: application/json`, `*/*` as curl sends it, or no `Accept` at all gets JSON; a request that accepts neither gets 406):
 
 ```bash
 curl -u admin:$ADMIN_PASSWORD -H 'Accept: application/json' https://api.example.com/admin/jobs
@@ -248,7 +248,7 @@ Each row's `health` is one of:
 | `Failing` | The last run failed and the row is waiting for its retry (`consecutiveFailures` > 0). |
 | `Overdue` | Not picked, and due longer ago than `scheduler.overdue-after` (`SCHEDULER_OVERDUE_AFTER`, default `5m`; `Inf` turns it off). Nothing is picking rows up: no scheduler is running, or all its slots are busy. |
 | `Stalled` | Picked, but no heartbeat for `heartbeat-interval` × `missed-heartbeat-limit`. The instance running it died; another scheduler revives such rows, and with none running it stays here. |
-| `Missing` | A registered recurring task with no row at all. Rows are written when a scheduler starts, so none has started with this task. |
+| `Missing` | A registered recurring task with no row at all. Rows are written when a scheduler starts, so either none has started with this task, or the scheduler deleted the row: after the last retry failed (with a retry limit set, `SCHEDULER_MAX_RETRIES` or the task's own), or when the schedule has no next run. It comes back at the next start. |
 
 The HTTP status is 200 whatever the verdict, since the report itself succeeded; a monitor alerts on `status`. Read-only — no buttons to trigger, retry, or delete; you'd add those routes yourself if you need them. It shares the `/admin` Basic-Auth subtree with the deep health check; gate it with a strong `ADMIN_PASSWORD`.
 

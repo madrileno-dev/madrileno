@@ -54,6 +54,12 @@ class SchedulerAdminRouterSpec extends BaseRouteSpec with TestApplicationLoader 
       page should include("Unhealthy")
     }
 
+    it("reads media type parameters the way the JSON response is checked, so a choice made is a choice served") {
+      jobs(Some("application/json;charset=utf-8")).contentType.map(_.mediaType.subType) shouldBe Some("json")
+      jobs(Some("application/json;version=2, text/html;q=0.5")).contentType.map(_.mediaType.subType) shouldBe Some("html")
+      jobs(Some("application/json;version=2")).status shouldBe Status.NotAcceptable
+    }
+
     it("answers 406 to a client that accepts neither JSON nor HTML") {
       val response = jobs(Some("image/png"))
       response.status shouldBe Status.NotAcceptable

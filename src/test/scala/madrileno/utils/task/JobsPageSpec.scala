@@ -39,16 +39,16 @@ class JobsPageSpec extends AnyWordSpec with Matchers {
         Some(now.plusSeconds(3600)),
         Some(now.minusSeconds(86400)),
         Some(now.minusSeconds(120)),
-        Some(4),
+        Some(53),
         None
       ),
       RecurringJob("hourly-digest", "every 1 hour (fixed rate)", JobHealth.Missing, None, None, None, None, None)
     ),
     running = List(queued("import-feed/feed-9", JobHealth.Stalled)),
-    failing = List(queued("send-mail/m-17", JobHealth.Failing, failures = Some(3), payload = """{"to":"<ops@example.com>"}""")),
-    failingTotal = 1,
+    failing = List(queued("send-mail/m-17", JobHealth.Failing, failures = Some(41), payload = """{"to":"<ops@example.com>"}""")),
+    failingTotal = 61,
     overdue = List(queued("send-mail/m-18", JobHealth.Overdue)),
-    overdueTotal = 1,
+    overdueTotal = 73,
     orphaned = List(queued("renamed-task/x", JobHealth.Healthy)),
     registered =
       RegisteredJobs(List("nightly-cleanup (cron: 0 0 1 ? * *)", "hourly-digest (every 1 hour (fixed rate))"), List("send-mail"), List("import-feed"))

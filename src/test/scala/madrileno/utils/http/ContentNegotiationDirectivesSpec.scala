@@ -54,6 +54,12 @@ class ContentNegotiationDirectivesSpec extends AnyFunSpec with Matchers {
       chosen(Some("application/json;q=0, */*")) shouldBe "text/html"
     }
 
+    it("matches a range with parameters only to a type that carries them, charset aside") {
+      chosen(Some("application/json;charset=utf-8, text/html;q=0.5")) shouldBe "application/json"
+      chosen(Some("application/json;version=2, text/html;q=0.5")) shouldBe "text/html"
+      chosen(Some("text/html;level=1, application/json;q=0.5")) shouldBe "application/json"
+    }
+
     it("answers 406 when the request accepts none of the representations") {
       run(Some("image/png")).status shouldBe Status.NotAcceptable
     }
