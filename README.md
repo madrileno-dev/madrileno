@@ -42,7 +42,7 @@ All host ports are non-standard so they don't clash with anything you already ha
 
 | Service       | Profile | Image                                          | Host port(s)                              | Login                                |
 |---------------|---------|------------------------------------------------|-------------------------------------------|--------------------------------------|
-| Postgres      | default | `postgres:latest`                              | `55432` → 5432                            | `postgres` / `postgres`              |
+| Postgres      | default | `postgres:18`                                  | `55432` → 5432                            | `postgres` / `postgres`              |
 | Mailpit       | `full`  | `axllent/mailpit:latest`                       | `51025` (SMTP), `58025` (UI)              | —                                    |
 | OpenObserve   | `full`  | `public.ecr.aws/zinclabs/openobserve:latest`   | `55080` (UI + OTLP HTTP)                  | `root@example.com` / `Complexpass#123` |
 | Silo          | `full`  | `pgsty/silo:RELEASE.2026-09-16T00-00-00Z`      | `59000` (S3 API), `59001` (Console UI)    | `minioadmin` / `minioadmin`          |
