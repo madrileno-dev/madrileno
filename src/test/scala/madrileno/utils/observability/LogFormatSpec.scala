@@ -1,7 +1,7 @@
 package madrileno.utils.observability
 
 import ch.qos.logback.classic.joran.JoranConfigurator
-import ch.qos.logback.classic.spi.{ILoggingEvent, LoggingEvent}
+import ch.qos.logback.classic.spi.{ILoggingEvent, LoggingEvent, ThrowableProxy}
 import ch.qos.logback.classic.{Level, LoggerContext}
 import ch.qos.logback.core.OutputStreamAppender
 import io.circe.parser
@@ -38,19 +38,21 @@ class LogFormatSpec extends AnyWordSpec with Matchers {
     event.setThreadName("probe")
     event.setTimeStamp(System.currentTimeMillis())
     event.setMDCPropertyMap(Map("trace_id" -> "4bf92f3577b34da6a3ce929d0e0e4736", "span_id" -> "00f067aa0ba902b7").asJava)
+    event.setThrowableProxy(new ThrowableProxy(new IllegalStateException("first line\nsecond line")))
     val encoder = console.getOrElse(fail("no console appender on the root logger")).getEncoder
     new String(encoder.encode(event), StandardCharsets.UTF_8)
   }
 
   "logback.xml" should {
     "write readable text lines to the console by default" in {
+      assume(!sys.env.contains("LOG_FORMAT"), "logback reads LOG_FORMAT from the environment")
       val line = consoleLine(None)
       line should include("WARN")
       line should include("trace_id=4bf92f3577b34da6a3ce929d0e0e4736")
       parser.parse(line).isLeft shouldBe true
     }
 
-    "write one ECS JSON object per line to the console when LOG_FORMAT is json" in {
+    "write one ECS JSON object per line, stack trace included, when LOG_FORMAT is json" in {
       val line = consoleLine(Some("json"))
       line.trim.linesIterator.size shouldBe 1
       val json                                = parser.parse(line).getOrElse(fail(s"not JSON: $line"))
@@ -62,6 +64,8 @@ class LogFormatSpec extends AnyWordSpec with Matchers {
       field("ecs.version").isDefined shouldBe true
       field("trace_id") shouldBe Some("4bf92f3577b34da6a3ce929d0e0e4736")
       field("span_id") shouldBe Some("00f067aa0ba902b7")
+      field("error.type") shouldBe Some("java.lang.IllegalStateException")
+      field("error.stack_trace").getOrElse(fail("no stack trace")) should include("first line\nsecond line")
     }
   }
 

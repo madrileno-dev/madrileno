@@ -188,7 +188,7 @@ Root level defaults to `DEBUG`, override with `LOG_LEVEL` (env).
 
 ### Log format
 
-`LOG_FORMAT` picks the console encoder: `text` (the default) or `json`. Any other value stops the app at boot, since logback would otherwise leave the console without an appender.
+`LOG_FORMAT` picks the console encoder: `text` (the default) or `json`. Any other value stops the app and `migrate-main` at boot with a message on stderr, since logback would otherwise leave the console without an appender.
 
 `json` writes one [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html) object per line through Elastic's `logback-ecs-encoder`. ECS is what Elastic, Spring Boot's structured logging and most log platforms read without a parsing rule, and it is being merged into OpenTelemetry's semantic conventions. Use it when the platform collects container stdout (Loki, CloudWatch, Datadog, Elastic, GCP Logging):
 
@@ -196,7 +196,15 @@ Root level defaults to `DEBUG`, override with `LOG_LEVEL` (env).
 {"@timestamp":"2026-11-05T19:12:25.496Z","log.level":"ERROR","message":"Internal error, trace-id: 28fa…","ecs.version":"1.2.0","service.name":"madrileno","log.logger":"madrileno.main.ApplicationLoader","trace_id":"28fa…","span_id":"6f53…","error.type":"java.net.ConnectException","error.stack_trace":"java.net.ConnectException: Connection refused\n\tat …"}
 ```
 
-MDC keys become top-level fields, so `trace_id` and `span_id` link each line to its trace; stack traces stay inside their line. `service.name` comes from `OTEL_SERVICE_NAME`. Errors from background fibers that nothing awaited go through the same logger (`Main.reportFailure`) instead of being printed raw.
+MDC keys become top-level fields, so `trace_id` and `span_id` link each line to its trace; stack traces stay inside their line. Elastic APM correlates on `trace.id` and `span.id`, so rename the two fields in an ingest pipeline there. `service.name` comes from `OTEL_SERVICE_NAME`.
+
+`Main` and `MigrateMain` extend `LoggedApp`, which sends output that would otherwise bypass logback through it:
+
+- a fatal error is logged once and the process exits with code 1, instead of cats-effect also printing the stack trace to stderr;
+- errors from background fibers that nothing awaited, and cats-effect's CPU starvation warnings;
+- `java.util.logging` records, such as the OTLP exporter's "Failed to export" retries, bridged with `jul-to-slf4j`.
+
+The results `migrate-main` and `seed-main` print (`flyway: applied 2 migration(s)…`, the `info` table) stay plain text on stdout.
 
 If logs already reach your backend over OTLP (the **OpenTelemetry** appender), JSON on the console adds nothing; keep `text` for people reading `docker logs`. Per-logger overrides go in `<logger name="..." level="..."/>` — there's a `WARN` for `org.apache.hc` to silence Apache HttpClient noise.
 

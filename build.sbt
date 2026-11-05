@@ -21,6 +21,7 @@ libraryDependencies ++= {
   val kebsV              = "2.2.1"
   val logbackV           = "1.6.3"
   val ecsLoggingV        = "1.8.0"
+  val slf4jV             = "2.0.18"
   val log4catsV          = "2.8.0"
   val otel4sV            = "1.1.0"
   val otelV              = "1.65.0"
@@ -56,6 +57,7 @@ libraryDependencies ++= {
     "io.circe"                        %% "circe-core"                                % circeV,
     "ch.qos.logback"                   % "logback-classic"                           % logbackV,
     "co.elastic.logging"               % "logback-ecs-encoder"                       % ecsLoggingV,
+    "org.slf4j"                        % "jul-to-slf4j"                              % slf4jV,
     "org.typelevel"                   %% "log4cats-slf4j"                            % log4catsV,
     "org.typelevel"                   %% "otel4s-oteljava"                           % otel4sV,
     "io.opentelemetry"                 % "opentelemetry-exporter-otlp"               % otelV              % Runtime,

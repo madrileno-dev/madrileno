@@ -1,12 +1,12 @@
 package madrileno.main
 
-import cats.effect.{ExitCode, IO, IOApp}
+import cats.effect.{ExitCode, IO}
 import madrileno.utils.db.Migrations
 import madrileno.utils.db.transactor.PgConfig
 import org.flywaydb.core.api.output.MigrateResult
 import pureconfig.*
 
-object MigrateMain extends IOApp {
+object MigrateMain extends LoggedApp {
   enum Command {
     case Migrate, Info, Validate, Clean
   }
@@ -21,7 +21,7 @@ object MigrateMain extends IOApp {
         Left(s"unknown command '${other.mkString(" ")}'. Expected: migrate (default), info, validate, or clean")
     }
 
-  override def run(args: List[String]): IO[ExitCode] =
+  override protected def runLogged(args: List[String]): IO[ExitCode] =
     parse(args) match {
       case Left(error)    => IO.println(s"flyway: $error").as(ExitCode.Error)
       case Right(command) =>
