@@ -10,6 +10,7 @@ import org.scalatest.wordspec.AnyWordSpec
 import org.slf4j.Logger
 
 import java.nio.charset.StandardCharsets
+import java.util.logging.{Level as JulLevel, Logger as JulLogger}
 import scala.jdk.CollectionConverters.*
 
 class LogFormatSpec extends AnyWordSpec with Matchers {
@@ -49,6 +50,13 @@ class LogFormatSpec extends AnyWordSpec with Matchers {
       line should include("WARN")
       line should include("trace_id=4bf92f3577b34da6a3ce929d0e0e4736")
       parser.parse(line).isLeft shouldBe true
+    }
+
+    "leave java.util.logging at INFO, so the OTLP sender's debug output isn't exported back through the OpenTelemetry appender" in {
+      val julRoot = JulLogger.getLogger("")
+      julRoot.setLevel(JulLevel.INFO)
+      configured(Some("json")).isStarted shouldBe true
+      julRoot.getLevel shouldBe JulLevel.INFO
     }
 
     "write one ECS JSON object per line, stack trace included, when LOG_FORMAT is json" in {

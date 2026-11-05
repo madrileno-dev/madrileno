@@ -9,8 +9,10 @@ import org.slf4j.bridge.SLF4JBridgeHandler
 trait LoggedApp extends IOApp with LoggingSupport {
   protected def runLogged(args: List[String]): IO[ExitCode]
 
+  protected def logFormat: IO[Option[String]] = IO.delay(Option(System.getProperty("LOG_FORMAT")).orElse(sys.env.get("LOG_FORMAT")))
+
   final override def run(args: List[String]): IO[ExitCode] =
-    IO.delay(Option(System.getProperty("LOG_FORMAT")).orElse(sys.env.get("LOG_FORMAT"))).flatMap {
+    logFormat.flatMap {
       case Some(format) if !Set("text", "json").contains(format) =>
         Console[IO].errorln(s"LOG_FORMAT must be text or json, got '$format'").as(ExitCode.Error)
       case _ =>
