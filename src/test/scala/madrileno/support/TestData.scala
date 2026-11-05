@@ -6,7 +6,7 @@ import com.comcast.ip4s.IpAddress
 import io.circe.Json
 import madrileno.auction.domain.*
 import madrileno.auth.domain.{AuthContext, *}
-import madrileno.ticket.domain.TicketId
+import madrileno.ticket.domain.{ChargeId, Currency as TicketCurrency, Money, OrderId, SeatId, SeatLabel, Ticket, TicketId, TicketStatus}
 import madrileno.user.domain.*
 import madrileno.utils.crypto.{RandomSecret, UuidV7}
 import madrileno.utils.featureflag.domain.*
@@ -33,6 +33,8 @@ object TestData {
   def randomRuleId(): RuleId         = RuleId(randomUuid())
   def randomSegmentId(): SegmentId   = SegmentId(randomUuid())
   def randomTicketId(): TicketId     = TicketId(randomUuid())
+  def randomOrderId(): OrderId       = OrderId(randomUuid())
+  def randomSeatId(): SeatId         = SeatId(randomUuid())
   // scripts:scaffold-id-factories (scaffold-module.scala inserts random<Aggregate>Id() factories above this line)
   // scripts:auction-block-start
   def randomAuctionId(): AuctionId                         = AuctionId(randomUuid())
@@ -132,6 +134,26 @@ object TestData {
     createdAt: Instant = Instant.now(),
     updatedAt: Instant = Instant.now()
   ): Segment = Segment(id, name, description, conditions, createdAt, updatedAt)
+
+  def ticketPrice(amountMinor: Long = 12_000L, currency: TicketCurrency = TicketCurrency.PLN): Money =
+    Money.from(amountMinor, currency).fold(error => throw new IllegalArgumentException(error), identity)
+
+  // Defaults describe a fresh hold. The case-class constructor is public, so a test can also build
+  // a ticket that breaks the domain invariant (e.g. Paid without a charge) to exercise DB constraints.
+  def ticket(
+    id: TicketId = randomTicketId(),
+    orderId: OrderId = randomOrderId(),
+    seatId: SeatId = randomSeatId(),
+    customerId: UserId = randomUserId(),
+    seatLabel: SeatLabel = SeatLabel("A-1"),
+    price: Money = ticketPrice(),
+    status: TicketStatus = TicketStatus.Held,
+    heldUntil: Instant = Instant.now().plus(Duration.ofMinutes(15)),
+    chargeId: Option[ChargeId] = None,
+    paidAt: Option[Instant] = None,
+    createdAt: Instant = Instant.now(),
+    updatedAt: Instant = Instant.now()
+  ): Ticket = Ticket(id, orderId, seatId, customerId, seatLabel, price, status, heldUntil, chargeId, paidAt, createdAt, updatedAt)
 
   // scripts:auction-block-start
   def auction(

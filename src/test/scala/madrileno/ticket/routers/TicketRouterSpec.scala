@@ -1,8 +1,8 @@
 package madrileno.ticket.routers
 
 import madrileno.auth.domain.AuthContext
-import madrileno.support.{BaseRouteSpec, TestApplicationLoader, TestData}
-import madrileno.ticket.domain.{Ticket, TicketId, TicketName}
+import madrileno.support.{BaseRouteSpec, TestApplicationLoader, TestData, TicketSeed}
+import madrileno.ticket.domain.{Ticket, TicketId, TicketStatus}
 import madrileno.ticket.routers.dto.TicketDto
 import madrileno.utils.http.Error
 import madrileno.utils.json.JsonProtocol.*
@@ -10,7 +10,7 @@ import org.http4s.Method.*
 import org.http4s.Status.*
 import pl.iterators.stir.server.Route
 
-import java.time.Instant
+import java.time.{Duration, Instant}
 
 class TicketRouterSpec extends BaseRouteSpec with TestApplicationLoader {
 
@@ -18,12 +18,28 @@ class TicketRouterSpec extends BaseRouteSpec with TestApplicationLoader {
 
   private val authContext: AuthContext = AuthContext(TestData.user())
 
+  // Each call seeds its own customer, event and seat, so scenarios never compete for the same live seat.
   private def seedTicket(): Ticket = {
-    val entity = Ticket.create(TestData.randomTicketId(), TicketName("test-name"), Instant.now())
+    val customer = TestData.user()
     application.transactor
-      .inSession(application.ticketRepository.save(entity))
+      .inSession {
+        for {
+          _    <- application.userRepository.create(customer, Instant.now())
+          seat <- TicketSeed.seat(customer.id)
+          ticket = Ticket.hold(
+                     TestData.randomTicketId(),
+                     seat.orderId,
+                     seat.seatId,
+                     customer.id,
+                     seat.seatLabel,
+                     seat.price,
+                     Instant.now(),
+                     Duration.ofMinutes(15)
+                   )
+          _ <- application.ticketRepository.save(ticket)
+        } yield ticket
+      }
       .unsafeRunSync()
-    entity
   }
 
   path("/v1/tickets/{id}")(
@@ -41,7 +57,8 @@ class TicketRouterSpec extends BaseRouteSpec with TestApplicationLoader {
         .assert { case (ctx, entity) =>
           val response = ctx.performRequest(allRoutes)
           response.body.id shouldBe entity.id
-          response.body.name shouldBe entity.name
+          response.body.seatLabel shouldBe entity.seatLabel
+          response.body.status shouldBe TicketStatus.Held
         },
       onRequest(security = bearer.apply(validJwt(authContext)), pathParameters = TestData.randomTicketId())
         .respondsWith[Error[Unit]](NotFound, description = "Ticket not found")
