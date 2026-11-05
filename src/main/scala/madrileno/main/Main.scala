@@ -9,7 +9,7 @@ import madrileno.utils.db.Migrations
 import madrileno.utils.db.transactor.{PgConfig, PgTransactor}
 import madrileno.utils.events.bus.EventBusRuntime
 import madrileno.utils.http.{Cors, CorsConfig, RateLimiterRuntime}
-import madrileno.utils.observability.{LoggingSupport, TelemetryContext}
+import madrileno.utils.observability.{LogFormat, LoggingSupport, TelemetryContext}
 import madrileno.utils.resilience.CircuitBreakerRuntime
 import madrileno.utils.storage.{ObjectStoreRuntime, StorageConfig}
 import madrileno.utils.task.{Scheduler, SchedulerConfig}
@@ -28,11 +28,15 @@ import pureconfig.*
 import sttp.client4.httpclient.fs2.HttpClientFs2Backend
 
 object Main extends IOApp.Simple with LoggingSupport {
+  override protected def reportFailure(err: Throwable): IO[Unit] =
+    loggerWithoutTracing.error(err)("Unhandled error in a background fiber")
+
   override def run: IO[Unit] =
     (for {
       config    <- Resource.eval(IO.delay(ConfigSource.default))
       appConfig <- Resource.eval(IO.delay(config.at("app").loadOrThrow[AppConfig]))
       _         <- Resource.eval(StartupSecurityCheck.enforce(appConfig.environment, config))
+      _         <- Resource.eval(IO.delay(config.at("logging.format").loadOrThrow[LogFormat]))
       otel      <- OtelJava.autoConfigured[IO]()
       given TracerProvider[IO] = otel.tracerProvider
       given Tracer[IO] <- Resource.eval(summon[TracerProvider[IO]].get(appConfig.name))
