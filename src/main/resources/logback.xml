@@ -2,9 +2,15 @@
 <configuration debug="false">
     <statusListener class="ch.qos.logback.core.status.NopStatusListener"/>
 
-    <appender name="Console" class="ch.qos.logback.core.ConsoleAppender">
+    <appender name="Console-text" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>%d{"yyyy-MM-dd HH:mm:ss.SSS"} %-5level %thread %logger{36} - [trace_id=%X{trace_id:--} span_id=%X{span_id:--} trace_flags=%X{trace_flags:--}] %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="Console-json" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="co.elastic.logging.logback.EcsEncoder">
+            <serviceName>${OTEL_SERVICE_NAME:-madrileno}</serviceName>
         </encoder>
     </appender>
 
@@ -32,7 +38,7 @@
 
     <root level="${LOG_LEVEL:-DEBUG}">
         <appender-ref ref="File"/>
-        <appender-ref ref="Console"/>
+        <appender-ref ref="Console-${LOG_FORMAT:-text}"/>
         <appender-ref ref="OpenTelemetry"/>
     </root>
 

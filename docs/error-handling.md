@@ -88,7 +88,7 @@ The shape on the wire:
 
 - `result:<kebab>` — domain rejection (`result:bid-too-low`, `result:auction-not-found`).
 - `rejection:<kebab>` — framework-level rejection from the routing layer (`rejection:static-validation-failed`, `rejection:malformed-request-content`).
-- `error:<kebab>` — internal error (`error:internal-error`).
+- `error:<kebab>` — internal error (`error:internal-error`, `error:database-unavailable`).
 
 Clients shouldn't try to parse it as a URL. It's a tag.
 
@@ -158,6 +158,8 @@ Adding a new rejection means adding a clause; if you forget, stir falls back to 
 - **Bugs** — illegal states reached because of a code mistake, not a request.
 
 These are caught by `Handlers.exceptionHandler` and rendered as a 500 with `type = "error:internal-error"`. The body carries the trace-id so an incident can be tracked from the user-visible response back through the logs and traces.
+
+One kind is rendered differently: the database not being able to answer right now. `DatabaseUnavailable` — raised when no pooled connection frees up within `pg.acquire-timeout`, and matching a statement cancelled by `statement_timeout` (`57014`), a refused or dropped connection, the server shutting down (`57P01`–`57P03`), running out of connection slots (`53300`) or any connection-exception state (`08xxx`) — becomes a 503 with `type = "error:database-unavailable"`. The request may well succeed on retry; a client can back off and try again instead of reporting a bug. Errors in the request itself (a constraint violation, a deadlock, a missing table) stay 500s.
 
 ```scala
 case e: Exception =>

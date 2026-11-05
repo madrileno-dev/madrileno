@@ -1,6 +1,6 @@
 package madrileno.utils.db.transactor
 
-import cats.effect.{IO, Resource}
+import cats.effect.{Fiber, IO, Outcome, Resource}
 import fs2.Stream
 import org.typelevel.otel4s.metrics.MeterProvider
 import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
@@ -9,6 +9,8 @@ import skunk.Session.Credentials
 import skunk.codec.all.text
 import skunk.data.{Identifier, Notification, Type}
 import skunk.implicits.*
+
+import scala.concurrent.duration.{Duration, FiniteDuration}
 
 class PgTransactor(sessions: Resource[IO, Session[IO]]) extends Transactor {
 
@@ -39,10 +41,36 @@ object PgTransactor {
     for {
       tracer <- Resource.eval(TracerProvider[IO].get("madrileno.utils.db.transactor"))
       pool   <- pooled(pgConfig)
-    } yield new PgTransactor(withQuietRecycling(pool, tracer))
+    } yield new PgTransactor(bounded(pool, pgConfig.acquireTimeout, tracer))
 
-  private def withQuietRecycling(sessions: Resource[IO, Session[IO]], tracer: Tracer[IO]): Resource[IO, Session[IO]] =
-    Resource.make(sessions.allocated) { case (_, release) => tracer.noopScope(release) }.map(_._1)
+  private type Allocated = (Session[IO], IO[Unit])
+
+  private def bounded(
+    sessions: Resource[IO, Session[IO]],
+    acquireTimeout: Duration,
+    tracer: Tracer[IO]
+  ): Resource[IO, Session[IO]] =
+    Resource
+      .makeFull[IO, Allocated] { poll =>
+        sessions.allocated.start.flatMap { waiting =>
+          val acquired = acquireTimeout match {
+            case timeout: FiniteDuration =>
+              waiting.joinWithNever.timeoutTo(
+                timeout,
+                giveUp(waiting, tracer) *> IO.raiseError(new DatabaseUnavailable(s"No database connection became free within $timeout"))
+              )
+            case _ => waiting.joinWithNever
+          }
+          poll(acquired).onCancel(giveUp(waiting, tracer))
+        }
+      } { case (_, release) => tracer.noopScope(release) }
+      .map(_._1)
+
+  private def giveUp(waiting: Fiber[IO, Throwable, Allocated], tracer: Tracer[IO]): IO[Unit] =
+    (waiting.cancel *> waiting.join.flatMap {
+      case Outcome.Succeeded(allocated) => allocated.flatMap { case (_, release) => tracer.noopScope(release) }
+      case _                            => IO.unit
+    }).start.void
 
   private def pooled(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, Resource[IO, Session[IO]]] =
     Session
@@ -57,7 +85,7 @@ object PgTransactor {
         case PgConfigSSL.Trusted => SSL.Trusted
         case PgConfigSSL.System  => SSL.System
       })
-      .withConnectionParameters(pgConfig.parameters)
+      .withConnectionParameters(pgConfig.connectionParameters)
       .withCommandCacheSize(pgConfig.commandCache)
       .withQueryCacheSize(pgConfig.queryCache)
       .withParseCacheSize(pgConfig.parseCache)

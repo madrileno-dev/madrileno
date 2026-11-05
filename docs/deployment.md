@@ -54,8 +54,9 @@ The container needs environment variables for every `${?VAR}` substitution in `a
 
 - **App identity** — `APP_ENVIRONMENT=prod`, `APP_VERSION=<git sha>`.
 - **HTTP** — `INTERFACE`, `PORT`, `BASE_URL`, `MAX_REQUEST_SIZE`. Bind to `0.0.0.0` inside the container; expose the port via your load balancer, reverse proxy or orchestrator.
-- **Postgres** — `PG_HOST`, `PG_PORT`, `PG_DATABASE`, `PG_USER`, `PG_PASSWORD`. Self-hosted or managed (RDS, Cloud SQL, …) — the app only needs a connection. Leave `PG_TELEMETRY_CAPTURE_PARAMETERS` unset: it puts bound query parameters on spans and is a dev-only knob ([observability.md](observability.md#postgres-query-telemetry)).
+- **Postgres** — `PG_HOST`, `PG_PORT`, `PG_DATABASE`, `PG_USER`, `PG_PASSWORD`. Self-hosted or managed (RDS, Cloud SQL, …) — the app only needs a connection. `PG_POOL_SIZE` (default 10) sizes the connection pool; keep instances × pool size under the server's `max_connections`. `PG_ACQUIRE_TIMEOUT`, `PG_STATEMENT_TIMEOUT` and `PG_IDLE_IN_TRANSACTION_TIMEOUT` bound how long a request can wait on the database ([database.md](database.md#connection-pool-and-timeouts)). Leave `PG_TELEMETRY_CAPTURE_PARAMETERS` unset: it puts bound query parameters on spans and is a dev-only knob ([observability.md](observability.md#postgres-query-telemetry)).
 - **OpenTelemetry** — `OTEL_*` per [observability.md](observability.md). Point at your real OTLP receiver.
+- **Logs** — `LOG_FORMAT=json` when your platform collects container stdout (Loki, CloudWatch, Datadog, Elastic): the console then writes one ECS JSON object per line ([observability.md](observability.md#log-format)). Leave it at `text` when logs go over OTLP only.
 - **Mailer** — `MAILER_HOST`, `MAILER_PORT`, `MAILER_USERNAME`, `MAILER_PASSWORD`, `MAILER_FROM_ADDRESS`, `MAILER_TLS=true`. SES, SendGrid, internal SMTP relay — anything that speaks SMTP. Leave `MAILER_SENDER` unset: its default is `smtp`, and `log` (the dev value) would drop every mail into the log.
 - **Auth** — `JWT_SECRET` (real secret; inject from your secrets manager, never bake into the image). `FIREBASE_PROJECT_ID` if you use Firebase login — that's just the project id (not a secret); ID-token verification fetches Google's public certs. Leave it unset to disable Firebase auth.
 - **Object storage** — `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. Point at real S3 or any S3-compatible store. Leave `OBJECT_STORAGE` unset: its default is `s3`; `disk` (the dev value) writes to the container's filesystem.
@@ -120,9 +121,38 @@ What's NOT done out of the box:
 
 ## Health checks
 
-The deep `/admin/health-check` endpoint exists (Postgres + SMTP probe) but it's gated by Basic Auth — designed for human ops checks, not orchestrator probes. For load balancer or orchestrator probes, hit `/v1/health-check` (unauthenticated, lightweight). See [http.md](http.md) and the `HealthCheckModule` for what's wired.
+Two unauthenticated endpoints are meant for probes:
 
-If you need a richer liveness/readiness probe, add an unauthenticated endpoint (or a separate port) that runs the same checks without the auth gate. Don't expose `/admin/*` to the orchestrator.
+- **Liveness** — `GET /v1/health-check`. Answers 200 with the app's name and version without touching any dependency, so a slow or down database never gets the process restarted.
+- **Readiness** — `GET /v1/health-check/readiness`. Runs `SELECT version()` and answers 200 `{"status":"Up"}` if Postgres answers within a second, 503 `{"status":"Down"}` otherwise: every connection busy, Postgres not answering, connection refused. The body carries no error detail; the reason is logged. Point your load balancer's health check or the orchestrator's readiness probe here, so an instance that can't reach its database stops getting traffic and gets it back once it can.
+
+```yaml
+livenessProbe:
+  httpGet: { path: /v1/health-check, port: 9000 }
+readinessProbe:
+  httpGet: { path: /v1/health-check/readiness, port: 9000 }
+  timeoutSeconds: 2
+```
+
+Readiness checks only Postgres. Mail goes out through the scheduler and retries, so an SMTP outage delays mail without stopping requests; it is no reason to take the instance out of rotation. Because every instance shares the database, a database outage takes them all out of rotation at once: clients then get the load balancer's error instead of the app's 503, which is the same outage either way.
+
+`/admin/health-check` is the deeper check for people: Postgres plus an SMTP connect (reported `Disabled` when `MAILER_SENDER=log`), with latencies and error messages. It sits behind the admin Basic Auth with the rest of `/admin/*`; don't point probes at it.
+
+## Backups
+
+The state to back up is the Postgres database, plus the object storage bucket if the app stores files (the S3 bucket behind `S3_BUCKET`, or the `uploads` directory with `OBJECT_STORAGE=disk`). A database dump alone restores rows that point at files it doesn't contain. Managed Postgres (RDS, Cloud SQL, …) and S3 have their own snapshots and point-in-time recovery; use those where you have them, and the commands below where you run Postgres yourself or want a portable copy.
+
+```bash
+# Dump: custom format, compressed, restorable selectively with pg_restore.
+pg_dump --format=custom --no-owner -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" > madrileno-$(date +%F).dump
+
+# Restore into a new, empty database, then check its schema matches this image's migrations.
+createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" madrileno_restored
+pg_restore --no-owner --exit-on-error -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d madrileno_restored madrileno-2026-11-05.dump
+PG_DATABASE=madrileno_restored bin/migrate-main validate
+```
+
+Against the dev stack, run the same tools inside the compose container: `docker compose exec -T postgres pg_dump --format=custom --no-owner -U postgres -d madrileno > madrileno.dump`, and `pg_restore` with `docker compose exec -T postgres pg_restore … < madrileno.dump`. Use client tools of the server's major version or newer (the compose file runs `postgres:18`). Restore into a fresh database rather than over the live one, and check the copy before switching the app to it: `validate` fails if the dump is from an older schema than the image expects, in which case run `bin/migrate-main` against it first. A backup you have never restored is a guess; rehearse the restore.
 
 ## What this template doesn't ship
 

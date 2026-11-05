@@ -178,13 +178,27 @@ ServerSpanDataProvider
 
 ## Logback config
 
-`logback.xml` has three appenders:
+`logback.xml` has three appenders on the root logger:
 
-- **Console** — `trace_id` / `span_id` / `trace_flags` in the pattern; what you read during dev.
+- **Console** — `trace_id` / `span_id` / `trace_flags` in the pattern; what you read during dev. With `LOG_FORMAT=json` it writes ECS JSON instead, see [Log format](#log-format).
 - **File** — `logs/madrileno.log`, rolling daily / 64MB / 28 days. Local debugging only; production should rely on the OTLP shipping path instead.
 - **OpenTelemetry** — `OpenTelemetryAppender` from `opentelemetry-logback-appender-1.0`. `<mdcAttributesIncluded>*</mdcAttributesIncluded>` so MDC keys (the three trace fields, plus anything else callers stash) become OTLP log attributes; `<captureExperimentalAttributes>true</captureExperimentalAttributes>` adds thread name, logger name, and similar metadata.
 
-Root level defaults to `DEBUG`, override with `LOG_LEVEL` (env). Per-logger overrides go in `<logger name="..." level="..."/>` — there's a `WARN` for `org.apache.hc` to silence Apache HttpClient noise.
+Root level defaults to `DEBUG`, override with `LOG_LEVEL` (env).
+
+### Log format
+
+`LOG_FORMAT` picks the console encoder: `text` (the default) or `json`. Any other value stops the app at boot, since logback would otherwise leave the console without an appender.
+
+`json` writes one [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html) object per line through Elastic's `logback-ecs-encoder`. ECS is what Elastic, Spring Boot's structured logging and most log platforms read without a parsing rule, and it is being merged into OpenTelemetry's semantic conventions. Use it when the platform collects container stdout (Loki, CloudWatch, Datadog, Elastic, GCP Logging):
+
+```json
+{"@timestamp":"2026-11-05T19:12:25.496Z","log.level":"ERROR","message":"Database unavailable, trace-id: 28fa…","ecs.version":"1.2.0","service.name":"madrileno","log.logger":"madrileno.main.ApplicationLoader","trace_id":"28fa…","span_id":"6f53…","error.type":"java.net.ConnectException","error.stack_trace":"java.net.ConnectException: Connection refused\n\tat …"}
+```
+
+MDC keys become top-level fields, so `trace_id` and `span_id` link each line to its trace; stack traces stay inside their line. `service.name` comes from `OTEL_SERVICE_NAME`. Errors from background fibers that nothing awaited go through the same logger (`Main.reportFailure`) instead of being printed raw.
+
+If logs already reach your backend over OTLP (the **OpenTelemetry** appender), JSON on the console adds nothing; keep `text` for people reading `docker logs`. Per-logger overrides go in `<logger name="..." level="..."/>` — there's a `WARN` for `org.apache.hc` to silence Apache HttpClient noise.
 
 ### Runtime log level toggling — `/admin/loggers`
 

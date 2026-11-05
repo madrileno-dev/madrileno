@@ -22,8 +22,9 @@ class AdminHealthCheckRouterSpec extends BaseRouteSpec with TestApplicationLoade
   path("/admin/health-check")(
     supports(
       GET,
-      description = "Admin-only deep health check — probes Postgres and SMTP, returns 503 if any dep is down. Gated by Basic Auth.",
-      summary = "Admin readiness probe",
+      description =
+        "Admin-only deep health check for people — probes Postgres and SMTP (reported Disabled when MAILER_SENDER=log), returns 503 if any dep is down. Gated by Basic Auth; probes use /v1/health-check/readiness.",
+      summary = "Admin dependency check",
       securitySchemes = Seq(basicScheme),
       tags = Seq("Admin")
     )(
