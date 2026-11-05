@@ -3,7 +3,7 @@ package madrileno.healthcheck.routers.dto
 import madrileno.utils.json.JsonProtocol.*
 
 enum DepStatus derives Encoder, Decoder {
-  case Up, Down
+  case Up, Down, Disabled
 }
 
 final case class DepCheck(
@@ -19,3 +19,5 @@ final case class AdminHealthCheckDto(
   smtp: DepCheck)
     derives Encoder.AsObject,
       Decoder
+
+final case class ReadinessDto(status: DepStatus) derives Encoder.AsObject, Decoder

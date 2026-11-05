@@ -4,7 +4,7 @@ import cats.effect.{Clock, IO}
 import com.softwaremill.macwire.*
 import madrileno.healthcheck.repositories.HealthCheckRepository
 import madrileno.healthcheck.routers.{AdminHealthCheckRouter, HealthCheckRouter}
-import madrileno.healthcheck.services.{AdminHealthCheckService, HealthCheckService}
+import madrileno.healthcheck.services.{AdminHealthCheckService, HealthCheckService, PostgresProbe}
 import madrileno.main.AppConfig
 import madrileno.utils.db.transactor.Transactor
 import madrileno.utils.http.RouteProvider
@@ -19,9 +19,10 @@ trait HealthCheckModule extends RouteProvider {
   protected def mailerConfig: MailerConfig
   given telemetryContext: TelemetryContext
 
+  private val healthCheckRepository   = wire[HealthCheckRepository]
+  private val postgresProbe           = wire[PostgresProbe]
   private val healthCheckService      = wire[HealthCheckService]
   private val healthCheckRouter       = wire[HealthCheckRouter]
-  private val healthCheckRepository   = wire[HealthCheckRepository]
   private val adminHealthCheckService = wire[AdminHealthCheckService]
   private val adminHealthCheckRouter  = wire[AdminHealthCheckRouter]
 

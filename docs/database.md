@@ -246,9 +246,9 @@ Three limits keep a slow or saturated database from piling up requests that wait
 
 `Inf` turns any of them off. A session that changes a setting (`SET statement_timeout = 0` for a migration-sized query) gets it back when the pool recycles the connection, because the recycler runs `RESET ALL`, which returns to the values sent at connect time. Behind PgBouncer in transaction mode, add `statement_timeout` and `idle_in_transaction_session_timeout` to its `ignore_startup_parameters`, or set them on the database role instead and set the env vars to `Inf`.
 
-When the database can't answer, the request gets 503 `error:database-unavailable` instead of a 500 ([error-handling.md](error-handling.md#infrastructure-errors)): an acquire timeout, a statement timeout, a refused or dropped connection, the server shutting down or out of connection slots.
+When the database can't answer, the request gets 503 `error:database-unavailable` instead of a 500 ([error-handling.md](error-handling.md#infrastructure-errors)): an acquire timeout, a statement timeout, a refused or dropped connection, the server shutting down or out of connection slots. `/v1/health-check/readiness` reports the same condition to the load balancer ([deployment.md](deployment.md#health-checks)).
 
-What these limits don't cover is a server that stops answering without closing the connection (a frozen VM, a network partition). A statement already sent on an idle pooled connection then waits until TCP gives up, since no server is running to apply `statement_timeout`.
+What these limits don't cover is a server that stops answering without closing the connection (a frozen VM, a network partition). A statement already sent on an idle pooled connection then waits until TCP gives up, since no server is running to apply `statement_timeout`. Readiness turns 503 within a second in that case, so the load balancer stops sending new requests to the instance.
 
 The pool is shared across the application — there is no per-module pool. Sessions return to the pool when their `inSession` / `inTransaction` block completes, including on errors.
 
