@@ -3,18 +3,17 @@ package madrileno.main
 import cats.effect.metrics.CpuStarvationWarningMetrics
 import cats.effect.std.Console
 import cats.effect.{ExitCode, IO, IOApp}
-import madrileno.utils.observability.{LogFormat, LoggingSupport}
+import madrileno.utils.observability.LoggingSupport
 import org.slf4j.bridge.SLF4JBridgeHandler
-import pureconfig.ConfigSource
 
 trait LoggedApp extends IOApp with LoggingSupport {
   protected def runLogged(args: List[String]): IO[ExitCode]
 
   final override def run(args: List[String]): IO[ExitCode] =
-    IO.delay(ConfigSource.default.at("logging.format").load[LogFormat]).flatMap {
-      case Left(failures) =>
-        Console[IO].errorln(s"LOG_FORMAT must be text or json: ${failures.prettyPrint()}").as(ExitCode.Error)
-      case Right(_) =>
+    IO.delay(Option(System.getProperty("LOG_FORMAT")).orElse(sys.env.get("LOG_FORMAT"))).flatMap {
+      case Some(format) if !Set("text", "json").contains(format) =>
+        Console[IO].errorln(s"LOG_FORMAT must be text or json, got '$format'").as(ExitCode.Error)
+      case _ =>
         IO.delay {
           SLF4JBridgeHandler.removeHandlersForRootLogger()
           SLF4JBridgeHandler.install()

@@ -10,6 +10,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
 import org.slf4j.{Logger, LoggerFactory}
 
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.logging.Logger as JulLogger
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
@@ -51,6 +52,25 @@ class LoggedAppSpec extends AsyncWordSpec with AsyncIOSpec with Matchers {
         val stopped = events.find(_.getFormattedMessage == "Application stopped with an error").getOrElse(fail(s"not logged: $events"))
         stopped.getThrowableProxy.getMessage shouldBe "port 8080 in use"
       }
+    }
+
+    "refuse an unknown LOG_FORMAT before running, since logback would leave the console without an appender" in {
+      val ran = new AtomicBoolean(false)
+      object App extends LoggedApp {
+        override protected def runLogged(args: List[String]): IO[ExitCode] = IO.delay(ran.set(true)).as(ExitCode.Success)
+      }
+      IO.delay(System.setProperty("LOG_FORMAT", "JSON"))
+        .bracket(_ => App.run(Nil))(_ => IO.delay(System.clearProperty("LOG_FORMAT")).void)
+        .asserting { code =>
+          code shouldBe ExitCode.Error
+          ran.get shouldBe false
+        }
+    }
+
+    "run when LOG_FORMAT is one logback.xml has a console appender for" in {
+      IO.delay(System.setProperty("LOG_FORMAT", "json"))
+        .bracket(_ => QuietApp.run(Nil))(_ => IO.delay(System.clearProperty("LOG_FORMAT")).void)
+        .asserting(_ shouldBe ExitCode.Success)
     }
 
     "send java.util.logging records, such as the OTLP exporter's, through logback" in {

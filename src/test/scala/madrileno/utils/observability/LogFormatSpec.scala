@@ -8,7 +8,6 @@ import io.circe.parser
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import org.slf4j.Logger
-import pureconfig.ConfigSource
 
 import java.nio.charset.StandardCharsets
 import scala.jdk.CollectionConverters.*
@@ -66,18 +65,6 @@ class LogFormatSpec extends AnyWordSpec with Matchers {
       field("span_id") shouldBe Some("00f067aa0ba902b7")
       field("error.type") shouldBe Some("java.lang.IllegalStateException")
       field("error.stack_trace").getOrElse(fail("no stack trace")) should include("first line\nsecond line")
-    }
-  }
-
-  "LogFormat" should {
-    "read the two values logback.xml has a console appender for" in {
-      ConfigSource.string("format = text").at("format").loadOrThrow[LogFormat] shouldBe LogFormat.Text
-      ConfigSource.string("format = json").at("format").loadOrThrow[LogFormat] shouldBe LogFormat.Json
-    }
-
-    "reject any other value, which would leave the console without an appender" in {
-      ConfigSource.string("format = JSON").at("format").load[LogFormat].isLeft shouldBe true
-      ConfigSource.string("format = ecs").at("format").load[LogFormat].isLeft shouldBe true
     }
   }
 }
