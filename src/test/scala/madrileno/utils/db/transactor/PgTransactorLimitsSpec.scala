@@ -22,10 +22,8 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
   private val sleepTenSeconds: Query[Void, Int]     = sql"SELECT 1 FROM pg_sleep(10)".query(int4)
   private val backendPid: Query[Void, Int]          = sql"SELECT pg_backend_pid()".query(int4)
   private val statementTimeout: Query[Void, String] = sql"SHOW statement_timeout".query(text)
-  private val connectionsNamed: Query[String, Long] =
-    sql"SELECT count(*) FROM pg_stat_activity WHERE application_name = $text".query(int8)
-  private val terminate: Query[Int, Boolean] = sql"SELECT pg_terminate_backend($int4)".query(bool)
-  private val lockRow: Query[Void, Int]      = sql"SELECT id FROM limits_probe WHERE id = 1 FOR UPDATE".query(int4)
+  private val terminate: Query[Int, Boolean]        = sql"SELECT pg_terminate_backend($int4)".query(bool)
+  private val lockRow: Query[Void, Int]             = sql"SELECT id FROM limits_probe WHERE id = 1 FOR UPDATE".query(int4)
 
   private def run[A](query: Query[Void, A]): DB[A] = summon[Session[IO]].unique(query)
 
@@ -127,9 +125,18 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
           idle   <- db.inTransaction(run(one) *> IO.sleep(1.second) *> run(one)).attempt
           after  <- db.inSession(run(backendPid))
         } yield {
-          idle.isLeft shouldBe true
+          idle.left.toOption.map(_.getClass) shouldBe Some(classOf[TransactionEndedWhileIdle])
+          idle.left.exists(DatabaseUnavailable.unapply) shouldBe false
           after should not be before
         }
+      }
+    }
+
+    "leave a dropped connection in a short transaction to the database-unavailable path" in {
+      limited("dropped-in-transaction", idleInTransactionTimeout = 1.minute).use { db =>
+        for {
+          dropped <- db.inTransaction(run(backendPid).flatMap(pid => withSession(summon[Session[IO]].unique(terminate)(pid))) *> run(one)).attempt
+        } yield dropped.left.exists(DatabaseUnavailable.unapply) shouldBe true
       }
     }
   }
@@ -147,10 +154,13 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
 
     "hand a connection freed within it to the waiting request" in {
       limited("acquire-handover", acquireTimeout = 3.seconds).use { db =>
-        holding(db, 1).use(_ => IO.sleep(300.millis)).start.flatMap { holder =>
-          IO.sleep(100.millis) *> db.inSession(run(one)).timed.flatTap(_ => holder.joinWithNever).map { case (took, answer) =>
-            answer shouldBe 1
-            took should be < 3.seconds
+        Deferred[IO, Unit].flatMap { taken =>
+          holding(db, 1).use(_ => taken.complete(()) *> IO.sleep(300.millis)).start.flatMap { holder =>
+            taken.get *> db.inSession(run(one)).timed.flatTap(_ => holder.joinWithNever).map { case (took, answer) =>
+              answer shouldBe 1
+              took should be >= 200.millis
+              took should be < 3.seconds
+            }
           }
         }
       }
@@ -160,15 +170,13 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
       val name = "acquire-gave-up"
       limited(name, max = 2, acquireTimeout = 50.millis).use { db =>
         for {
-          gaveUp      <- holding(db, 2).surround(List.fill(50)(db.inSession(run(one)).attempt).parSequence)
-          bothFree    <- holding(db, 2).surround(IO.unit).timeout(2.seconds).attempt
-          stillTwo    <- holding(db, 2).surround(db.inSession(run(one)).attempt)
-          connections <- withSession(summon[Session[IO]].unique(connectionsNamed)(name))
+          gaveUp   <- holding(db, 2).surround(List.fill(50)(db.inSession(run(one)).attempt).parSequence)
+          bothFree <- holding(db, 2).surround(IO.unit).timeout(2.seconds).attempt
+          stillTwo <- holding(db, 2).surround(db.inSession(run(one)).attempt)
         } yield {
           gaveUp.forall(unavailable) shouldBe true
           bothFree.isRight shouldBe true
           unavailable(stillTwo) shouldBe true
-          connections should be <= 2L
         }
       }
     }

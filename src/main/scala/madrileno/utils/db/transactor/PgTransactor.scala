@@ -8,17 +8,31 @@ import skunk.*
 import skunk.Session.Credentials
 import skunk.codec.all.text
 import skunk.data.{Identifier, Notification, Type}
+import skunk.exception.EofException
 import skunk.implicits.*
 
 import scala.concurrent.duration.{Duration, FiniteDuration}
 
-class PgTransactor(sessions: Resource[IO, Session[IO]]) extends Transactor {
+class PgTransactor(sessions: Resource[IO, Session[IO]], idleInTransactionTimeout: Duration = Duration.Inf) extends Transactor {
 
   override def inTransaction[A](f: DBInTransaction[A]): IO[A] =
     sessions.use { session =>
-      session.transaction.use { transaction =>
-        f(using session)(using transaction)
+      IO.monotonic.flatMap { started =>
+        session.transaction
+          .use { transaction =>
+            f(using session)(using transaction)
+          }
+          .handleErrorWith {
+            case eof: EofException => IO.monotonic.flatMap(now => IO.raiseError(endedWhileIdle(now - started, eof)))
+            case other             => IO.raiseError(other)
+          }
       }
+    }
+
+  private def endedWhileIdle(elapsed: FiniteDuration, eof: EofException): Throwable =
+    idleInTransactionTimeout match {
+      case timeout: FiniteDuration if elapsed >= timeout => new TransactionEndedWhileIdle(timeout, eof)
+      case _                                             => eof
     }
 
   override def inSession[A](f: DB[A]): IO[A] =
@@ -41,7 +55,7 @@ object PgTransactor {
     for {
       tracer <- Resource.eval(TracerProvider[IO].get("madrileno.utils.db.transactor"))
       pool   <- pooled(pgConfig)
-    } yield new PgTransactor(bounded(pool, pgConfig.acquireTimeout, tracer))
+    } yield new PgTransactor(bounded(pool, pgConfig.acquireTimeout, tracer), pgConfig.idleInTransactionTimeout)
 
   private type Allocated = (Session[IO], IO[Unit])
 

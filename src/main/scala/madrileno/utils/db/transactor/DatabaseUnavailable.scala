@@ -11,7 +11,7 @@ object DatabaseUnavailable {
 
   def unapply(error: Throwable): Boolean = error match {
     case _: DatabaseUnavailable    => true
-    case e: PostgresErrorException => unavailableStates.contains(e.code) || e.code.startsWith("08")
+    case e: PostgresErrorException => unavailableStates.contains(e.code) || (e.code.startsWith("08") && e.code != "08P01")
     case _: ConnectException       => true
     case _: EofException           => true
     case _                         => false
