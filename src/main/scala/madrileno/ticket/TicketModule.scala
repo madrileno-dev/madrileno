@@ -10,11 +10,14 @@ import madrileno.utils.db.transactor.Transactor
 import madrileno.utils.http.AuthRouteProvider
 import madrileno.utils.observability.TelemetryContext
 import pl.iterators.stir.server.Route
+import pureconfig.ConfigSource
 
 trait TicketModule extends AuthRouteProvider {
+  val config: ConfigSource
   val clock: Clock[IO]
   val transactor: Transactor
   given telemetryContext: TelemetryContext
+  lazy val ticketConfig: TicketConfig         = config.at("ticket").loadOrThrow[TicketConfig]
   lazy val ticketRepository: TicketRepository = wire[TicketRepository]
 
   private val ticketService = wire[TicketService]
