@@ -9,10 +9,11 @@ import madrileno.ticket.services.TicketService
 import madrileno.utils.db.transactor.Transactor
 import madrileno.utils.http.AuthRouteProvider
 import madrileno.utils.observability.TelemetryContext
+import madrileno.utils.task.{RecurringTaskProvider, Task}
 import pl.iterators.stir.server.Route
 import pureconfig.ConfigSource
 
-trait TicketModule extends AuthRouteProvider {
+trait TicketModule extends AuthRouteProvider with RecurringTaskProvider {
   val config: ConfigSource
   val clock: Clock[IO]
   val transactor: Transactor
@@ -27,5 +28,9 @@ trait TicketModule extends AuthRouteProvider {
 
   override abstract def route(auth: AuthContext): Route = {
     super.route(auth) ~ ticketRouter.authedRoutes(auth)
+  }
+
+  override abstract def recurringTasks: List[Task[?]] = {
+    super.recurringTasks :+ ticketService.cancelExpiredHoldsTask
   }
 }

@@ -4,14 +4,18 @@ import cats.effect.std.UUIDGen
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.{Clock, IO}
 import cats.syntax.all.*
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.support.{SectionSpec, SeededEvent, TestData, TestGivens, TestTransactor, TicketSeed}
 import madrileno.ticket.TicketConfig
 import madrileno.ticket.domain.*
 import madrileno.ticket.repositories.{EventRepository, OrderRepository, TicketRepository}
 import madrileno.user.domain.User
 import madrileno.user.repositories.UserRepository
+import madrileno.utils.observability.TelemetryContext
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
+import org.typelevel.otel4s.metrics.Meter
+import org.typelevel.otel4s.trace.Tracer
 import skunk.*
 import skunk.codec.all.*
 import skunk.implicits.*
@@ -24,8 +28,9 @@ import scala.concurrent.duration.*
 // and customers and never shares a seat with another test.
 class TicketServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
-  given Clock[IO]   = IO.asyncForIO
-  given UUIDGen[IO] = UUIDGen.fromSecureRandom[IO](using IO.asyncForIO, TestGivens.secureRandom)
+  given Clock[IO]        = IO.asyncForIO
+  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
+  given UUIDGen[IO]      = UUIDGen.fromSecureRandom[IO](using IO.asyncForIO, TestGivens.secureRandom)
 
   private lazy val userRepo   = new UserRepository
   private lazy val ticketRepo = new TicketRepository

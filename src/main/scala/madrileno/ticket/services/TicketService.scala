@@ -9,7 +9,11 @@ import madrileno.ticket.repositories.{EventRepository, OrderRepository, TicketRe
 import madrileno.user.domain.UserId
 import madrileno.utils.crypto.IdGenerator
 import madrileno.utils.db.transactor.Transactor
+import madrileno.utils.observability.{LoggingSupport, TelemetryContext}
+import madrileno.utils.task.{CronExpression, Schedule, Task}
 import skunk.exception.PostgresErrorException
+
+import java.time.Instant
 
 final case class PayTicketCommand(
   ticketId: TicketId,
@@ -78,7 +82,9 @@ class TicketService(
   transactor: Transactor
 )(using
   Clock[IO],
-  UUIDGen[IO]) {
+  UUIDGen[IO],
+  TelemetryContext)
+    extends LoggingSupport {
 
   // Ownership is enforced here: a ticket owned by someone else is reported as None (-> 404), exactly like a
   // missing one, so the endpoint cannot be used to probe which ticket ids exist.
@@ -125,5 +131,39 @@ class TicketService(
         }
       }
       .handleErrorWith(TicketService.seatTakenOrRethrow)
+  }
+
+  // Runs once a minute (cron second 0, same idiom as close-expired-auctions). A Held row keeps its seat blocked in
+  // ticket_live_seat_uidx until it is actually cancelled, so an expired hold frees its seat only when this task
+  // runs: a seat becomes bookable again up to one task period (~1 minute) after heldUntil.
+  val cancelExpiredHoldsTask: Task[Unit] =
+    Task.recurring("cancel-expired-ticket-holds", Schedule.Cron(CronExpression.unsafeParse("0 * * ? * *"))) { _ =>
+      cancelExpiredHolds().void
+    }
+
+  // Returns how many tickets this run cancelled.
+  // The list is only a list of CANDIDATES: between listing and cancelling a ticket can be paid (or cancelled) by a
+  // concurrent request. Each cancellation therefore runs in its own transaction, where `update` re-reads the row
+  // under FOR UPDATE and the domain re-checks its status. A lost race comes back as Left and is skipped silently,
+  // and an unexpected failure of one ticket neither rolls back nor stops the others.
+  def cancelExpiredHolds(): IO[Int] = {
+    def cancelOne(id: TicketId, now: Instant): IO[Boolean] = {
+      transactor
+        .inTransaction(ticketRepository.update(id, _.cancel(now)))
+        .map {
+          case Some(Right(_)) => true
+          case Some(Left(_))  => false // paid or cancelled since it was listed
+          case None           => false // deleted since it was listed
+        }
+        .handleErrorWith(error => logger.warn(error)(s"Failed to cancel expired hold $id - skipping").as(false))
+    }
+
+    for {
+      now        <- Clock[IO].realTimeInstant
+      candidates <- transactor.inSession(ticketRepository.listExpiredHolds(now))
+      outcomes   <- candidates.traverse(cancelOne(_, now))
+      cancelled = outcomes.count(identity)
+      _ <- logger.info(s"Cancelled $cancelled expired ticket hold(s) at $now").whenA(cancelled > 0)
+    } yield cancelled
   }
 }
