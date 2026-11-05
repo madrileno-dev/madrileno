@@ -224,15 +224,33 @@ trait MyModule extends RecurringTaskProvider with OneTimeTaskProvider {
 
 ## The admin UI
 
-`/admin/jobs` (Basic-Auth gated, GET-only) shows:
+`/admin/jobs` (Basic-Auth gated, GET-only) reports on the scheduler, as an HTML page for people and as JSON for monitors. Both are rendered from the same `JobsReport`, so they always show the same values; which one you get follows the request's `Accept` header (a browser gets HTML, `Accept: application/json` or no `Accept` at all gets JSON, anything else 406):
 
-- All registered task types (recurring / one-time / custom).
-- Recurring tasks with their schedule, next run, last success/failure, and which instance owns the row.
+```bash
+curl -u admin:$ADMIN_PASSWORD -H 'Accept: application/json' https://api.example.com/admin/jobs
+```
+
+The report has:
+
+- An overall `status`: `Healthy`, or `Unhealthy` when any recurring task isn't `Healthy`, any row is failing or overdue, or a running row has stalled.
+- Recurring tasks with their schedule, `health`, next run, last success/failure, consecutive failures and which instance owns the row.
 - Currently running rows with their picker and last heartbeat.
-- Failing rows (one or more consecutive failures), most recent first.
+- Failing rows (one or more consecutive failures), most recent first, up to 50, with the total.
+- Overdue rows, oldest first, up to 50, with the total.
 - Orphaned rows whose `task_name` isn't registered in the running app.
+- All registered task types (recurring / one-time / custom).
 
-Provided by `SchedulerAdminRouter`. Read-only — no buttons to trigger, retry, or delete; you'd add those routes yourself if you need them. It shares the `/admin` Basic-Auth subtree with the health probes; gate it with a strong `ADMIN_PASSWORD`.
+Each row's `health` is one of:
+
+| Health | Meaning |
+| --- | --- |
+| `Healthy` | On schedule. |
+| `Failing` | The last run failed and the row is waiting for its retry (`consecutiveFailures` > 0). |
+| `Overdue` | Not picked, and due longer ago than `scheduler.overdue-after` (`SCHEDULER_OVERDUE_AFTER`, default `5m`; `Inf` turns it off). Nothing is picking rows up: no scheduler is running, or all its slots are busy. |
+| `Stalled` | Picked, but no heartbeat for `heartbeat-interval` × `missed-heartbeat-limit`. The instance running it died; another scheduler revives such rows, and with none running it stays here. |
+| `Missing` | A registered recurring task with no row at all. Rows are written when a scheduler starts, so none has started with this task. |
+
+The HTTP status is 200 whatever the verdict, since the report itself succeeded; a monitor alerts on `status`. Read-only — no buttons to trigger, retry, or delete; you'd add those routes yourself if you need them. It shares the `/admin` Basic-Auth subtree with the deep health check; gate it with a strong `ADMIN_PASSWORD`.
 
 ## Testing
 
