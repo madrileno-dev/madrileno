@@ -94,6 +94,22 @@ The cleanup migration (step 3) is the one that burns the bridge: once the old co
 
 What the template doesn't do is undo a migration. If one fails partway, Flyway records it as failed and `bin/migrate-main` refuses to run until it's repaired (`bin/migrate-main info` shows which one). Fix forward: correct the migration, clear the failed row from `flyway_schema_history` (Flyway's `repair`; `MigrateMain` doesn't expose it, so add a subcommand or do it by hand), and run it again. Undo scripts are a Flyway Teams feature and aren't wired here.
 
+## Backups
+
+The state to back up is the Postgres database, plus the object storage bucket if the app stores files (the S3 bucket behind `S3_BUCKET`, or the `uploads` directory with `OBJECT_STORAGE=disk`). A database dump alone restores rows that point at files it doesn't contain. Managed Postgres (RDS, Cloud SQL, …) and S3 have their own snapshots and point-in-time recovery; use those where you have them, and the commands below where you run Postgres yourself or want a portable copy.
+
+```bash
+# Dump: custom format, compressed, restorable selectively with pg_restore.
+pg_dump --format=custom --no-owner -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" > madrileno-$(date +%F).dump
+
+# Restore into a new, empty database, then check its schema matches this image's migrations.
+createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" madrileno_restored
+pg_restore --no-owner --exit-on-error -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d madrileno_restored madrileno-2026-11-05.dump
+PG_DATABASE=madrileno_restored bin/migrate-main validate
+```
+
+Against the dev stack, run the same tools inside the compose container: `docker compose exec -T postgres pg_dump --format=custom --no-owner -U postgres -d madrileno > madrileno.dump`, and `pg_restore` with `docker compose exec -T postgres pg_restore … < madrileno.dump`. Use client tools of the server's major version or newer (the compose file runs `postgres:18`). Restore into a fresh database rather than over the live one, and check the copy before switching the app to it: `validate` fails if the dump is from an older schema than the image expects, in which case run `bin/migrate-main` against it first. A backup you have never restored is a guess; rehearse the restore.
+
 ## Graceful shutdown
 
 On `SIGTERM` the app drains in-flight requests before exiting — rolling deploys don't cut active connections. This is mostly emergent behavior from cats-effect's resource composition; you don't need to do anything to get it.
