@@ -5,6 +5,7 @@ import cats.effect.{IO, Resource}
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.dimafeng.testcontainers.scalatest.TestContainersForAll
 import madrileno.utils.db.transactor.{DB, DBInTransaction, PgConfig, PgTransactor, Transactor}
+import org.flywaydb.core.Flyway
 import org.scalatest.Suite
 import org.typelevel.otel4s.metrics.MeterProvider
 import org.typelevel.otel4s.trace.TracerProvider
@@ -14,12 +15,22 @@ trait TestTransactor extends TestContainersForAll { self: Suite =>
 
   override type Containers = PostgreSQLContainer
 
-  override def startContainers(): PostgreSQLContainer = TestPostgres.start()
+  override def startContainers(): PostgreSQLContainer = {
+    val container = PostgreSQLContainer.Def().start()
+
+    Flyway
+      .configure()
+      .dataSource(container.jdbcUrl, container.username, container.password)
+      .load()
+      .migrate()
+
+    container
+  }
 
   given TracerProvider[IO] = TracerProvider.noop[IO]
   given MeterProvider[IO]  = MeterProvider.noop[IO]
 
-  private lazy val pgConfig: PgConfig = withContainers { container =>
+  protected lazy val pgConfig: PgConfig = withContainers { container =>
     PgConfig(
       host = container.host,
       port = container.mappedPort(5432),
@@ -31,6 +42,9 @@ trait TestTransactor extends TestContainersForAll { self: Suite =>
 
   def tracedTransactor(provider: TracerProvider[IO]): Resource[IO, PgTransactor] =
     PgTransactor.resource(pgConfig)(using provider, MeterProvider.noop[IO])
+
+  def transactorWith(configure: PgConfig => PgConfig): Resource[IO, PgTransactor] =
+    PgTransactor.resource(configure(pgConfig))
 
   private lazy val pgTransactor: PgTransactor = {
     // Finalizer discarded — pool lifetime is tied to the Testcontainers PG container.

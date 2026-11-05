@@ -232,9 +232,23 @@ Three rules:
 
 For the rare case where you need to back out a bad migration in dev: `docker compose down -v` wipes the volume; `runMain madrileno.main.MigrateMain` reapplies from scratch.
 
-## Connection pool and config
+## Connection pool and timeouts
 
-`PgConfig` is loaded from the `pg.*` config block. Defaults: pool size 10, no SSL, default skunk caches (1024 each). Override per-environment via env vars (`PG_HOST`, `PG_PORT`, `PG_PASSWORD`, …). `pg.telemetry.capture-parameters` controls whether query spans carry bound parameter values — see [observability.md](observability.md#postgres-query-telemetry).
+`PgConfig` is loaded from the `pg.*` config block. Defaults: pool size 10, no SSL, default skunk caches (1024 each). Override per-environment via env vars (`PG_HOST`, `PG_PORT`, `PG_PASSWORD`, `PG_POOL_SIZE`, …). `pg.telemetry.capture-parameters` controls whether query spans carry bound parameter values — see [observability.md](observability.md#postgres-query-telemetry).
+
+Three limits keep a slow or saturated database from piling up requests that wait forever:
+
+| Setting | Env | Default | What it bounds |
+| --- | --- | --- | --- |
+| `acquire-timeout` | `PG_ACQUIRE_TIMEOUT` | `5s` | How long `inSession` / `inTransaction` waits for a free pooled connection. Past it the call fails with `DatabaseUnavailable`. A request that goes away while waiting stops waiting at once. |
+| `statement-timeout` | `PG_STATEMENT_TIMEOUT` | `30s` | Postgres's `statement_timeout`, sent when each connection opens. The server cancels a statement that runs longer, waits on a lock included, with SQLSTATE `57014`; the connection stays usable. |
+| `idle-in-transaction-timeout` | `PG_IDLE_IN_TRANSACTION_TIMEOUT` | `1m` | Postgres's `idle_in_transaction_session_timeout`. The server ends a session whose transaction sits idle longer — usually code awaiting something slow inside `inTransaction` — so its locks don't outlive it. The pool replaces the connection. |
+
+`Inf` turns any of them off. A session that changes a setting (`SET statement_timeout = 0` for a migration-sized query) gets it back when the pool recycles the connection, because the recycler runs `RESET ALL`, which returns to the values sent at connect time. Behind PgBouncer in transaction mode, add `statement_timeout` and `idle_in_transaction_session_timeout` to its `ignore_startup_parameters`, or set them on the database role instead and set the env vars to `Inf`.
+
+When the database can't answer, the request gets 503 `error:database-unavailable` instead of a 500 ([error-handling.md](error-handling.md#infrastructure-errors)): an acquire timeout, a statement timeout, a refused or dropped connection, the server shutting down or out of connection slots.
+
+What these limits don't cover is a server that stops answering without closing the connection (a frozen VM, a network partition). A statement already sent on an idle pooled connection then waits until TCP gives up, since no server is running to apply `statement_timeout`.
 
 The pool is shared across the application — there is no per-module pool. Sessions return to the pool when their `inSession` / `inTransaction` block completes, including on errors.
 

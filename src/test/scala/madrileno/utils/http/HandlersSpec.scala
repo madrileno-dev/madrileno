@@ -5,6 +5,7 @@ import cats.effect.unsafe.IORuntime
 import fs2.Stream
 import io.circe.{Json, parser}
 import io.opentelemetry.api.OpenTelemetry
+import madrileno.utils.db.transactor.DatabaseUnavailable
 import madrileno.utils.observability.TelemetryContext
 import org.http4s.headers.{Accept, `Content-Type`}
 import org.http4s.server.middleware.EntityLimiter.EntityTooLarge
@@ -17,6 +18,7 @@ import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.trace.Tracer
 import pl.iterators.stir.server.Route
 import pl.iterators.stir.testkit.{RouteTestTimeout, ScalatestRouteTest}
+import skunk.exception.PostgresErrorException
 
 import scala.concurrent.duration.DurationInt
 
@@ -43,6 +45,21 @@ class HandlersSpec extends AnyFunSpec with Matchers with ScalatestRouteTest {
             path("validated") { validate(false, "count must be positive") { complete("unreachable") } },
             path("illegal") { complete(IO.raiseError[String](new IllegalArgumentException("bad input"))) },
             path("boom") { complete(IO.raiseError[String](new RuntimeException("boom"))) },
+            path("pool-exhausted") {
+              complete(IO.raiseError[String](new DatabaseUnavailable("No database connection became free within 5 seconds")))
+            },
+            path("statement-timeout") {
+              complete(
+                IO.raiseError[String](
+                  new PostgresErrorException(
+                    "SELECT secret_column FROM t",
+                    None,
+                    Map('S' -> "ERROR", 'C' -> "57014", 'M' -> "canceling statement due to statement timeout"),
+                    Nil
+                  )
+                )
+              )
+            },
             path("only-get") { get { complete("ok") } },
             path("https-only") { scheme("https") { complete("ok") } },
             path("int-param") { parameter("n".as[Int]) { n => complete(n.toString) } },
@@ -229,6 +246,24 @@ class HandlersSpec extends AnyFunSpec with Matchers with ScalatestRouteTest {
         status shouldBe Status.BadRequest
         field("type") shouldBe Some("rejection:static-validation-failed")
         field("detail") shouldBe Some("bad input")
+      }
+    }
+
+    it("maps a request that found no free database connection to a 503") {
+      Get("/pool-exhausted") ~> probe.route ~> check {
+        status shouldBe Status.ServiceUnavailable
+        field("type") shouldBe Some("error:database-unavailable")
+        field("title") shouldBe Some("The database is not available right now")
+        field("detail") shouldBe None
+        responseAs[String] should not include "5 seconds"
+      }
+    }
+
+    it("maps a statement cancelled by the statement timeout to a 503 without leaking the query") {
+      Get("/statement-timeout") ~> probe.route ~> check {
+        status shouldBe Status.ServiceUnavailable
+        field("type") shouldBe Some("error:database-unavailable")
+        responseAs[String] should not include "secret_column"
       }
     }
 
