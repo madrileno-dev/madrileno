@@ -44,22 +44,17 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
     )
   }
 
-  describe("While every database connection is busy") {
-    it("readiness answers 503 within its timeout, liveness stays 200, and an API call answers 503 database-unavailable") {
+  describe("While every pooled connection is busy") {
+    it("readiness stays 200, since Postgres still answers, while an API call that can't get a connection answers 503 database-unavailable") {
       val (readiness, liveness, api) = everyConnectionBusy
         .surround((get("/v1/health-check/readiness"), get("/v1/health-check"), get("/v1/users/me", signedIn)).tupled)
         .unsafeRunSync()
-      readiness._2.status shouldBe Status.ServiceUnavailable
-      json(readiness._2).hcursor.get[String]("status") shouldBe Right("Down")
-      readiness._1 should be < 3.seconds
+      readiness._2.status shouldBe Status.Ok
+      readiness._1 should be < 1.second
       liveness._2.status shouldBe Status.Ok
       api._2.status shouldBe Status.ServiceUnavailable
       json(api._2).hcursor.get[String]("type") shouldBe Right("error:database-unavailable")
       api._1 should be < 3.seconds
-    }
-
-    it("readiness is back to 200 once the connections are returned") {
-      get("/v1/health-check/readiness").unsafeRunSync()._2.status shouldBe Status.Ok
     }
   }
 

@@ -123,7 +123,7 @@ What's NOT done out of the box:
 Two unauthenticated endpoints are meant for probes:
 
 - **Liveness** — `GET /v1/health-check`. Answers 200 with the app's name and version without touching any dependency, so a slow or down database never gets the process restarted.
-- **Readiness** — `GET /v1/health-check/readiness`. Runs `SELECT version()` and answers 200 `{"status":"Up"}` if Postgres answers within a second, 503 `{"status":"Down"}` otherwise: every connection busy, Postgres not answering, connection refused. The body carries no error detail; the reason is logged. Point your load balancer's health check or the orchestrator's readiness probe here, so an instance that can't reach its database stops getting traffic and gets it back once it can.
+- **Readiness** — `GET /v1/health-check/readiness`. Runs `SELECT version()` on a connection of its own, outside the pool, and answers 200 `{"status":"Up"}` if Postgres answers within a second, 503 `{"status":"Down"}` otherwise: Postgres not answering, connection refused, no connection slots left. A busy pool doesn't make it 503: requests waiting for a connection are slow, not failing, and taking a loaded instance out of rotation would only move its traffic onto the others. Each probe opens and closes one connection, so leave a slot per instance in `max_connections` above instances × pool size. The body carries no error detail; the reason is logged. Point your load balancer's health check or the orchestrator's readiness probe here, so an instance that can't reach its database stops getting traffic and gets it back once it can.
 
 ```yaml
 livenessProbe:
@@ -133,7 +133,7 @@ readinessProbe:
   timeoutSeconds: 2
 ```
 
-Readiness checks only Postgres. Mail goes out through the scheduler and retries, so an SMTP outage delays mail without stopping requests; it is no reason to take the instance out of rotation. Because every instance shares the database, a database outage takes them all out of rotation at once: clients then get the load balancer's error instead of the app's 503, which is the same outage either way.
+Readiness checks only Postgres. Mail goes out through the scheduler and retries, so an SMTP outage delays mail without stopping requests; it is no reason to take the instance out of rotation. Because every instance shares the database, a database that is down takes them all out of rotation at once: clients then get the load balancer's error instead of the app's 503, which is the same outage either way.
 
 `/admin/health-check` is the deeper check for people: Postgres plus an SMTP connect (reported `Disabled` when `MAILER_SENDER=log`), with latencies and error messages. It sits behind the admin Basic Auth with the rest of `/admin/*`; don't point probes at it.
 

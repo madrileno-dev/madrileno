@@ -18,10 +18,12 @@ class PostgresProbe(
 
   def check(within: FiniteDuration): IO[DepCheck] =
     clock
-      .timed(transactor.inSession(healthCheckRepository.version()))
+      .timed(transactor.inNewConnection(healthCheckRepository.version()))
       .start
       .flatMap { probe =>
-        probe.joinWithNever.timeoutTo(within, probe.cancel.start *> IO.raiseError(new TimeoutException(s"Postgres did not answer within $within")))
+        probe.joinWithNever
+          .timeoutTo(within, probe.cancel.start *> IO.raiseError(new TimeoutException(s"Postgres did not answer within $within")))
+          .onCancel(probe.cancel.start.void)
       }
       .map { case (rtt, _) => DepCheck(DepStatus.Up, Some(rtt.toMillis), None) }
       .handleErrorWith { t =>

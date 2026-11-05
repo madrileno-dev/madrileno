@@ -11,9 +11,13 @@ import skunk.data.{Identifier, Notification, Type}
 import skunk.exception.EofException
 import skunk.implicits.*
 
-import scala.concurrent.duration.{Duration, FiniteDuration}
+import scala.concurrent.duration.*
 
-class PgTransactor(sessions: Resource[IO, Session[IO]], idleInTransactionTimeout: Duration = Duration.Inf) extends Transactor {
+class PgTransactor(
+  sessions: Resource[IO, Session[IO]],
+  idleInTransactionTimeout: Duration,
+  newConnection: Resource[IO, Session[IO]])
+    extends Transactor {
 
   override def inTransaction[A](f: DBInTransaction[A]): IO[A] =
     sessions.use { session =>
@@ -38,6 +42,9 @@ class PgTransactor(sessions: Resource[IO, Session[IO]], idleInTransactionTimeout
   override def inSession[A](f: DB[A]): IO[A] =
     sessions.use(session => f(using session))
 
+  override def inNewConnection[A](f: DB[A]): IO[A] =
+    newConnection.use(session => f(using session))
+
   override def notify(channel: Identifier, payload: String): IO[Unit] =
     sessions.use(_.unique(PgTransactor.pgNotify)((channel.value, payload))).void
 
@@ -54,8 +61,12 @@ object PgTransactor {
   def resource(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, PgTransactor] =
     for {
       tracer <- Resource.eval(TracerProvider[IO].get("madrileno.utils.db.transactor"))
-      pool   <- pooled(pgConfig)
-    } yield new PgTransactor(bounded(pool, pgConfig.acquireTimeout, tracer), pgConfig.idleInTransactionTimeout)
+      pool   <- builder(pgConfig).pooled(pgConfig.max)
+    } yield new PgTransactor(
+      bounded(pool, pgConfig.acquireTimeout, tracer),
+      pgConfig.idleInTransactionTimeout,
+      builder(pgConfig).withReadTimeout(newConnectionReadTimeout).single
+    )
 
   private type Allocated = (Session[IO], IO[Unit])
 
@@ -86,7 +97,9 @@ object PgTransactor {
       case _                            => IO.unit
     }).start.void
 
-  private def pooled(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, Resource[IO, Session[IO]]] =
+  private val newConnectionReadTimeout = 10.seconds
+
+  private def builder(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Session.Builder[IO] =
     Session
       .Builder[IO]
       .withHost(pgConfig.host)
@@ -107,5 +120,4 @@ object PgTransactor {
       .withRedactionStrategy(RedactionStrategy.OptIn)
       .withTelemetryConfig(PgTelemetry.config(pgConfig.telemetry))
       .withSocketOptions(Session.DefaultSocketOptions)
-      .pooled(pgConfig.max)
 }
