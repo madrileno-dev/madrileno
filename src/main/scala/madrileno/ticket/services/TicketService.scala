@@ -1,10 +1,15 @@
 package madrileno.ticket.services
 
+import cats.effect.std.UUIDGen
 import cats.effect.{Clock, IO}
-import madrileno.ticket.domain.{ChargeId, PayRejection, Ticket, TicketId}
-import madrileno.ticket.repositories.TicketRepository
+import cats.syntax.all.*
+import madrileno.ticket.TicketConfig
+import madrileno.ticket.domain.*
+import madrileno.ticket.repositories.{EventRepository, OrderRepository, TicketRepository}
 import madrileno.user.domain.UserId
+import madrileno.utils.crypto.IdGenerator
 import madrileno.utils.db.transactor.Transactor
+import skunk.exception.PostgresErrorException
 
 final case class PayTicketCommand(
   ticketId: TicketId,
@@ -20,7 +25,60 @@ enum PayTicketResult {
   case TicketExpired
 }
 
-class TicketService(ticketRepository: TicketRepository, transactor: Transactor)(using Clock[IO]) {
+final case class HoldSeatsCommand(
+  eventId: EventId,
+  customerId: UserId,
+  seatIds: List[SeatId])
+
+enum HoldSeatsResult {
+  case SeatsHeld(order: Order, tickets: List[Ticket])
+  case EventNotFound
+  case EventNotOnSale
+  case EventCancelled
+  case NoSeatsSelected
+  case DuplicateSeats
+  case SeatNotInEvent
+  case SeatAlreadyTaken
+}
+
+object TicketService {
+  private val PostgresUniqueViolation = "23505"
+  private val LiveSeatIndex           = "ticket_live_seat_uidx"
+
+  // True only for the unique violation raised by the partial index that allows one live ticket per seat.
+  // Any other failure (another constraint, another error class) is not "seat taken" and must stay an error.
+  private[services] def isSeatTakenViolation(code: String, constraintName: Option[String]): Boolean =
+    code == PostgresUniqueViolation && constraintName.contains(LiveSeatIndex)
+
+  // Meant to be attached to the IO returned by `transactor.inTransaction`, i.e. OUTSIDE the transaction: a failed
+  // statement aborts the Postgres transaction ("current transaction is aborted"), so nothing can be done inside it
+  // after the violation. By the time this runs the transaction has been rolled back, so neither the order nor any of
+  // its tickets exist and reporting SeatAlreadyTaken is accurate. Everything else is rethrown untouched.
+  private[services] def seatTakenOrRethrow(error: Throwable): IO[HoldSeatsResult] =
+    error match {
+      case e: PostgresErrorException if isSeatTakenViolation(e.code, e.constraintName) => IO.pure(HoldSeatsResult.SeatAlreadyTaken)
+      case other                                                                       => IO.raiseError(other)
+    }
+
+  private[services] def toResult(rejection: HoldRejection): HoldSeatsResult =
+    rejection match {
+      case HoldRejection.NoSeatsSelected => HoldSeatsResult.NoSeatsSelected
+      case HoldRejection.DuplicateSeats  => HoldSeatsResult.DuplicateSeats
+      case HoldRejection.EventNotOnSale  => HoldSeatsResult.EventNotOnSale
+      case HoldRejection.EventCancelled  => HoldSeatsResult.EventCancelled
+      case HoldRejection.SeatNotInEvent  => HoldSeatsResult.SeatNotInEvent
+    }
+}
+
+class TicketService(
+  ticketRepository: TicketRepository,
+  eventRepository: EventRepository,
+  orderRepository: OrderRepository,
+  ticketConfig: TicketConfig,
+  transactor: Transactor
+)(using
+  Clock[IO],
+  UUIDGen[IO]) {
 
   // Ownership is enforced here: a ticket owned by someone else is reported as None (-> 404), exactly like a
   // missing one, so the endpoint cannot be used to probe which ticket ids exist.
@@ -41,5 +99,31 @@ class TicketService(ticketRepository: TicketRepository, transactor: Transactor)(
         }
       }
     }
+  }
+
+  // Whether a seat is free is NOT checked beforehand (that would be check-then-act and race with a concurrent hold):
+  // the insert itself is the check, and the partial unique index ticket_live_seat_uidx rejects the loser.
+  // DEBT: the order and its tickets are written in one transaction and no event is emitted for other modules
+  // (accepted compromise, there is no outbox in this project).
+  def holdSeats(command: HoldSeatsCommand): IO[HoldSeatsResult] = {
+    transactor
+      .inTransaction {
+        eventRepository.findWithSeats(command.eventId).flatMap {
+          case None        => IO.pure(HoldSeatsResult.EventNotFound)
+          case Some(event) =>
+            for {
+              now     <- Clock[IO].realTimeInstant
+              orderId <- IdGenerator.generateId(OrderId)
+              // One id per distinct seat; duplicates are rejected by the domain before any id is used.
+              ticketIds <- command.seatIds.distinct.traverse(seatId => IdGenerator.generateId(TicketId).map(seatId -> _)).map(_.toMap)
+              result    <- event.holdSeats(orderId, ticketIds, command.customerId, command.seatIds, now, ticketConfig.holdDurationJava) match {
+                          case Left(rejection)         => IO.pure(TicketService.toResult(rejection))
+                          case Right((order, tickets)) =>
+                            orderRepository.save(order) *> tickets.traverse_(ticketRepository.save(_)).as(HoldSeatsResult.SeatsHeld(order, tickets))
+                        }
+            } yield result
+        }
+      }
+      .handleErrorWith(TicketService.seatTakenOrRethrow)
   }
 }

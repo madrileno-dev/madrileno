@@ -1,0 +1,121 @@
+package madrileno.ticket.domain
+
+import madrileno.user.domain.UserId
+import org.scalatest.matchers.should.Matchers
+import org.scalatest.wordspec.AnyWordSpec
+
+import java.time.{Duration, Instant}
+import java.util.UUID
+
+class EventSpec extends AnyWordSpec with Matchers {
+
+  private def uuid(n: Int): UUID = UUID.fromString(f"00000000-0000-0000-0000-$n%012d")
+
+  private val now          = Instant.parse("2026-01-01T10:00:00Z")
+  private val holdDuration = Duration.ofMinutes(15)
+  private val customerId   = UserId(uuid(1))
+  private val orderId      = OrderId(uuid(2))
+
+  private def money(minor: Long, currency: Currency = Currency.PLN): Money = Money.from(minor, currency).getOrElse(fail("invalid price"))
+
+  private val vipPrice    = money(30_000L, Currency.EUR)
+  private val parterPrice = money(8_000L)
+  private val vip1        = EventSeat(SeatId(uuid(11)), SeatLabel("V-1"))
+  private val vip2        = EventSeat(SeatId(uuid(12)), SeatLabel("V-2"))
+  private val parter1     = EventSeat(SeatId(uuid(13)), SeatLabel("P-1"))
+  private val foreignSeat = SeatId(uuid(99))
+  private val vipSection  = EventSection(SectionId(uuid(21)), "VIP", vipPrice, List(vip1, vip2))
+  private val parterSect  = EventSection(SectionId(uuid(22)), "Parter", parterPrice, List(parter1))
+  private val startsAt    = now.plus(Duration.ofDays(1))
+
+  private val event = Event(EventId(uuid(3)), "Concert", startsAt, EventStatus.OnSale, List(vipSection, parterSect))
+
+  // Deterministic ticket ids derived from the seat id, so assertions can name them.
+  private def ticketIdFor(seatId: SeatId): TicketId = TicketId(UUID.nameUUIDFromBytes(seatId.unwrap.toString.getBytes))
+
+  private def hold(
+    on: Event = event,
+    seatIds: List[SeatId],
+    at: Instant = now
+  ): Either[HoldRejection, (Order, List[Ticket])] =
+    on.holdSeats(orderId, ticketIdFor, customerId, seatIds, at, holdDuration)
+
+  private def held(seatIds: List[SeatId]): (Order, List[Ticket]) =
+    hold(seatIds = seatIds).fold(rejection => fail(s"hold rejected: $rejection"), identity)
+
+  "Event.holdSeats" should {
+    "create an order and one Held ticket per selected seat, in the order of selection" in {
+      val (order, tickets) = held(List(parter1.id, vip1.id))
+      order shouldBe Order(orderId, event.id, customerId, now)
+      tickets.map(_.seatId) shouldBe List(parter1.id, vip1.id)
+      tickets.map(_.id) shouldBe List(ticketIdFor(parter1.id), ticketIdFor(vip1.id))
+      tickets.foreach { ticket =>
+        ticket.status shouldBe TicketStatus.Held
+        ticket.orderId shouldBe orderId
+        ticket.chargeId shouldBe None
+        ticket.paidAt shouldBe None
+      }
+    }
+
+    "snapshot the label and the price of each seat's own section" in {
+      val (_, tickets) = held(List(vip2.id, parter1.id))
+      tickets.map(t => (t.seatLabel, t.price)) shouldBe List((vip2.label, vipPrice), (parter1.label, parterPrice))
+    }
+
+    "set the customer on the order and on every ticket" in {
+      val (order, tickets) = held(List(vip1.id, vip2.id))
+      order.customerId shouldBe customerId
+      tickets.map(_.customerId).distinct shouldBe List(customerId)
+    }
+
+    "set heldUntil = now + hold duration and createdAt = updatedAt = now" in {
+      val (order, tickets) = held(List(vip1.id))
+      tickets.map(_.heldUntil) shouldBe List(now.plus(holdDuration))
+      tickets.map(_.createdAt) shouldBe List(now)
+      tickets.map(_.updatedAt) shouldBe List(now)
+      order.createdAt shouldBe now
+    }
+
+    "reject an empty selection" in {
+      hold(seatIds = Nil) shouldBe Left(HoldRejection.NoSeatsSelected)
+    }
+
+    "reject a seat selected twice" in {
+      hold(seatIds = List(vip1.id, parter1.id, vip1.id)) shouldBe Left(HoldRejection.DuplicateSeats)
+    }
+
+    "reject a seat that is not part of the event" in {
+      hold(seatIds = List(vip1.id, foreignSeat)) shouldBe Left(HoldRejection.SeatNotInEvent)
+    }
+
+    "reject any hold on a cancelled event with EventCancelled" in {
+      hold(on = event.copy(status = EventStatus.Cancelled), seatIds = List(vip1.id)) shouldBe Left(HoldRejection.EventCancelled)
+    }
+
+    "reject a hold once the event has started with EventNotOnSale, exactly at startsAt included" in {
+      hold(seatIds = List(vip1.id), at = startsAt.minusNanos(1)).isRight shouldBe true
+      hold(seatIds = List(vip1.id), at = startsAt) shouldBe Left(HoldRejection.EventNotOnSale)
+      hold(seatIds = List(vip1.id), at = startsAt.plusSeconds(1)) shouldBe Left(HoldRejection.EventNotOnSale)
+    }
+
+    "check the event state before the selection: a cancelled event wins over an empty selection" in {
+      hold(on = event.copy(status = EventStatus.Cancelled), seatIds = Nil) shouldBe Left(HoldRejection.EventCancelled)
+    }
+
+    "check the event state before the selection: a started event wins over duplicates and unknown seats" in {
+      hold(seatIds = List(foreignSeat, foreignSeat), at = startsAt) shouldBe Left(HoldRejection.EventNotOnSale)
+    }
+
+    "report a cancelled event even when it has also started" in {
+      hold(on = event.copy(status = EventStatus.Cancelled), seatIds = List(vip1.id), at = startsAt) shouldBe Left(HoldRejection.EventCancelled)
+    }
+
+    "check an empty selection before duplicates and membership" in {
+      hold(seatIds = Nil) shouldBe Left(HoldRejection.NoSeatsSelected)
+    }
+
+    "check duplicates before membership" in {
+      hold(seatIds = List(foreignSeat, foreignSeat)) shouldBe Left(HoldRejection.DuplicateSeats)
+    }
+  }
+}

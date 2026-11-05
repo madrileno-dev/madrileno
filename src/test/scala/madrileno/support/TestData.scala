@@ -6,7 +6,19 @@ import com.comcast.ip4s.IpAddress
 import io.circe.Json
 import madrileno.auction.domain.*
 import madrileno.auth.domain.{AuthContext, *}
-import madrileno.ticket.domain.{ChargeId, Currency as TicketCurrency, Money, OrderId, SeatId, SeatLabel, Ticket, TicketId, TicketStatus}
+import madrileno.ticket.domain.{
+  ChargeId,
+  Currency as TicketCurrency,
+  EventId,
+  Money,
+  OrderId,
+  SeatId,
+  SeatLabel,
+  SectionId,
+  Ticket,
+  TicketId,
+  TicketStatus
+}
 import madrileno.user.domain.*
 import madrileno.utils.crypto.{RandomSecret, UuidV7}
 import madrileno.utils.featureflag.domain.*
@@ -35,6 +47,8 @@ object TestData {
   def randomTicketId(): TicketId     = TicketId(randomUuid())
   def randomOrderId(): OrderId       = OrderId(randomUuid())
   def randomSeatId(): SeatId         = SeatId(randomUuid())
+  def randomEventId(): EventId       = EventId(randomUuid())
+  def randomSectionId(): SectionId   = SectionId(randomUuid())
   // scripts:scaffold-id-factories (scaffold-module.scala inserts random<Aggregate>Id() factories above this line)
   // scripts:auction-block-start
   def randomAuctionId(): AuctionId                         = AuctionId(randomUuid())

@@ -3,7 +3,7 @@ package madrileno.ticket
 import cats.effect.{Clock, IO}
 import com.softwaremill.macwire.*
 import madrileno.auth.domain.AuthContext
-import madrileno.ticket.repositories.TicketRepository
+import madrileno.ticket.repositories.{EventRepository, OrderRepository, TicketRepository}
 import madrileno.ticket.routers.TicketRouter
 import madrileno.ticket.services.TicketService
 import madrileno.utils.db.transactor.Transactor
@@ -19,6 +19,8 @@ trait TicketModule extends AuthRouteProvider {
   given telemetryContext: TelemetryContext
   lazy val ticketConfig: TicketConfig         = config.at("ticket").loadOrThrow[TicketConfig]
   lazy val ticketRepository: TicketRepository = wire[TicketRepository]
+  lazy val eventRepository: EventRepository   = wire[EventRepository]
+  lazy val orderRepository: OrderRepository   = wire[OrderRepository]
 
   private val ticketService = wire[TicketService]
   private val ticketRouter  = wire[TicketRouter]

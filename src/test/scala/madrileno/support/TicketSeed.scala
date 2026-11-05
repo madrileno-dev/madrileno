@@ -1,7 +1,8 @@
 package madrileno.support
 
 import cats.effect.IO
-import madrileno.ticket.domain.{EventId, Money, OrderId, SeatId, SeatLabel}
+import cats.syntax.all.*
+import madrileno.ticket.domain.{EventId, EventSeat, EventSection, EventStatus, Money, OrderId, SeatId, SeatLabel, SectionId}
 import madrileno.user.domain.UserId
 import madrileno.utils.db.transactor.DB
 import skunk.*
@@ -18,9 +19,56 @@ final case class SeededSeat(
   seatLabel: SeatLabel,
   price: Money)
 
-// Event, section, seat and order have no repositories yet (they arrive with the hold use case), so ticket
-// specs insert the rows a ticket's foreign keys need with plain SQL. The customer must already exist.
+// What to seed for one section of an event.
+final case class SectionSpec(
+  name: String,
+  price: Money,
+  seatLabels: List[SeatLabel])
+
+final case class SeededEvent(
+  eventId: EventId,
+  startsAt: Instant,
+  sections: List[EventSection]) {
+  def allSeats: List[EventSeat]           = sections.flatMap(_.seats)
+  def seat(label: String): EventSeat      = allSeats.find(_.label == SeatLabel(label)).getOrElse(sys.error(s"no seeded seat $label"))
+  def section(name: String): EventSection = sections.find(_.name == name).getOrElse(sys.error(s"no seeded section $name"))
+}
+
+// Events and their seating plan have no write path in the application (read-only EventRepository), and orders are
+// written by the hold use case, so specs insert the rows a ticket's foreign keys need with plain SQL.
+// The customer of an order must already exist.
 object TicketSeed {
+
+  private val insertEventWithStatus: Command[(UUID, String, OffsetDateTime, String)] =
+    sql"""INSERT INTO event (id, name, starts_at, status, created_at, updated_at)
+          VALUES ($uuid, $text, $timestamptz, $text, now(), now())""".command
+
+  private val insertNamedSection: Command[(UUID, UUID, String, Long, String)] =
+    sql"""INSERT INTO event_section (id, event_id, name, price_minor, currency)
+          VALUES ($uuid, $uuid, $text, $int8, $text)""".command
+
+  // Seeds an event with the given sections and seats. Returns the event as the read model describes it.
+  def event(
+    sections: List[SectionSpec],
+    status: EventStatus = EventStatus.OnSale,
+    startsAt: Instant = Instant.now().plusSeconds(86400)
+  ): DB[SeededEvent] = {
+    val session = summon[Session[IO]]
+    val eventId = TestData.randomUuid()
+    for {
+      _      <- session.execute(insertEventWithStatus)((eventId, "Test event", startsAt.atOffset(ZoneOffset.UTC), status.toString))
+      seeded <- sections.traverse { spec =>
+                  val sectionId = TestData.randomUuid()
+                  for {
+                    _ <- session.execute(insertNamedSection)((sectionId, eventId, spec.name, spec.price.amountMinor, spec.price.currency.toString))
+                    seats <- spec.seatLabels.traverse { label =>
+                               val seatId = TestData.randomUuid()
+                               session.execute(insertSeat)((seatId, sectionId, label.unwrap)).as(EventSeat(SeatId(seatId), label))
+                             }
+                  } yield EventSection(SectionId(sectionId), spec.name, spec.price, seats)
+                }
+    } yield SeededEvent(EventId(eventId), startsAt, seeded)
+  }
 
   private val insertEvent: Command[(UUID, String, OffsetDateTime)] =
     sql"""INSERT INTO event (id, name, starts_at, status, created_at, updated_at)

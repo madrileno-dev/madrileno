@@ -12,3 +12,6 @@ object SeatId extends Opaque[SeatId, UUID]
 
 opaque type OrderId = UUID
 object OrderId extends Opaque[OrderId, UUID]
+
+opaque type SectionId = UUID
+object SectionId extends Opaque[SectionId, UUID]
