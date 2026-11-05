@@ -159,16 +159,16 @@ Adding a new rejection means adding a clause; if you forget, stir falls back to 
 
 These are caught by `Handlers.exceptionHandler` and rendered as a 500 with `type = "error:internal-error"`. The body carries the trace-id so an incident can be tracked from the user-visible response back through the logs and traces.
 
-One kind is rendered differently: the database not being able to answer right now. `DatabaseUnavailable` — raised when no pooled connection frees up within `pg.acquire-timeout`, and matching a statement cancelled by `statement_timeout` (`57014`), a refused or dropped connection, the server shutting down (`57P01`–`57P03`), running out of connection slots (`53300`) or any connection-exception state (`08xxx`) — becomes a 503 with `type = "error:database-unavailable"`. The request may well succeed on retry; a client can back off and try again instead of reporting a bug. Errors in the request itself (a constraint violation, a deadlock, a missing table) stay 500s.
+One kind is rendered differently: the database not being able to answer right now. `DatabaseUnavailable` — raised when no pooled connection frees up within `pg.acquire-timeout`, and matching a statement cancelled by `statement_timeout` (`57014`), a refused or dropped connection, the server shutting down (`57P01`–`57P03`), running out of connection slots (`53300`) or a connection-exception state (`08xxx`, except the `08P01` protocol violation) — becomes a 503 with `type = "error:database-unavailable"`. The request may well succeed on retry; a client can back off and try again instead of reporting a bug. Errors in the request itself (a constraint violation, a deadlock, a missing table, a transaction the server ended because it sat idle past `pg.idle-in-transaction-timeout`) stay 500s.
 
 ```scala
+case e @ DatabaseUnavailable() =>
+  serverError(e, ServiceUnavailable, "error:database-unavailable", "The database is not available right now", "Database unavailable", loggingDirective)
 case e: Exception =>
-  for {
-    spanContext <- tc.tracer.currentSpanContext
-    headers     <- tc.tracer.propagate(Headers.empty)
-    _           <- logger.error(e)(s"Internal error, trace-id: ${spanContext.map(_.traceIdHex).getOrElse("000")}\n${e.getMessage}")
-  } yield (InternalServerError, headers, Error(/* error:internal-error envelope */))
+  serverError(e, InternalServerError, "error:internal-error", "Internal error", "Internal error", loggingDirective)
 ```
+
+`serverError` logs the error with the trace-id and answers with the error envelope, carrying the trace-id and the propagation headers.
 
 `IllegalArgumentException` is treated specially — it short-circuits to 400 with `rejection:static-validation-failed`. That's because kebs's `validate` and similar guards throw `IllegalArgumentException` for value-construction failures that managed to reach a handler unprotected. It's a safety net, not a primary error path; the right place for those is at the codec boundary, before the value reaches any service.
 

@@ -29,8 +29,8 @@ class DatabaseUnavailableSpec extends AnyWordSpec with Matchers {
     }
 
     "leave errors in the request itself to the internal-error path" in {
-      List("23505", "42P01", "40P01", "25P03").map(code => code -> DatabaseUnavailable.unapply(postgresError(code))) shouldBe
-        List("23505", "42P01", "40P01", "25P03").map(_ -> false)
+      List("23505", "42P01", "40P01", "08P01").map(code => code -> DatabaseUnavailable.unapply(postgresError(code))) shouldBe
+        List("23505", "42P01", "40P01", "08P01").map(_ -> false)
       DatabaseUnavailable.unapply(new RuntimeException("boom")) shouldBe false
     }
   }
