@@ -4,7 +4,7 @@ import cats.effect.unsafe.implicits.global
 import cats.effect.{IO, Resource}
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.dimafeng.testcontainers.scalatest.TestContainersForAll
-import madrileno.utils.db.transactor.{DB, DBInTransaction, PgConfig, PgTransactor, Transactor}
+import madrileno.utils.db.transactor.{DB, DBInTransaction, DatabaseTime, PgConfig, PgTransactor, Transactor}
 import org.scalatest.Suite
 import org.typelevel.otel4s.metrics.MeterProvider
 import org.typelevel.otel4s.trace.TracerProvider
@@ -31,6 +31,9 @@ trait TestTransactor extends TestContainersForAll { self: Suite =>
 
   def tracedTransactor(provider: TracerProvider[IO]): Resource[IO, PgTransactor] =
     PgTransactor.resource(pgConfig)(using provider, MeterProvider.noop[IO])
+
+  def trackedTransactor(databaseTime: DatabaseTime): Resource[IO, PgTransactor] =
+    PgTransactor.resource(pgConfig, databaseTime)
 
   private lazy val pgTransactor: PgTransactor = {
     // Finalizer discarded — pool lifetime is tied to the Testcontainers PG container.

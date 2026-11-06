@@ -157,6 +157,18 @@ override def classify(request: RequestPrelude): Option[String] =
 
 The pattern is naive but fits the project's path conventions. If you start using slug-like identifiers (`/users/foo-bar-baz`) extend the matcher; otherwise every slug ends up its own span name.
 
+## Request timing
+
+`RequestTiming`, wired in `Main` inside the server span, writes one `INFO` line per request saying how long it took and how much of that went to the database:
+
+```
+GET /v1/auctions/1f0c… 200 in 54116 ms, 54084 ms of it in 3 database calls
+```
+
+It is the first line to read when a request is slow: a database share close to the total points at a query, a lock or the pool, and a small one at the code or an outbound call. The time runs until the response is ready, not until its body is streamed. The database share is the time spent in `inSession`, `inTransaction` and `notify`, waiting for a pooled connection included, and counts calls made from fibers the request starts. `PgTransactor` reports them to a `DatabaseTime` that `Main` creates; a transactor built without one (tests, `SeedMain`, `ConsoleApplication`) tracks nothing.
+
+The line carries `http.request.method`, `url.path` (no query string), `http.response.status_code`, `event.duration` and `db.duration` (nanoseconds), `db.calls` and the trace id as MDC fields, which structured output (the OTLP appender, JSON lines) keeps as attributes. A request that failed before it had a response logs `failed` as its status. `/v1/health-check*` logs at `DEBUG`, so probes don't drown out traffic.
+
 ## Request and response log lines
 
 `logRequest` / `logResult` in `ApplicationLoader.routes` write one line per request and one per response at `logging.loglevel-request-response` (default `DEBUG`), bodies included. http4s-stir redacts each line before it reaches the logger, using its default policy (`LogRedaction.default`): header, query, JSON and form values under conventional names (`jwt`, `*Token`, `*Secret`, `password`, `authorization`, …) render as `REDACTED`, multipart and binary bodies render as their size, and a JSON body cut at the log limit is closed at the last well-formed point so what is logged is still JSON, with the masking applied before the cut. The names cover everything this template sends: `firebaseJwtToken`, `idToken`, `refreshToken`, the `jwt` + `refreshToken` response, and `Authorization`. `SecretsStayOutOfLogsSpec` runs the real route tree at debug level and fails if an issued or presented credential shows up in any line, including when the cut lands in the middle of one. Add names with `LogRedaction.default.addNames(...)` if a new route carries a secret under a name the default list does not match. Value rules (`redactBodyValues(f)`, a transform over every logged value, for things like card numbers) are different: with one configured, a truncated body is hidden instead of shown, unless the rule is added with `prefixSafe = true`, which is the author's statement that running `f` on a cut-off prefix cannot leak.

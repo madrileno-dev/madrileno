@@ -6,9 +6,9 @@ import cats.syntax.all.*
 import io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender
 import madrileno.utils.cache.CacheRuntime
 import madrileno.utils.db.Migrations
-import madrileno.utils.db.transactor.{PgConfig, PgTransactor}
+import madrileno.utils.db.transactor.{DatabaseTime, PgConfig, PgTransactor}
 import madrileno.utils.events.bus.EventBusRuntime
-import madrileno.utils.http.{Cors, CorsConfig, RateLimiterRuntime}
+import madrileno.utils.http.{Cors, CorsConfig, RateLimiterRuntime, RequestTiming}
 import madrileno.utils.observability.{LoggingSupport, TelemetryContext}
 import madrileno.utils.resilience.CircuitBreakerRuntime
 import madrileno.utils.storage.{ObjectStoreRuntime, StorageConfig}
@@ -40,10 +40,11 @@ object Main extends IOApp.Simple with LoggingSupport {
       given Meter[IO] <- Resource.eval(summon[MeterProvider[IO]].get(appConfig.name))
       given TelemetryContext = TelemetryContext(Meter[IO], Tracer[IO], otel.underlying)
       _                      = OpenTelemetryAppender.install(otel.underlying)
-      httpClient <- HttpClientFs2Backend.resource[IO]()
-      pgConfig   <- Resource.eval(IO.delay(config.at("pg").loadOrThrow[PgConfig]))
-      transactor <- PgTransactor.resource(pgConfig)
-      _          <- Resource.eval(IO.whenA(appConfig.environment == Environment.Dev)(Migrations.warnIfPending(pgConfig)))
+      httpClient   <- HttpClientFs2Backend.resource[IO]()
+      pgConfig     <- Resource.eval(IO.delay(config.at("pg").loadOrThrow[PgConfig]))
+      databaseTime <- Resource.eval(DatabaseTime.create)
+      transactor   <- PgTransactor.resource(pgConfig, databaseTime)
+      _            <- Resource.eval(IO.whenA(appConfig.environment == Environment.Dev)(Migrations.warnIfPending(pgConfig)))
       clock = Clock[IO]
       schedulerConfig <- Resource.eval(IO.delay(config.at("scheduler").loadOrThrow[SchedulerConfig]))
       scheduler    = Scheduler(transactor, schedulerConfig)
@@ -106,7 +107,10 @@ object Main extends IOApp.Simple with LoggingSupport {
              .withShutdownTimeout(application.httpConfig.shutdownTimeout)
              .withHttpWebSocketApp { wsb =>
                val httpApp = serverMiddleware.wrapHttpApp(
-                 EntityLimiter.httpApp(Metrics(metricsOps)(application.routes(wsb).toHttpRoutes).orNotFound, application.httpConfig.maxRequestSize)
+                 RequestTiming(
+                   EntityLimiter.httpApp(Metrics(metricsOps)(application.routes(wsb).toHttpRoutes).orNotFound, application.httpConfig.maxRequestSize),
+                   databaseTime
+                 )
                )
                corsPolicy.fold(httpApp)(_(httpApp))
              }

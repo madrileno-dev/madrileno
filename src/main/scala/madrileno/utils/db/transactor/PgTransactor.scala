@@ -10,20 +10,20 @@ import skunk.codec.all.text
 import skunk.data.{Identifier, Notification, Type}
 import skunk.implicits.*
 
-class PgTransactor(sessions: Resource[IO, Session[IO]]) extends Transactor {
+class PgTransactor(sessions: Resource[IO, Session[IO]], databaseTime: DatabaseTime = DatabaseTime.untracked) extends Transactor {
 
   override def inTransaction[A](f: DBInTransaction[A]): IO[A] =
-    sessions.use { session =>
+    databaseTime.measure(sessions.use { session =>
       session.transaction.use { transaction =>
         f(using session)(using transaction)
       }
-    }
+    })
 
   override def inSession[A](f: DB[A]): IO[A] =
-    sessions.use(session => f(using session))
+    databaseTime.measure(sessions.use(session => f(using session)))
 
   override def notify(channel: Identifier, payload: String): IO[Unit] =
-    sessions.use(_.unique(PgTransactor.pgNotify)((channel.value, payload))).void
+    databaseTime.measure(sessions.use(_.unique(PgTransactor.pgNotify)((channel.value, payload))).void)
 
   override def listen(channel: Identifier, maxQueued: Int): Resource[IO, Stream[IO, Notification[String]]] =
     sessions.flatMap(_.channel(channel).listenR(maxQueued))
@@ -35,11 +35,12 @@ object PgTransactor {
   private val pgNotify: Query[(String, String), Unit] =
     sql"SELECT pg_notify($text, $text)".query(void).withQuerySummary("NOTIFY")
 
-  def resource(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, PgTransactor] =
+  def resource(pgConfig: PgConfig, databaseTime: DatabaseTime = DatabaseTime.untracked)(using TracerProvider[IO], MeterProvider[IO])
+    : Resource[IO, PgTransactor] =
     for {
       tracer <- Resource.eval(TracerProvider[IO].get("madrileno.utils.db.transactor"))
       pool   <- pooled(pgConfig)
-    } yield new PgTransactor(withQuietRecycling(pool, tracer))
+    } yield new PgTransactor(withQuietRecycling(pool, tracer), databaseTime)
 
   private def withQuietRecycling(sessions: Resource[IO, Session[IO]], tracer: Tracer[IO]): Resource[IO, Session[IO]] =
     Resource.make(sessions.allocated) { case (_, release) => tracer.noopScope(release) }.map(_._1)
