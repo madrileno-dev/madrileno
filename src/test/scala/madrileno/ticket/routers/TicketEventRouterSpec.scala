@@ -33,7 +33,7 @@ class TicketEventRouterSpec extends BaseRouteSpec with TestApplicationLoader wit
           response.body.startsAt shouldBe farFuture
           response.body.status shouldBe EventStatus.OnSale
           response.body.sections shouldBe Nil
-          val stored = application.transactor.inSession(application.eventRepository.find(response.body.id)).unsafeRunSync()
+          val stored = application.transactor.inSession(application.eventRepository.findWithSeats(response.body.id)).unsafeRunSync()
           stored.map(_.startsAt) shouldBe Some(farFuture)
         },
       // An offset is accepted by the Instant decoder and normalised: 19:30+01:00 is 18:30Z.
@@ -42,7 +42,7 @@ class TicketEventRouterSpec extends BaseRouteSpec with TestApplicationLoader wit
         .assert { ctx =>
           val response = ctx.performRequest(allRoutes)
           response.body.startsAt shouldBe farFuture
-          val stored = application.transactor.inSession(application.eventRepository.find(response.body.id)).unsafeRunSync()
+          val stored = application.transactor.inSession(application.eventRepository.findWithSeats(response.body.id)).unsafeRunSync()
           stored.map(_.startsAt) shouldBe Some(farFuture)
         },
       onRequest(body = CreateEventRequest(EventName("Old"), Instant.now().minusSeconds(3600)), security = bearer.apply(validJwt(stranger)))

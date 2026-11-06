@@ -27,14 +27,14 @@ A Held ticket whose hold ran out is still `Held` in the table until something ca
 
 ## Endpoints
 
-All routes are under `/v1` and need `Authorization: Bearer <jwt>`; a missing or invalid token is `401` everywhere. A body that does not decode (bad JSON, blank name/label/charge id, negative price, unknown currency, a seat id that is not a UUID) is `400`. Error bodies follow the envelope in [error-handling.md](error-handling.md); the *error code* column is the stable `type` tag.
+All routes are under `/v1` and need `Authorization: Bearer <jwt>`; a missing or invalid token is `401` everywhere. A body that does not decode (bad JSON, a blank, over-long or control-character name/label/charge id, negative price, unknown currency, a seat id that is not a UUID) is `400`. Error bodies follow the envelope in [error-handling.md](error-handling.md); the *error code* column is the stable `type` tag.
 
 | Method and path | Success | Errors (status: error code) |
 | --- | --- | --- |
-| `POST /events` | `201` event | `422: event-in-the-past` |
+| `POST /events` | `201` event | `422: event-in-the-past`, `422: event-too-far-in-future`, `429: rate-limited` |
 | `GET /events/{eventId}` | `200` event with its seating plan (`sections` is empty for a new event) | `404: event-not-found` |
-| `POST /events/{eventId}/sections` | `201` section with seat ids | `404: event-not-found`, `409: event-not-on-sale`, `409: section-name-taken`, `410: event-cancelled`, `422: no-seats-in-section`, `422: duplicate-seat-labels`, `422: price-must-be-positive` |
-| `POST /events/{eventId}/orders` (hold seats) | `201` order with its Held tickets | `404: event-not-found`, `409: event-not-on-sale`, `409: seat-already-taken`, `410: event-cancelled`, `422: no-seats-selected`, `422: too-many-seats`, `422: duplicate-seats`, `422: seat-not-in-event` |
+| `POST /events/{eventId}/sections` | `201` section with seat ids | `404: event-not-found`, `409: event-not-on-sale`, `409: section-name-taken`, `410: event-cancelled`, `422: no-seats-in-section`, `422: too-many-seats-in-section`, `422: duplicate-seat-labels`, `422: price-must-be-positive`, `429: rate-limited` |
+| `POST /events/{eventId}/orders` (hold seats) | `201` order with its Held tickets | `404: event-not-found`, `409: event-not-on-sale`, `409: seat-already-taken`, `410: event-cancelled`, `422: no-seats-selected`, `422: too-many-seats`, `422: duplicate-seats`, `422: seat-not-in-event`, `429: rate-limited` |
 | `GET /tickets/{ticketId}` | `200` ticket | `404: ticket-not-found` |
 | `POST /tickets/{ticketId}/pay` | `200` ticket | `404: ticket-not-found`, `409: ticket-already-paid`, `409: charge-already-used`, `410: ticket-cancelled`, `410: ticket-expired` |
 | `POST /tickets/{ticketId}/cancel` | `200` ticket | `404: ticket-not-found`, `409: ticket-already-paid`, `410: ticket-cancelled` |
@@ -76,7 +76,7 @@ A hold lasts `ticket.hold-duration` (default `10 minutes`, env `TICKET_HOLD_DURA
 
 ### Canonical insert order against deadlocks
 
-`holdSeats` inserts the tickets of an order sorted by seat id, not in request order (the response keeps the request order). A unique-index insert waits for a concurrent transaction that inserted the same seat; two holds of `[A,B]` and `[B,A]` in request order would wait for each other and Postgres would kill one with a deadlock (`40P01`, a `500`). With one global order, one transaction wins the lowest contested seat and the other fails cleanly with `seat-already-taken`. Expired holds are released in the same canonical order.
+`holdSeats` inserts the tickets of an order sorted by seat id, not in request order (the response keeps the request order). A unique-index insert waits for a concurrent transaction that inserted the same seat; two holds of `[A,B]` and `[B,A]` in request order would wait for each other and Postgres would kill one with a deadlock (`40P01`, a `500`). With one global order, one transaction wins the lowest contested seat and the other fails cleanly with `seat-already-taken`. The release of expired holds (`releaseExpiredHolds`) follows the same idea: the old, expired tickets of the requested seats are cancelled in ticket-id order, and that happens before the new tickets are inserted in seat-id order. Two ticket orders are involved, so it is not one single order: each phase is ordered on its own, which is enough because the phases always run in that sequence.
 
 ### At most 8 seats per order
 
@@ -84,7 +84,20 @@ A hold lasts `ticket.hold-duration` (default `10 minutes`, env `TICKET_HOLD_DURA
 
 ### Adding sections
 
-Seats are created through `POST /events/{eventId}/sections`. The repository locks the event row `FOR UPDATE`, loads the plan, applies `Event.addSection` and inserts the section and its seats; a domain rejection writes nothing. The lock serialises additions to one event, which is what makes the name check in the domain race-free. The unique constraints on `(event_id, name)` and `(section_id, label)` remain as a backstop and are deliberately not translated: a violation would be a bug. Sections can only be added while the event is on sale, so the plan is frozen once sales stop. A section price must be greater than zero (the column `CHECK` requires it; `Money` itself accepts `0`).
+Seats are created through `POST /events/{eventId}/sections`. The repository locks the event row `FOR NO KEY UPDATE` (not `FOR UPDATE`: that would conflict with the `FOR KEY SHARE` lock Postgres takes on the event row for the foreign key of `ticket_order.event_id`, and block every concurrent hold), loads the plan, applies `Event.addSection` and inserts the section and its seats; a domain rejection writes nothing. The lock serialises additions to one event, which is what makes the name check in the domain race-free. The unique constraints on `(event_id, name)` and `(section_id, label)` remain as a backstop and are deliberately not translated: a violation would be a bug. Sections can only be added while the event is on sale, so the plan is frozen once sales stop. A section price must be greater than zero (the column `CHECK` requires it; `Money` itself accepts `0`).
+
+### Input limits
+
+Bounds that keep oversized or odd input from turning into a `500`:
+
+| Limit | Value | Where | Answer |
+| --- | --- | --- | --- |
+| seats per section | 500 (`Event.MaxSeatsPerSection`) | the seat `INSERT` binds 3 parameters per seat and Postgres allows 65,535; the 10 MiB body limit alone would allow more | `422 too-many-seats-in-section` |
+| seats per order | 8 (`Event.MaxSeatsPerOrder`) | product decision, see above | `422 too-many-seats` |
+| event name, section name, seat label, charge id | at most 200 characters after trimming, no control characters (a NUL cannot be stored by Postgres text) | `TextRules`, mirrored by `CHECK (char_length(..) <= 200)` in V7 | `400` (the body does not decode) |
+| event start | at most 5 years (5 * 365 days) ahead, `Event.MaxEventHorizon` | a year like `+999999999` is a valid `Instant` but cannot be stored | `422 event-too-far-in-future` |
+
+String length is counted in code points, like Postgres `char_length`. Control characters at the very edge of a value are removed by the trim; only the ones inside are rejected.
 
 ## Known simplifications and debt
 
@@ -93,7 +106,9 @@ Seats are created through `POST /events/{eventId}/sections`. The repository lock
 - **No payment gateway.** The client supplies `chargeId` (an opaque provider reference); the module only guarantees that one charge pays at most one ticket. Nothing verifies the charge.
 - **Free tickets are unsupported.** `price_minor > 0` is a database `CHECK`; allowing `0` means changing the domain and the constraints together.
 - **Payment is per ticket.** There is no order-level payment and no refunds, so a paid ticket cannot be cancelled (`409 ticket-already-paid`).
-- **No limit on the size of a section** in one request, and no way to edit or remove a section or seat once created.
+- **No way to edit or remove a section or seat** once created (the size of one section is capped, see [input limits](#input-limits)).
+- **No reaction to account deletion.** The module does not subscribe to `UserAccountDeleted`: the Held tickets of a deleted user simply expire, and Paid tickets keep pointing at the user.
+- **No way to read an order or list one's tickets.** Only `GET /tickets/{ticketId}` exists, so a client that loses the response of the hold request cannot recover its ticket ids.
 
 ## Try it
 

@@ -3,12 +3,13 @@ package madrileno.ticket
 import pureconfig.*
 import pureconfig.error.CannotConvert
 
+import java.time.Duration
 import scala.concurrent.duration.FiniteDuration
 
 /** How long a ticket stays held before the hold expires. */
 final case class TicketConfig(holdDuration: FiniteDuration) {
   // `Ticket.hold` takes a java.time.Duration
-  def holdDurationJava: java.time.Duration = java.time.Duration.ofNanos(holdDuration.toNanos)
+  def holdDurationJava: Duration = Duration.ofNanos(holdDuration.toNanos)
 }
 
 object TicketConfig {

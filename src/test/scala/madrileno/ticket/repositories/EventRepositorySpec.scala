@@ -149,33 +149,15 @@ class EventRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers w
     }
   }
 
-  "EventRepository.save and find" should {
+  "EventRepository.save" should {
     "round-trip a new event, with no sections, and keep the instant" in withRollback {
       val startsAt = Instant.parse("2030-12-01T18:30:00Z")
       val created  = Instant.parse("2026-01-01T10:00:00Z")
       val event    = Event(TestData.randomEventId(), EventName("Concert"), startsAt, EventStatus.OnSale, created, created, Nil)
       for {
-        _     <- eventRepo.save(event)
-        found <- eventRepo.find(event.id)
-        full  <- eventRepo.findWithSeats(event.id)
-      } yield {
-        found shouldBe Some(event)
-        full shouldBe Some(event)
-      }
-    }
-
-    "return None for an unknown event" in withRollback {
-      eventRepo.find(TestData.randomEventId()).map(_ shouldBe None)
-    }
-
-    "find an event without loading its seating plan" in withRollback {
-      for {
-        seeded <- TicketSeed.event(List(SectionSpec("VIP", vip, List(SeatLabel("V-1")))))
-        found  <- eventRepo.find(seeded.eventId)
-      } yield {
-        found.map(_.id) shouldBe Some(seeded.eventId)
-        found.map(_.sections) shouldBe Some(Nil)
-      }
+        _    <- eventRepo.save(event)
+        full <- eventRepo.findWithSeats(event.id)
+      } yield full shouldBe Some(event)
     }
   }
 

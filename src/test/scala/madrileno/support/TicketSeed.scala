@@ -34,8 +34,9 @@ final case class SeededEvent(
   def section(name: String): EventSection = sections.find(_.name.unwrap == name).getOrElse(sys.error(s"no seeded section $name"))
 }
 
-// Events and their seating plan have no write path in the application (read-only EventRepository), and orders are
-// written by the hold use case, so specs insert the rows a ticket's foreign keys need with plain SQL.
+// Events and their seating plan do have a write path (EventRepository.save / addSection), but specs that need a
+// ticket's foreign keys, exact names, statuses or start times insert the rows with plain SQL instead: it is faster and
+// does not depend on the code under test. Orders are normally written by the hold use case; here they are inserted too.
 // The customer of an order must already exist.
 object TicketSeed {
 

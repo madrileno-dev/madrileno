@@ -68,8 +68,10 @@ CREATE INDEX ticket_held_until_held_idx ON ticket (held_until) WHERE status = 'H
 -- event_section.event_id and event_seat.section_id are already the leading columns of their UNIQUE
 -- constraints' indexes, so they need no separate FK index.
 -- ticket_live_seat_uidx is partial (live tickets only), so seat_id still gets a full index for FK checks.
+-- The customer/event FK indexes below are deliberate: Postgres does not index FK columns, and these serve joins and
+-- orphan checks (deleting a referenced row scans the referencing table).
 CREATE INDEX ticket_seat_id_idx ON ticket (seat_id);
 CREATE INDEX ticket_order_event_id_idx ON ticket_order (event_id);
 CREATE INDEX ticket_order_customer_id_idx ON ticket_order (customer_id);
-CREATE INDEX ticket_order_id_idx ON ticket (order_id);
+CREATE INDEX ticket_order_fk_idx ON ticket (order_id);
 CREATE INDEX ticket_customer_id_idx ON ticket (customer_id);

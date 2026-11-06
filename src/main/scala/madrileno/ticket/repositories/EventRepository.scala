@@ -88,10 +88,6 @@ class EventRepository {
   def save(event: Event): DB[Unit] =
     eventRepository.create(EventRow(event)).void
 
-  // Reads only the event row: `sections` is always empty. Use findWithSeats when the seating plan is needed.
-  def find(id: EventId): DB[Option[Event]] =
-    eventRepository.findById(id).map(_.map(toEvent(_, Nil)))
-
   // The only write path of the seating plan, same shape as TicketRepository.update. The event row is locked first,
   // which serialises concurrent additions to the same event: the section-name check in `f` (the domain) then
   // sees every section committed before ours and is race-free. The plan is loaded only after the lock is held.
