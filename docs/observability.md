@@ -321,7 +321,7 @@ OTEL_TRACES_EXPORTER=none                  # if nothing receives traces or logs
 OTEL_LOGS_EXPORTER=none
 ```
 
-The SDK then serves `GET /metrics` on its own port (9464 unless set; `OTEL_EXPORTER_PROMETHEUS_HOST`, default `0.0.0.0`, picks the interface), not on the API port, so it stays off the public ingress: expose it only to the scraper. It carries the same metrics as OTLP — `http_server_request_duration_seconds` and `http_server_active_requests` from the http4s middleware, `db_client_operation_duration_seconds` from Skunk, and whatever modules record — with dots turned into underscores. `PrometheusMetricsSpec` checks the exporter is wired.
+`OTEL_SDK_DISABLED=false` is part of it: with the stock `.env` value, `true`, the exporter never starts and nothing listens on 9464. The SDK then serves `GET /metrics` on its own port (9464 unless set; `OTEL_EXPORTER_PROMETHEUS_HOST`, default `0.0.0.0`, picks the interface), not on the API port, so it stays off the public ingress: expose it only to the scraper. It carries the same metrics as OTLP — `http_server_request_duration_seconds` and `http_server_active_requests` from the http4s middleware, `db_client_operation_duration_seconds` from Skunk, and whatever modules record — with dots turned into underscores. `PrometheusMetricsSpec` checks the exporter is wired.
 
 ## OpenObserve in dev
 
