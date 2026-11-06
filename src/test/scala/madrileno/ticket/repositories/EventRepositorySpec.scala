@@ -12,7 +12,7 @@ import skunk.exception.PostgresErrorException
 import skunk.implicits.*
 import skunk.{Command, Session}
 
-import java.time.Instant
+import java.time.{Duration, Instant}
 import java.util.UUID
 
 class EventRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
@@ -135,7 +135,7 @@ class EventRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers w
         seat  = seeded.seat("V-1")
         order = Order(TestData.randomOrderId(), seeded.eventId, customer.id, now)
         _ <- orderRepo.save(order)
-        ticket = Ticket.hold(TestData.randomTicketId(), order.id, seat.id, customer.id, seat.label, vip, now, java.time.Duration.ofMinutes(10))
+        ticket = Ticket.hold(TestData.randomTicketId(), order.id, seat.id, customer.id, seat.label, vip, now, Duration.ofMinutes(10))
         _      <- ticketRepo.save(ticket)
         stored <- ticketRepo.find(ticket.id)
       } yield stored shouldBe Some(ticket)

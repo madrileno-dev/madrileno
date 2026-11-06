@@ -21,6 +21,7 @@ import skunk.codec.all.*
 import skunk.implicits.*
 
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 import scala.concurrent.duration.*
 
@@ -294,7 +295,7 @@ class TicketServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matchers wit
 
   "TicketService.createEvent" should {
     "persist an OnSale event that getEvent returns" in {
-      val startsAt = Instant.now().plusSeconds(86400).truncatedTo(java.time.temporal.ChronoUnit.MICROS)
+      val startsAt = Instant.now().plusSeconds(86400).truncatedTo(ChronoUnit.MICROS)
       for {
         result <- service.createEvent(CreateEventCommand(EventName("Concert"), startsAt))
         created = result match {
