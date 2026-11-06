@@ -19,11 +19,12 @@ class PgTransactor(
   idleInTransactionTimeout: Duration,
   operationTimeout: Duration,
   abandoned: Supervisor[IO],
-  newConnection: Resource[IO, Session[IO]])
+  newConnection: Resource[IO, Session[IO]],
+  databaseTime: DatabaseTime = DatabaseTime.untracked)
     extends Transactor {
 
   override def inTransaction[A](f: DBInTransaction[A]): IO[A] =
-    withinOperationTimeout(sessions.use { session =>
+    timed(sessions.use { session =>
       IO.monotonic.flatMap { started =>
         session.transaction
           .use { transaction =>
@@ -43,19 +44,22 @@ class PgTransactor(
     }
 
   override def inSession[A](f: DB[A]): IO[A] =
-    withinOperationTimeout(sessions.use(session => f(using session)))
+    timed(sessions.use(session => f(using session)))
 
   override def inNewConnection[A](f: DB[A]): IO[A] =
     newConnection.use(session => f(using session))
 
   override def notify(channel: Identifier, payload: String): IO[Unit] =
-    withinOperationTimeout(sessions.use(_.unique(PgTransactor.pgNotify)((channel.value, payload))).void)
+    timed(sessions.use(_.unique(PgTransactor.pgNotify)((channel.value, payload))).void)
 
   override def listen(channel: Identifier, maxQueued: Int): Resource[IO, Stream[IO, Notification[String]]] =
     sessions.flatMap(_.channel(channel).listenR(maxQueued))
 
   override def withOperationTimeout(timeout: Duration): Transactor =
-    new PgTransactor(sessions, idleInTransactionTimeout, timeout, abandoned, newConnection)
+    new PgTransactor(sessions, idleInTransactionTimeout, timeout, abandoned, newConnection, databaseTime)
+
+  private def timed[A](operation: IO[A]): IO[A] =
+    databaseTime.measure(withinOperationTimeout(operation))
 
   private def withinOperationTimeout[A](operation: IO[A]): IO[A] =
     operationTimeout match {
@@ -76,25 +80,28 @@ object PgTransactor {
   private val pgNotify: Query[(String, String), Unit] =
     sql"SELECT pg_notify($text, $text)".query(void).withQuerySummary("NOTIFY")
 
-  def resource(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, PgTransactor] =
+  def resource(pgConfig: PgConfig, databaseTime: DatabaseTime = DatabaseTime.untracked)(using TracerProvider[IO], MeterProvider[IO])
+    : Resource[IO, PgTransactor] =
     for {
       tracer    <- Resource.eval(TracerProvider[IO].get("madrileno.utils.db.transactor"))
       pool      <- builder(pgConfig).pooled(pgConfig.max)
       giveUps   <- Supervisor[IO](await = true)
       abandoned <- Supervisor[IO](await = true)
     } yield new PgTransactor(
-      bounded(pool, pgConfig.acquireTimeout, tracer, giveUps),
+      bounded(pool, pgConfig.acquireTimeout, tracer, giveUps, databaseTime),
       pgConfig.idleInTransactionTimeout,
       pgConfig.operationTimeout,
       abandoned,
-      builder(pgConfig).withReadTimeout(pgConfig.readTimeout.min(newConnectionReadTimeout)).single
+      builder(pgConfig).withReadTimeout(pgConfig.readTimeout.min(newConnectionReadTimeout)).single,
+      databaseTime
     )
 
   private[transactor] def bounded[A](
     resource: Resource[IO, A],
     acquireTimeout: Duration,
     tracer: Tracer[IO],
-    giveUps: Supervisor[IO]
+    giveUps: Supervisor[IO],
+    databaseTime: DatabaseTime = DatabaseTime.untracked
   ): Resource[IO, A] =
     Resource
       .makeFull[IO, (A, IO[Unit])] { poll =>
@@ -104,7 +111,7 @@ object PgTransactor {
               waiting.joinWithNever.timeoutTo(timeout, IO.raiseError(new DatabaseUnavailable(s"No database connection became free within $timeout")))
             case _ => waiting.joinWithNever
           }
-          poll(handedOver).guaranteeCase {
+          databaseTime.waitingForConnection(poll(handedOver)).guaranteeCase {
             case Outcome.Succeeded(_) => IO.unit
             case _                    => giveUps.supervise(giveUp(waiting, tracer)).void
           }
