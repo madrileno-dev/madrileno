@@ -35,6 +35,7 @@ Skim the **Start here** path on day one. Reach for the rest by topic.
 - [`cache.md`](cache.md) — `CacheRuntime` over Caffeine; per-JVM scope; multi-instance considerations.
 - [`rate-limiting.md`](rate-limiting.md) — fixed-window directive, per-route buckets, IP / user / header discriminators.
 - [`feature-flags.md`](feature-flags.md) — typed variants, targeting rules + segments, percentage rollouts, admin API + audit, client bootstrap; the auction showcase.
+- [`ticketing.md`](ticketing.md) — the ticket module: events with sections and seats, orders and the Held/Paid/Cancelled ticket state machine, endpoints and error codes, double-booking and expiry decisions, known debt, and a curl walkthrough.
 
 ## Tooling
 
