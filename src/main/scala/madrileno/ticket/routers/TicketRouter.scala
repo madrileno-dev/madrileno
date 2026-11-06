@@ -4,6 +4,8 @@ import madrileno.auth.domain.AuthContext
 import madrileno.ticket.domain.{Event, EventId, TicketId}
 import madrileno.ticket.routers.dto.{CreateEventRequest, EventDto, HoldSeatsRequest, OrderDto, PayTicketRequest, TicketDto}
 import madrileno.ticket.services.{
+  CancelTicketCommand,
+  CancelTicketResult,
   CreateEventCommand,
   CreateEventResult,
   HoldSeatsCommand,
@@ -37,6 +39,17 @@ class TicketRouter(ticketService: TicketService)(using TelemetryContext) extends
             case PayTicketResult.TicketCancelled   => error(Gone, "ticket-cancelled", "Ticket has been cancelled")
             case PayTicketResult.TicketExpired     => error(Gone, "ticket-expired", "Ticket hold has expired")
             case PayTicketResult.ChargeAlreadyUsed => error(Conflict, "charge-already-used", "This charge was already used for another ticket")
+          }
+        }
+      } ~
+      (post & path("tickets" / JavaUUID.as[TicketId] / "cancel") & pathEndOrSingleSlash) { id =>
+        complete {
+          ticketService.cancelTicket(CancelTicketCommand(id, authContext.userId)).map[ToResponseMarshallable] {
+            case CancelTicketResult.TicketCancelledOk(ticket) => Ok -> TicketDto(ticket)
+            case CancelTicketResult.TicketNotFound            => error(NotFound, "ticket-not-found", "Ticket not found")
+            // Paying is final: a paid ticket would need a refund, which is out of scope.
+            case CancelTicketResult.TicketAlreadyPaid      => error(Conflict, "ticket-already-paid", "Ticket has already been paid")
+            case CancelTicketResult.TicketAlreadyCancelled => error(Gone, "ticket-cancelled", "Ticket has been cancelled")
           }
         }
       } ~

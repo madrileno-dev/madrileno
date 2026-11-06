@@ -61,8 +61,9 @@ class TicketRouterSpec extends BaseRouteSpec with TestApplicationLoader {
     SeededTicket(ticket, customer)
   }
 
+  // The charge id is unique per call: charge_id has a unique index and several scenarios seed a paid ticket.
   private def paid(ticket: Ticket): Ticket =
-    ticket.copy(status = TicketStatus.Paid, chargeId = Some(ChargeId("ch_earlier")), paidAt = Some(Instant.now()))
+    ticket.copy(status = TicketStatus.Paid, chargeId = Some(ChargeId(s"ch_earlier_${TestData.randomUuid()}")), paidAt = Some(Instant.now()))
 
   private def cancelled(ticket: Ticket): Ticket =
     ticket.copy(status = TicketStatus.Cancelled)
@@ -205,6 +206,66 @@ class TicketRouterSpec extends BaseRouteSpec with TestApplicationLoader {
           ctx.performRequest(allRoutes)
         },
       onRequest(body = PayTicketRequest(chargeId), pathParameters = TestData.randomTicketId())
+        .respondsWith[Error[Unit]](Unauthorized, description = "Missing credentials")
+        .assert(_.performRequest(allRoutes))
+    )
+  )
+
+  path("/v1/tickets/{id}/cancel")(
+    supports(
+      POST,
+      description = "Cancel a held ticket",
+      summary = "Cancels the caller's own Held ticket, which frees its seat. Paid tickets cannot be cancelled (no refunds)",
+      securitySchemes = Seq(bearerScheme),
+      pathParameters = p[TicketId]("id"),
+      tags = Seq("Tickets")
+    )(
+      withSetup(seedTicket())
+        .request(seeded => onRequest(security = bearer.apply(validJwt(seeded.ownerAuth)), pathParameters = seeded.ticket.id))
+        .respondsWith[TicketDto](Ok, description = "Ticket cancelled")
+        .assert { case (ctx, seeded) =>
+          val response = ctx.performRequest(allRoutes)
+          response.body.id shouldBe seeded.ticket.id
+          response.body.status shouldBe TicketStatus.Cancelled
+          val stored = application.transactor.inSession(application.ticketRepository.find(seeded.ticket.id)).unsafeRunSync()
+          stored.map(_.status) shouldBe Some(TicketStatus.Cancelled)
+        },
+      // An expired but not yet cancelled hold may still be cancelled by its owner.
+      withSetup(seedTicket(expired))
+        .request(seeded => onRequest(security = bearer.apply(validJwt(seeded.ownerAuth)), pathParameters = seeded.ticket.id))
+        .respondsWith[TicketDto](Ok, description = "Expired hold cancelled")
+        .assert { case (ctx, _) =>
+          ctx.performRequest(allRoutes).body.status shouldBe TicketStatus.Cancelled
+        },
+      onRequest(security = bearer.apply(validJwt(stranger)), pathParameters = TestData.randomTicketId())
+        .respondsWith[Error[Unit]](NotFound, description = "Ticket not found")
+        .assert { ctx =>
+          ctx.performRequest(allRoutes).body.title shouldBe Some("Ticket not found")
+        },
+      // Authorization: cancelling someone else's ticket looks exactly like cancelling a missing one, and changes nothing.
+      withSetup(seedTicket())
+        .request(seeded => onRequest(security = bearer.apply(validJwt(stranger)), pathParameters = seeded.ticket.id))
+        .respondsWith[Error[Unit]](NotFound, description = "Ticket belongs to someone else: reported as not found")
+        .assert { case (ctx, seeded) =>
+          ctx.performRequest(allRoutes).body.title shouldBe Some("Ticket not found")
+          val stored = application.transactor.inSession(application.ticketRepository.find(seeded.ticket.id)).unsafeRunSync()
+          stored.map(_.status) shouldBe Some(TicketStatus.Held)
+        },
+      withSetup(seedTicket(paid))
+        .request(seeded => onRequest(security = bearer.apply(validJwt(seeded.ownerAuth)), pathParameters = seeded.ticket.id))
+        .respondsWith[Error[Unit]](Conflict, description = "Ticket has already been paid")
+        .assert { case (ctx, seeded) =>
+          ctx.performRequest(allRoutes).body.title shouldBe Some("Ticket has already been paid")
+          val stored = application.transactor.inSession(application.ticketRepository.find(seeded.ticket.id)).unsafeRunSync()
+          stored.map(_.status) shouldBe Some(TicketStatus.Paid)
+        },
+      withSetup(seedTicket(cancelled))
+        .request(seeded => onRequest(security = bearer.apply(validJwt(seeded.ownerAuth)), pathParameters = seeded.ticket.id))
+        .respondsWith[Error[Unit]](Gone, description = "Ticket has already been cancelled")
+        .assert { case (ctx, _) =>
+          ctx.performRequest(allRoutes).body.title shouldBe Some("Ticket has been cancelled")
+        },
+      onRequest(pathParameters = TestData.randomTicketId())
         .respondsWith[Error[Unit]](Unauthorized, description = "Missing credentials")
         .assert(_.performRequest(allRoutes))
     )

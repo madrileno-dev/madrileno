@@ -17,6 +17,10 @@ enum CancelRejection {
   case AlreadyPaid, AlreadyCancelled
 }
 
+enum UserCancelRejection {
+  case NotOwner, AlreadyPaid, AlreadyCancelled
+}
+
 // Invariant: `status == Paid` exactly when `chargeId` and `paidAt` are both defined;
 // Held and Cancelled tickets have both set to None. Only `pay` produces a Paid ticket
 // and it sets all three together, so the invariant cannot be broken through the public API's transitions.
@@ -62,6 +66,20 @@ final case class Ticket(
       case TicketStatus.Held      => Right(copy(status = TicketStatus.Cancelled, updatedAt = now))
       case TicketStatus.Paid      => Left(CancelRejection.AlreadyPaid)
       case TicketStatus.Cancelled => Left(CancelRejection.AlreadyCancelled)
+    }
+  }
+
+  // Customer-initiated cancellation. Guard order: ownership first, so that a foreign user learns nothing about the
+  // ticket's state (NotOwner wins even for paid/cancelled tickets, same as `pay`). Then the state rules of `cancel`
+  // are reused as they are: a Held ticket is cancelable even past `heldUntil` (cancelling an expired hold is harmless
+  // and frees the seat), Paid -> AlreadyPaid (no refunds), Cancelled -> AlreadyCancelled.
+  def cancelBy(requesterId: UserId, now: Instant): Either[UserCancelRejection, Ticket] = {
+    if (requesterId != customerId) Left(UserCancelRejection.NotOwner)
+    else {
+      cancel(now).left.map {
+        case CancelRejection.AlreadyPaid      => UserCancelRejection.AlreadyPaid
+        case CancelRejection.AlreadyCancelled => UserCancelRejection.AlreadyCancelled
+      }
     }
   }
 }

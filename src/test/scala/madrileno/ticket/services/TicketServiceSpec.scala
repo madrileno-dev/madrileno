@@ -268,6 +268,26 @@ class TicketServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matchers wit
     }
   }
 
+  "TicketService.cancelTicket" should {
+    "cancel the owner's Held ticket and make its seat holdable again" in {
+      for {
+        customer <- seedCustomer()
+        other    <- seedCustomer()
+        event    <- seedEvent()
+        seat = event.seat("A-1")
+        held <- holdOrFail(command(event, customer, seat))
+        ticket = held.tickets.head
+        cancelled <- service.cancelTicket(CancelTicketCommand(ticket.id, customer.id))
+        liveAfter <- liveTickets(seat)
+        reheld    <- service.holdSeats(command(event, other, seat))
+      } yield {
+        cancelled should matchPattern { case CancelTicketResult.TicketCancelledOk(t) if t.status == TicketStatus.Cancelled => }
+        liveAfter shouldBe 0L
+        reheld shouldBe a[HoldSeatsResult.SeatsHeld]
+      }
+    }
+  }
+
   "TicketService.createEvent" should {
     "persist an OnSale event that getEvent returns" in {
       val startsAt = Instant.now().plusSeconds(86400).truncatedTo(java.time.temporal.ChronoUnit.MICROS)

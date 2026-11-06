@@ -147,4 +147,36 @@ class TicketSpec extends AnyWordSpec with Matchers {
       held shouldBe Ticket.hold(held.id, held.orderId, held.seatId, customerId, held.seatLabel, price, now, holdDuration)
     }
   }
+
+  "Ticket.cancelBy" should {
+    val later = now.plusSeconds(60)
+
+    "let the owner cancel a Held ticket" in {
+      held.cancelBy(customerId, later) shouldBe Right(held.copy(status = TicketStatus.Cancelled, updatedAt = later))
+    }
+
+    "let the owner cancel a Held ticket whose hold has already expired" in {
+      held.cancelBy(customerId, heldUntil.plusSeconds(1)).map(_.status) shouldBe Right(TicketStatus.Cancelled)
+    }
+
+    "reject with NotOwner when the requester is not the customer" in {
+      held.cancelBy(stranger, later) shouldBe Left(UserCancelRejection.NotOwner)
+    }
+
+    "reject with NotOwner for a foreign user on a paid ticket (ownership before state)" in {
+      paid.cancelBy(stranger, later) shouldBe Left(UserCancelRejection.NotOwner)
+    }
+
+    "reject with NotOwner for a foreign user on a cancelled ticket (ownership before state)" in {
+      cancelled.cancelBy(stranger, later) shouldBe Left(UserCancelRejection.NotOwner)
+    }
+
+    "reject with AlreadyPaid for the owner of a paid ticket" in {
+      paid.cancelBy(customerId, later) shouldBe Left(UserCancelRejection.AlreadyPaid)
+    }
+
+    "reject with AlreadyCancelled for the owner of a cancelled ticket" in {
+      cancelled.cancelBy(customerId, later) shouldBe Left(UserCancelRejection.AlreadyCancelled)
+    }
+  }
 }

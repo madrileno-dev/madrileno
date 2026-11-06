@@ -30,6 +30,17 @@ enum PayTicketResult {
   case ChargeAlreadyUsed
 }
 
+final case class CancelTicketCommand(ticketId: TicketId, requesterId: UserId)
+
+enum CancelTicketResult {
+  case TicketCancelledOk(ticket: Ticket)
+  // Also returned for a ticket owned by someone else: a foreign ticket must be indistinguishable from a missing one.
+  case TicketNotFound
+  // Refunds are out of scope, so a paid ticket cannot be cancelled by the customer.
+  case TicketAlreadyPaid
+  case TicketAlreadyCancelled
+}
+
 final case class CreateEventCommand(name: EventName, startsAt: Instant)
 
 enum CreateEventResult {
@@ -122,6 +133,21 @@ class TicketService(
   // missing one, so the endpoint cannot be used to probe which ticket ids exist.
   def find(id: TicketId, requesterId: UserId): IO[Option[Ticket]] =
     transactor.inSession(ticketRepository.find(id)).map(_.filter(_.customerId == requesterId))
+
+  // The customer gives up a Held ticket, which frees its seat (the partial unique index only covers Held/Paid).
+  def cancelTicket(command: CancelTicketCommand): IO[CancelTicketResult] =
+    transactor.inTransaction {
+      Clock[IO].realTimeInstant.flatMap { now =>
+        ticketRepository.update(command.ticketId, _.cancelBy(command.requesterId, now)).map {
+          case None => CancelTicketResult.TicketNotFound
+          // Deliberately the same result as a missing ticket: do not leak that the ticket exists.
+          case Some(Left(UserCancelRejection.NotOwner))         => CancelTicketResult.TicketNotFound
+          case Some(Left(UserCancelRejection.AlreadyPaid))      => CancelTicketResult.TicketAlreadyPaid
+          case Some(Left(UserCancelRejection.AlreadyCancelled)) => CancelTicketResult.TicketAlreadyCancelled
+          case Some(Right(cancelled))                           => CancelTicketResult.TicketCancelledOk(cancelled)
+        }
+      }
+    }
 
   // Any authenticated user may create an event: there are no organizer roles in this step (a conscious simplification).
   def createEvent(command: CreateEventCommand): IO[CreateEventResult] =
