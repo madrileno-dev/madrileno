@@ -1,7 +1,7 @@
 package madrileno.ticket.routers
 
 import madrileno.auth.domain.AuthContext
-import madrileno.ticket.domain.{EventId, TicketId}
+import madrileno.ticket.domain.{Event, EventId, TicketId}
 import madrileno.ticket.routers.dto.{CreateEventRequest, EventDto, HoldSeatsRequest, OrderDto, PayTicketRequest, TicketDto}
 import madrileno.ticket.services.{
   CreateEventCommand,
@@ -62,9 +62,11 @@ class TicketRouter(ticketService: TicketService)(using TelemetryContext) extends
             case HoldSeatsResult.SeatsHeld(order, tickets) => Created -> OrderDto(order, tickets)
             case HoldSeatsResult.EventNotFound             => error(NotFound, "event-not-found", "Event not found")
             // 409: could change (e.g. sales are not open); 410: a cancelled event will never sell again.
-            case HoldSeatsResult.EventNotOnSale   => error(Conflict, "event-not-on-sale", "Event is not on sale")
-            case HoldSeatsResult.EventCancelled   => error(Gone, "event-cancelled", "Event has been cancelled")
-            case HoldSeatsResult.NoSeatsSelected  => error(UnprocessableContent, "no-seats-selected", "At least one seat must be selected")
+            case HoldSeatsResult.EventNotOnSale  => error(Conflict, "event-not-on-sale", "Event is not on sale")
+            case HoldSeatsResult.EventCancelled  => error(Gone, "event-cancelled", "Event has been cancelled")
+            case HoldSeatsResult.NoSeatsSelected => error(UnprocessableContent, "no-seats-selected", "At least one seat must be selected")
+            case HoldSeatsResult.TooManySeats    =>
+              error(UnprocessableContent, "too-many-seats", s"At most ${Event.MaxSeatsPerOrder} seats can be selected in one order")
             case HoldSeatsResult.DuplicateSeats   => error(UnprocessableContent, "duplicate-seats", "Each seat may be selected only once")
             case HoldSeatsResult.SeatNotInEvent   => error(UnprocessableContent, "seat-not-in-event", "A selected seat does not belong to this event")
             case HoldSeatsResult.SeatAlreadyTaken => error(Conflict, "seat-already-taken", "A selected seat has already been taken")

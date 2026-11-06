@@ -15,7 +15,7 @@ enum EventCreationRejection {
 }
 
 enum HoldRejection {
-  case NoSeatsSelected, DuplicateSeats, EventNotOnSale, EventCancelled, SeatNotInEvent
+  case NoSeatsSelected, TooManySeats, DuplicateSeats, EventNotOnSale, EventCancelled, SeatNotInEvent
 }
 
 final case class EventSeat(id: SeatId, label: SeatLabel)
@@ -38,7 +38,7 @@ final case class Event(
   sections: List[EventSection]) {
 
   // Guard order: event state first (so a cancelled event is reported as gone no matter what was selected), then the
-  // shape of the selection, then membership of every seat. `ticketIdFor` supplies the id of each new ticket because
+  // shape of the selection (empty, too many, duplicates), then membership of every seat. `ticketIdFor` supplies the id of each new ticket because
   // the domain does not generate ids; it must be defined for every id in `seatIds`.
   // Each ticket snapshots the label and the price of the seat's section at hold time.
   def holdSeats(
@@ -52,6 +52,7 @@ final case class Event(
     for {
       _      <- ensureOnSale(now)
       _      <- Either.cond(seatIds.nonEmpty, (), HoldRejection.NoSeatsSelected)
+      _      <- Either.cond(seatIds.size <= Event.MaxSeatsPerOrder, (), HoldRejection.TooManySeats)
       _      <- Either.cond(seatIds.distinct.size == seatIds.size, (), HoldRejection.DuplicateSeats)
       picked <- seatIds.traverse(seatId => seatsById.get(seatId).toRight(HoldRejection.SeatNotInEvent))
     } yield {
@@ -73,6 +74,10 @@ final case class Event(
 }
 
 object Event {
+
+  // Business rule: one order may hold at most this many seats, so a single customer cannot block a large part of
+  // the hall with one request. Changing the limit is a product decision, not a technical one.
+  val MaxSeatsPerOrder: Int = 8
 
   // A new event is OnSale and has no sections yet (the seating plan is added in a later step). `now` is passed in,
   // the domain never reads the clock. Boundary: an event starting exactly at `now` has already started, so it is rejected.

@@ -78,6 +78,7 @@ class TicketServiceSeatTakenSpec extends AsyncWordSpec with AsyncIOSpec with Mat
       import madrileno.ticket.domain.HoldRejection
       HoldRejection.values.toList.map(r => r -> TicketService.toResult(r)) shouldBe List(
         HoldRejection.NoSeatsSelected -> HoldSeatsResult.NoSeatsSelected,
+        HoldRejection.TooManySeats    -> HoldSeatsResult.TooManySeats,
         HoldRejection.DuplicateSeats  -> HoldSeatsResult.DuplicateSeats,
         HoldRejection.EventNotOnSale  -> HoldSeatsResult.EventNotOnSale,
         HoldRejection.EventCancelled  -> HoldSeatsResult.EventCancelled,

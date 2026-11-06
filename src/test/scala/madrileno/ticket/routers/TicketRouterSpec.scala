@@ -332,6 +332,18 @@ class TicketRouterSpec extends BaseRouteSpec with TestApplicationLoader {
       withSetup(seedSale())
         .request(sale =>
           onRequest(
+            body = HoldSeatsRequest(List.fill(9)(TestData.randomSeatId())),
+            security = bearer.apply(validJwt(sale.auth)),
+            pathParameters = sale.event.eventId
+          )
+        )
+        .respondsWith[Error[Unit]](UnprocessableContent, description = "More seats than one order may hold")
+        .assert { case (ctx, _) =>
+          ctx.performRequest(allRoutes).body.title shouldBe Some("At most 8 seats can be selected in one order")
+        },
+      withSetup(seedSale())
+        .request(sale =>
+          onRequest(
             body = HoldSeatsRequest(List(sale.seat("A-1").id, sale.seat("A-1").id)),
             security = bearer.apply(validJwt(sale.auth)),
             pathParameters = sale.event.eventId

@@ -48,6 +48,7 @@ enum HoldSeatsResult {
   case EventNotOnSale
   case EventCancelled
   case NoSeatsSelected
+  case TooManySeats
   case DuplicateSeats
   case SeatNotInEvent
   case SeatAlreadyTaken
@@ -97,6 +98,7 @@ object TicketService {
   private[services] def toResult(rejection: HoldRejection): HoldSeatsResult =
     rejection match {
       case HoldRejection.NoSeatsSelected => HoldSeatsResult.NoSeatsSelected
+      case HoldRejection.TooManySeats    => HoldSeatsResult.TooManySeats
       case HoldRejection.DuplicateSeats  => HoldSeatsResult.DuplicateSeats
       case HoldRejection.EventNotOnSale  => HoldSeatsResult.EventNotOnSale
       case HoldRejection.EventCancelled  => HoldSeatsResult.EventCancelled

@@ -30,6 +30,10 @@ class EventSpec extends AnyWordSpec with Matchers {
 
   private val event = Event(EventId(uuid(3)), EventName("Concert"), startsAt, EventStatus.OnSale, now, now, List(vipSection, parterSect))
 
+  // An event with more seats than one order may hold.
+  private val bigSeats = (1 to Event.MaxSeatsPerOrder + 2).toList.map(n => EventSeat(SeatId(uuid(100 + n)), SeatLabel(s"B-$n")))
+  private val bigEvent = event.copy(sections = List(EventSection(SectionId(uuid(23)), "Big", parterPrice, bigSeats)))
+
   // Deterministic ticket ids derived from the seat id, so assertions can name them.
   private def ticketIdFor(seatId: SeatId): TicketId = TicketId(UUID.nameUUIDFromBytes(seatId.unwrap.toString.getBytes))
 
@@ -78,6 +82,23 @@ class EventSpec extends AnyWordSpec with Matchers {
 
     "reject an empty selection" in {
       hold(seatIds = Nil) shouldBe Left(HoldRejection.NoSeatsSelected)
+    }
+
+    "accept exactly the maximum number of seats per order" in {
+      hold(on = bigEvent, seatIds = bigSeats.take(Event.MaxSeatsPerOrder).map(_.id)).map(_._2.size) shouldBe Right(8)
+    }
+
+    "reject more than the maximum number of seats per order" in {
+      hold(on = bigEvent, seatIds = bigSeats.take(Event.MaxSeatsPerOrder + 1).map(_.id)) shouldBe Left(HoldRejection.TooManySeats)
+    }
+
+    "check the seat limit before duplicates and membership" in {
+      hold(on = bigEvent, seatIds = List.fill(Event.MaxSeatsPerOrder + 1)(bigSeats.head.id)) shouldBe Left(HoldRejection.TooManySeats)
+      hold(on = bigEvent, seatIds = List.fill(Event.MaxSeatsPerOrder + 1)(foreignSeat)) shouldBe Left(HoldRejection.TooManySeats)
+    }
+
+    "check the event state before the seat limit" in {
+      hold(on = bigEvent.copy(status = EventStatus.Cancelled), seatIds = bigSeats.map(_.id)) shouldBe Left(HoldRejection.EventCancelled)
     }
 
     "reject a seat selected twice" in {
