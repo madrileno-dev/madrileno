@@ -309,6 +309,20 @@ OTEL_EXPORTER_OTLP_HEADERS="x-honeycomb-team=your-key"
 
 (Real OTLP receivers accept the unified endpoint without the per-signal paths, so the simpler form works.)
 
+### Prometheus scraping at `/metrics`
+
+For a Prometheus (or anything that scrapes the Prometheus text format) instead of, or next to, an OTLP receiver, turn on the Prometheus exporter that ships on the runtime classpath:
+
+```
+OTEL_SDK_DISABLED=false
+OTEL_METRICS_EXPORTER=prometheus           # or otlp,prometheus to keep pushing as well
+OTEL_EXPORTER_PROMETHEUS_PORT=9464         # the default
+OTEL_TRACES_EXPORTER=none                  # if nothing receives traces or logs
+OTEL_LOGS_EXPORTER=none
+```
+
+The SDK then serves `GET /metrics` on its own port (9464 unless set; `OTEL_EXPORTER_PROMETHEUS_HOST`, default `0.0.0.0`, picks the interface), not on the API port, so it stays off the public ingress: expose it only to the scraper. It carries the same metrics as OTLP — `http_server_request_duration_seconds` and `http_server_active_requests` from the http4s middleware, `db_client_operation_duration_seconds` from Skunk, and whatever modules record — with dots turned into underscores. `PrometheusMetricsSpec` checks the exporter is wired.
+
 ## OpenObserve in dev
 
 `docker compose --profile full up -d` starts it; set `OTEL_SDK_DISABLED=false` in `.env` and restart the app. Open `http://localhost:55080`, log in with `root@example.com` / `Complexpass#123`. Tabs:
