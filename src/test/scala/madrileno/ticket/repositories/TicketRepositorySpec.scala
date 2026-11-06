@@ -1,5 +1,6 @@
 package madrileno.ticket.repositories
 
+import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
 import madrileno.support.{SeededSeat, TestData, TestTransactor, TicketSeed}
@@ -10,9 +11,13 @@ import madrileno.utils.db.transactor.DB
 import org.scalatest.Assertion
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
+import skunk.codec.all.*
 import skunk.exception.PostgresErrorException
+import skunk.implicits.*
+import skunk.{Command, Session}
 
 import java.time.{Duration, Instant}
+import java.util.UUID
 
 class TicketRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
@@ -52,6 +57,38 @@ class TicketRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers 
         e.constraintName shouldBe Some(constraint)
       case other => fail(s"expected PostgresErrorException $sqlState on $constraint, got $other")
     }
+
+  "The text length CHECK constraints of ticket" should {
+    val overLong = "x" * 201
+    val atLimit  = "x" * 200
+
+    // Plain SQL on an existing ticket: the opaque types refuse over-long values, so the domain cannot even build them.
+    val setSeatLabel: Command[(String, UUID)] = sql"UPDATE ticket SET seat_label = $text WHERE id = $uuid".command
+    val setCharge: Command[(String, UUID)]    =
+      sql"UPDATE ticket SET status = 'Paid', charge_id = $text, paid_at = now() WHERE id = $uuid".command
+
+    "accept a 200 character seat label and reject 201 (ticket.seat_label)" in withRollback {
+      val session = summon[Session[IO]]
+      for {
+        (customer, seat) <- seedCustomerAndSeat()
+        ticket = hold(customer, seat)
+        _      <- repo.save(ticket)
+        _      <- session.execute(setSeatLabel)((atLimit, ticket.id.unwrap))
+        result <- session.execute(setSeatLabel)((overLong, ticket.id.unwrap)).attempt
+      } yield assertPgError(result.void, "23514", "ticket_seat_label_check")
+    }
+
+    "accept a 200 character charge id and reject 201 (ticket.charge_id)" in withRollback {
+      val session = summon[Session[IO]]
+      for {
+        (customer, seat) <- seedCustomerAndSeat()
+        ticket = hold(customer, seat)
+        _      <- repo.save(ticket)
+        _      <- session.execute(setCharge)((atLimit, ticket.id.unwrap))
+        result <- session.execute(setCharge)((overLong, ticket.id.unwrap)).attempt
+      } yield assertPgError(result.void, "23514", "ticket_charge_id_check")
+    }
+  }
 
   "TicketRepository" should {
     "save and find a held ticket" in withRollback {

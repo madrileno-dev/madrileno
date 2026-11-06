@@ -1,10 +1,10 @@
--- Ticketing schema. All timestamps are TIMESTAMPTZ and written in UTC.
+-- Ticketing schema. Free-text columns are limited to 200 characters (mirrors TextRules in the domain). All timestamps are TIMESTAMPTZ and written in UTC.
 -- Foreign keys use the default NO ACTION: nothing in this module is deleted in cascade.
 -- Postgres does not index foreign key columns automatically, hence the explicit *_idx indexes.
 
 CREATE TABLE event(
     id UUID PRIMARY KEY,
-    name TEXT NOT NULL CHECK (btrim(name) <> ''),
+    name TEXT NOT NULL CHECK (btrim(name) <> '' AND char_length(name) <= 200),
     starts_at TIMESTAMPTZ NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('OnSale', 'Cancelled')),
     created_at TIMESTAMPTZ NOT NULL,
@@ -14,7 +14,7 @@ CREATE TABLE event(
 CREATE TABLE event_section(
     id UUID PRIMARY KEY,
     event_id UUID NOT NULL REFERENCES event (id),
-    name TEXT NOT NULL CHECK (btrim(name) <> ''),
+    name TEXT NOT NULL CHECK (btrim(name) <> '' AND char_length(name) <= 200),
     price_minor BIGINT NOT NULL CHECK (price_minor > 0),
     currency TEXT NOT NULL CHECK (currency IN ('PLN', 'EUR', 'USD')),
     CONSTRAINT event_section_event_id_name_key UNIQUE (event_id, name)
@@ -23,7 +23,7 @@ CREATE TABLE event_section(
 CREATE TABLE event_seat(
     id UUID PRIMARY KEY,
     section_id UUID NOT NULL REFERENCES event_section (id),
-    label TEXT NOT NULL CHECK (btrim(label) <> ''),
+    label TEXT NOT NULL CHECK (btrim(label) <> '' AND char_length(label) <= 200),
     CONSTRAINT event_seat_section_id_label_key UNIQUE (section_id, label)
 );
 
@@ -42,12 +42,12 @@ CREATE TABLE ticket(
     order_id UUID NOT NULL REFERENCES ticket_order (id),
     seat_id UUID NOT NULL REFERENCES event_seat (id),
     customer_id UUID NOT NULL REFERENCES "user" (id),
-    seat_label TEXT NOT NULL CHECK (btrim(seat_label) <> ''),
+    seat_label TEXT NOT NULL CHECK (btrim(seat_label) <> '' AND char_length(seat_label) <= 200),
     price_minor BIGINT NOT NULL CHECK (price_minor > 0),
     currency TEXT NOT NULL CHECK (currency IN ('PLN', 'EUR', 'USD')),
     status TEXT NOT NULL CHECK (status IN ('Held', 'Paid', 'Cancelled')),
     held_until TIMESTAMPTZ NOT NULL,
-    charge_id TEXT CHECK (btrim(charge_id) <> ''),
+    charge_id TEXT CHECK (btrim(charge_id) <> '' AND char_length(charge_id) <= 200),
     paid_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,

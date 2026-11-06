@@ -227,6 +227,25 @@ class EventSpec extends AnyWordSpec with Matchers {
     "check the price before the name" in {
       add(price = money(0L), name = SectionName("VIP")) shouldBe Left(AddSectionRejection.PriceMustBePositive)
     }
+
+    def manySeats(n: Int): List[SeatLabel] = (1 to n).toList.map(i => SeatLabel(s"S-$i"))
+
+    "accept exactly the maximum number of seats per section" in {
+      add(seatLabels = manySeats(Event.MaxSeatsPerSection)).map(_._2.seats.size) shouldBe Right(500)
+    }
+
+    "reject TooManySeatsInSection one seat above the maximum" in {
+      add(seatLabels = manySeats(Event.MaxSeatsPerSection + 1)) shouldBe Left(AddSectionRejection.TooManySeatsInSection)
+    }
+
+    "check the event state before the seat limit" in {
+      add(on = event.copy(status = EventStatus.Cancelled), seatLabels = manySeats(501)) shouldBe Left(AddSectionRejection.EventCancelled)
+    }
+
+    "check the seat limit before duplicate labels, the price and the name" in {
+      add(seatLabels = manySeats(501) :+ SeatLabel("S-1"), price = money(0L), name = SectionName("VIP")) shouldBe
+        Left(AddSectionRejection.TooManySeatsInSection)
+    }
   }
 
   "Event.create" should {

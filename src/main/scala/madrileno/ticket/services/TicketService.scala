@@ -60,6 +60,7 @@ enum AddSectionResult {
   case EventCancelled
   case EventNotOnSale
   case NoSeats
+  case TooManySeatsInSection
   case DuplicateSeatLabels
   case PriceMustBePositive
   case SectionNameTaken
@@ -125,12 +126,13 @@ object TicketService {
 
   private[services] def toResult(rejection: AddSectionRejection): AddSectionResult =
     rejection match {
-      case AddSectionRejection.EventCancelled      => AddSectionResult.EventCancelled
-      case AddSectionRejection.EventNotOnSale      => AddSectionResult.EventNotOnSale
-      case AddSectionRejection.NoSeats             => AddSectionResult.NoSeats
-      case AddSectionRejection.DuplicateSeatLabels => AddSectionResult.DuplicateSeatLabels
-      case AddSectionRejection.PriceMustBePositive => AddSectionResult.PriceMustBePositive
-      case AddSectionRejection.SectionNameTaken    => AddSectionResult.SectionNameTaken
+      case AddSectionRejection.EventCancelled        => AddSectionResult.EventCancelled
+      case AddSectionRejection.EventNotOnSale        => AddSectionResult.EventNotOnSale
+      case AddSectionRejection.NoSeats               => AddSectionResult.NoSeats
+      case AddSectionRejection.TooManySeatsInSection => AddSectionResult.TooManySeatsInSection
+      case AddSectionRejection.DuplicateSeatLabels   => AddSectionResult.DuplicateSeatLabels
+      case AddSectionRejection.PriceMustBePositive   => AddSectionResult.PriceMustBePositive
+      case AddSectionRejection.SectionNameTaken      => AddSectionResult.SectionNameTaken
     }
 
   private[services] def toResult(rejection: HoldRejection): HoldSeatsResult =

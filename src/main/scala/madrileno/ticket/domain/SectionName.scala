@@ -6,8 +6,5 @@ import pl.iterators.kebs.opaque.Opaque
 // event_section_event_id_name_key, so "VIP" and "vip" are two different sections.
 opaque type SectionName = String
 object SectionName extends Opaque[SectionName, String] {
-  override def validate(value: String): Either[String, SectionName] = {
-    if (value.trim.nonEmpty) Right(value.trim)
-    else Left("Section name must not be empty")
-  }
+  override def validate(value: String): Either[String, SectionName] = TextRules.validate(value, "Section name")
 }

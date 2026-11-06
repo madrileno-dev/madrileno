@@ -86,9 +86,11 @@ class TicketRouter(ticketService: TicketService)(using TelemetryContext) extends
             case AddSectionResult.SectionAdded(_, section) => Created -> SectionDto(section)
             case AddSectionResult.EventNotFound            => error(NotFound, "event-not-found", "Event not found")
             // 409: could change (e.g. sales are not open); 410: a cancelled event will never sell again. Same as holding seats.
-            case AddSectionResult.EventNotOnSale      => error(Conflict, "event-not-on-sale", "Event is not on sale")
-            case AddSectionResult.EventCancelled      => error(Gone, "event-cancelled", "Event has been cancelled")
-            case AddSectionResult.NoSeats             => error(UnprocessableContent, "no-seats-in-section", "A section needs at least one seat")
+            case AddSectionResult.EventNotOnSale        => error(Conflict, "event-not-on-sale", "Event is not on sale")
+            case AddSectionResult.EventCancelled        => error(Gone, "event-cancelled", "Event has been cancelled")
+            case AddSectionResult.NoSeats               => error(UnprocessableContent, "no-seats-in-section", "A section needs at least one seat")
+            case AddSectionResult.TooManySeatsInSection =>
+              error(UnprocessableContent, "too-many-seats-in-section", s"A section can have at most ${Event.MaxSeatsPerSection} seats")
             case AddSectionResult.DuplicateSeatLabels =>
               error(UnprocessableContent, "duplicate-seat-labels", "Each seat label may be used only once in a section")
             case AddSectionResult.PriceMustBePositive =>

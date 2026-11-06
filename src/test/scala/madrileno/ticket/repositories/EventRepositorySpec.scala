@@ -1,13 +1,19 @@
 package madrileno.ticket.repositories
 
+import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import madrileno.support.{SectionSpec, TestData, TestTransactor, TicketSeed}
 import madrileno.ticket.domain.*
 import madrileno.user.repositories.UserRepository
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
+import skunk.codec.all.*
+import skunk.exception.PostgresErrorException
+import skunk.implicits.*
+import skunk.{Command, Session}
 
 import java.time.Instant
+import java.util.UUID
 
 class EventRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
@@ -170,6 +176,55 @@ class EventRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers w
         found.map(_.id) shouldBe Some(seeded.eventId)
         found.map(_.sections) shouldBe Some(Nil)
       }
+    }
+  }
+
+  // The domain limits free text to 200 characters (TextRules); the CHECK constraints are the backstop for anything
+  // that bypasses it. check_violation is SQLSTATE 23514. The failing statement aborts the transaction, so it must be last.
+  private def assertCheckViolation(result: Either[Throwable, Any], constraint: String) =
+    result match {
+      case Left(e: PostgresErrorException) =>
+        e.code shouldBe "23514"
+        e.constraintName shouldBe Some(constraint)
+      case other => fail(s"expected check violation on $constraint, got $other")
+    }
+
+  "The text length CHECK constraints" should {
+    val overLong = "x" * 201
+    val atLimit  = "x" * 200
+    // Plain SQL: the opaque types refuse over-long values, so the domain cannot even build them.
+    val insertEvent: Command[(UUID, String)] =
+      sql"""INSERT INTO event (id, name, starts_at, status, created_at, updated_at)
+            VALUES ($uuid, $text, now() + interval '1 day', 'OnSale', now(), now())""".command
+    val insertSeat: Command[(UUID, UUID, String)] =
+      sql"INSERT INTO event_seat (id, section_id, label) VALUES ($uuid, $uuid, $text)".command
+
+    "accept a 200 character event name and reject 201 (event.name)" in withRollback {
+      val session = summon[Session[IO]]
+      for {
+        _      <- session.execute(insertEvent)((TestData.randomUuid(), atLimit))
+        result <- session.execute(insertEvent)((TestData.randomUuid(), overLong)).attempt
+      } yield assertCheckViolation(result, "event_name_check")
+    }
+
+    "accept a 200 character section name and reject 201 (event_section.name)" in withRollback {
+      for {
+        seeded <- TicketSeed.event(List(SectionSpec(atLimit, vip, List(SeatLabel("V-1")))))
+        result <- TicketSeed.event(List(SectionSpec(overLong, vip, List(SeatLabel("V-1"))))).attempt
+      } yield {
+        seeded.sections.map(_.name.unwrap.length) shouldBe List(200)
+        assertCheckViolation(result, "event_section_name_check")
+      }
+    }
+
+    "accept a 200 character seat label and reject 201 (event_seat.label)" in withRollback {
+      val session = summon[Session[IO]]
+      for {
+        seeded <- TicketSeed.event(List(SectionSpec("VIP", vip, List(SeatLabel("V-1")))))
+        sectionId = seeded.sections.head.id.unwrap
+        _      <- session.execute(insertSeat)((TestData.randomUuid(), sectionId, atLimit))
+        result <- session.execute(insertSeat)((TestData.randomUuid(), sectionId, overLong)).attempt
+      } yield assertCheckViolation(result, "event_seat_label_check")
     }
   }
 }

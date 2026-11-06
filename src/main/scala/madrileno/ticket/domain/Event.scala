@@ -19,7 +19,7 @@ enum HoldRejection {
 }
 
 enum AddSectionRejection {
-  case EventCancelled, EventNotOnSale, NoSeats, DuplicateSeatLabels, PriceMustBePositive, SectionNameTaken
+  case EventCancelled, EventNotOnSale, NoSeats, TooManySeatsInSection, DuplicateSeatLabels, PriceMustBePositive, SectionNameTaken
 }
 
 final case class EventSeat(id: SeatId, label: SeatLabel)
@@ -67,7 +67,7 @@ final case class Event(
     }
 
   // Adds a section with one seat per label. Guard order: event state first (same rule as holdSeats, so a seating plan
-  // cannot change once sales are over), then the shape of the input (no seats, duplicate labels), then the price,
+  // cannot change once sales are over), then the shape of the input (no seats, too many seats, duplicate labels), then the price,
   // then the name against the existing sections. Ids are passed in because the domain does not generate them;
   // `seatIdFor` must be defined for every label in `seatLabels`.
   // The name check is only race-free because the caller serialises additions per event (the event row is locked);
@@ -83,6 +83,7 @@ final case class Event(
     for {
       _ <- ensureOnSale(now, AddSectionRejection.EventCancelled, AddSectionRejection.EventNotOnSale)
       _ <- Either.cond(seatLabels.nonEmpty, (), AddSectionRejection.NoSeats)
+      _ <- Either.cond(seatLabels.size <= Event.MaxSeatsPerSection, (), AddSectionRejection.TooManySeatsInSection)
       _ <- Either.cond(seatLabels.distinct.size == seatLabels.size, (), AddSectionRejection.DuplicateSeatLabels)
       // Money itself accepts 0 but event_section.price_minor requires > 0 (CHECK): free tickets are unsupported, and
       // this is where the rule is enforced for the domain.
@@ -116,6 +117,11 @@ object Event {
   // Business rule: one order may hold at most this many seats, so a single customer cannot block a large part of
   // the hall with one request. Changing the limit is a product decision, not a technical one.
   val MaxSeatsPerOrder: Int = 8
+
+  // Business and safety rule: a section has at most this many seats. Besides keeping a seating plan sane, it keeps the
+  // seat INSERT of `addSection` far below Postgres' limit of 65,535 bind parameters per statement (3 parameters per
+  // seat) and the work done under the event row lock bounded; the request body limit (10 MiB) alone would allow more.
+  val MaxSeatsPerSection: Int = 500
 
   // A new event is OnSale and has no sections yet (the seating plan is added in a later step). `now` is passed in,
   // the domain never reads the clock. Boundary: an event starting exactly at `now` has already started, so it is rejected.
