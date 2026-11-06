@@ -248,7 +248,7 @@ Three limits keep a slow or saturated database from piling up requests that wait
 
 When the database can't answer, the request gets 503 `error:database-unavailable` instead of a 500 ([error-handling.md](error-handling.md#infrastructure-errors)): an acquire timeout, a statement timeout, a refused or dropped connection, the server shutting down or out of connection slots.
 
-What these limits don't cover is a server that stops answering without closing the connection (a frozen VM, a network partition). A statement already sent on an idle pooled connection then waits until TCP gives up, since no server is running to apply `statement_timeout`.
+What these limits don't cover is a server that stops answering without closing the connection (a frozen VM, a network partition). A statement already sent on an idle pooled connection then waits until TCP gives up, since no server is running to apply `statement_timeout`. A request that has to open a new connection waits the same way: the acquire timeout bounds the wait for a free connection, not the opening of one.
 
 The pool is shared across the application — there is no per-module pool. Sessions return to the pool when their `inSession` / `inTransaction` block completes, including on errors.
 
