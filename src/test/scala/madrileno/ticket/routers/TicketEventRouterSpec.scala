@@ -9,13 +9,20 @@ import org.http4s.Method.*
 import org.http4s.Status.*
 import pl.iterators.stir.server.Route
 
-import java.time.Instant
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
+import java.time.{Duration, Instant, ZoneOffset}
 
 class TicketEventRouterSpec extends BaseRouteSpec with TestApplicationLoader with TicketSaleFixtures {
 
   override def route: Route = application.routes(wsb)
 
-  private val farFuture = Instant.parse("2030-12-01T18:30:00Z")
+  // Derived from the clock so the tests do not rot once a hard-coded date is in the past. Two years is always in the
+  // future and well inside the 5-year event horizon; truncated to seconds because the value is compared after a JSON
+  // and Postgres (microsecond) round trip.
+  private val farFuture = Instant.now().plus(Duration.ofDays(2 * 365)).truncatedTo(ChronoUnit.SECONDS)
+  // The same instant written with a +01:00 offset; ISO_OFFSET_DATE_TIME always prints seconds, unlike OffsetDateTime.toString.
+  private val farFutureWithOffset = DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(farFuture.atOffset(ZoneOffset.ofHours(1)))
 
   path("/v1/events")(
     supports(
@@ -36,8 +43,8 @@ class TicketEventRouterSpec extends BaseRouteSpec with TestApplicationLoader wit
           val stored = application.transactor.inSession(application.eventRepository.findWithSeats(response.body.id)).unsafeRunSync()
           stored.map(_.startsAt) shouldBe Some(farFuture)
         },
-      // An offset is accepted by the Instant decoder and normalised: 19:30+01:00 is 18:30Z.
-      onRequest(body = RawEventRequest("Concert", "2030-12-01T19:30:00+01:00"), security = bearer.apply(validJwt(stranger)))
+      // An offset is accepted by the Instant decoder and normalised: the same instant as farFuture, written with an offset.
+      onRequest(body = RawEventRequest("Concert", farFutureWithOffset), security = bearer.apply(validJwt(stranger)))
         .respondsWith[EventDto](Created, description = "Event created from a date with an offset")
         .assert { ctx =>
           val response = ctx.performRequest(allRoutes)
@@ -58,17 +65,17 @@ class TicketEventRouterSpec extends BaseRouteSpec with TestApplicationLoader wit
         .assert { ctx =>
           ctx.performRequest(allRoutes).body.title shouldBe Some("Event must start within 5 years from now")
         },
-      onRequest(body = RawEventRequest("   ", "2030-12-01T18:30:00Z"), security = bearer.apply(validJwt(stranger)))
+      onRequest(body = RawEventRequest("   ", farFuture.toString), security = bearer.apply(validJwt(stranger)))
         .respondsWith[Error[Unit]](BadRequest, description = "Blank name")
         .assert(_.performRequest(allRoutes)),
       onRequest(body = RawEventRequest("Concert", "next friday"), security = bearer.apply(validJwt(stranger)))
         .respondsWith[Error[Unit]](BadRequest, description = "Malformed date")
         .assert(_.performRequest(allRoutes)),
-      onRequest(body = RawEventRequest("x" * 201, "2030-12-01T18:30:00Z"), security = bearer.apply(validJwt(stranger)))
+      onRequest(body = RawEventRequest("x" * 201, farFuture.toString), security = bearer.apply(validJwt(stranger)))
         .respondsWith[Error[Unit]](BadRequest, description = "Over-long name")
         .assert(_.performRequest(allRoutes)),
       // A NUL character cannot be stored in Postgres text: it must be a 400, not a 500.
-      onRequest(body = RawEventRequest("Con\u0000cert", "2030-12-01T18:30:00Z"), security = bearer.apply(validJwt(stranger)))
+      onRequest(body = RawEventRequest("Con\u0000cert", farFuture.toString), security = bearer.apply(validJwt(stranger)))
         .respondsWith[Error[Unit]](BadRequest, description = "Name with a NUL character")
         .assert(_.performRequest(allRoutes)),
       onRequest(body = CreateEventRequest(EventName("Concert"), farFuture))
