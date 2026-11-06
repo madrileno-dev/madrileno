@@ -17,11 +17,13 @@ import scala.concurrent.duration.*
 class PgTransactor(
   sessions: Resource[IO, Session[IO]],
   idleInTransactionTimeout: Duration,
+  operationTimeout: Duration,
+  abandoned: Supervisor[IO],
   newConnection: Resource[IO, Session[IO]])
     extends Transactor {
 
   override def inTransaction[A](f: DBInTransaction[A]): IO[A] =
-    sessions.use { session =>
+    withinOperationTimeout(sessions.use { session =>
       IO.monotonic.flatMap { started =>
         session.transaction
           .use { transaction =>
@@ -32,7 +34,7 @@ class PgTransactor(
             case other             => IO.raiseError(other)
           }
       }
-    }
+    })
 
   private def endedWhileIdle(elapsed: FiniteDuration, eof: EofException): Throwable =
     idleInTransactionTimeout match {
@@ -41,16 +43,31 @@ class PgTransactor(
     }
 
   override def inSession[A](f: DB[A]): IO[A] =
-    sessions.use(session => f(using session))
+    withinOperationTimeout(sessions.use(session => f(using session)))
 
   override def inNewConnection[A](f: DB[A]): IO[A] =
     newConnection.use(session => f(using session))
 
   override def notify(channel: Identifier, payload: String): IO[Unit] =
-    sessions.use(_.unique(PgTransactor.pgNotify)((channel.value, payload))).void
+    withinOperationTimeout(sessions.use(_.unique(PgTransactor.pgNotify)((channel.value, payload))).void)
 
   override def listen(channel: Identifier, maxQueued: Int): Resource[IO, Stream[IO, Notification[String]]] =
     sessions.flatMap(_.channel(channel).listenR(maxQueued))
+
+  override def withOperationTimeout(timeout: Duration): Transactor =
+    new PgTransactor(sessions, idleInTransactionTimeout, timeout, abandoned, newConnection)
+
+  private def withinOperationTimeout[A](operation: IO[A]): IO[A] =
+    operationTimeout match {
+      case timeout: FiniteDuration =>
+        val timedOut = new DatabaseUnavailable(s"The database did not answer within $timeout (pg.operation-timeout)")
+        IO.uncancelable { poll =>
+          operation.start.flatMap { running =>
+            poll(running.joinWithNever.timeoutTo(timeout, abandoned.supervise(running.cancel) *> IO.raiseError(timedOut))).onCancel(running.cancel)
+          }
+        }
+      case _ => operation
+    }
 }
 
 object PgTransactor {
@@ -61,12 +78,15 @@ object PgTransactor {
 
   def resource(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, PgTransactor] =
     for {
-      tracer  <- Resource.eval(TracerProvider[IO].get("madrileno.utils.db.transactor"))
-      pool    <- builder(pgConfig).pooled(pgConfig.max)
-      giveUps <- Supervisor[IO](await = true)
+      tracer    <- Resource.eval(TracerProvider[IO].get("madrileno.utils.db.transactor"))
+      pool      <- builder(pgConfig).pooled(pgConfig.max)
+      giveUps   <- Supervisor[IO](await = true)
+      abandoned <- Supervisor[IO](await = true)
     } yield new PgTransactor(
       bounded(pool, pgConfig.acquireTimeout, tracer, giveUps),
       pgConfig.idleInTransactionTimeout,
+      pgConfig.operationTimeout,
+      abandoned,
       builder(pgConfig).withReadTimeout(pgConfig.readTimeout.min(newConnectionReadTimeout)).single
     )
 

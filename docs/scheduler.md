@@ -179,7 +179,7 @@ scheduler {
 }
 ```
 
-Defaults are for a "modest backend"; a high-throughput app raises `concurrency` and may want a tighter `polling-interval`. A scheduler that hosts a lot of long-running tasks raises `heartbeat-interval` so the heartbeats themselves don't dominate the load.
+Defaults are for a "modest backend"; a high-throughput app raises `concurrency` and may want a tighter `polling-interval`. A scheduler that hosts a lot of long-running tasks raises `heartbeat-interval` so the heartbeats themselves don't dominate the load. A task whose database work takes longer than `pg.operation-timeout` (1 minute) runs it through `transactor.withOperationTimeout(...)` ([database.md](database.md#connection-pool-and-timeouts)).
 
 ## Per-task retry caps and abandon hooks
 

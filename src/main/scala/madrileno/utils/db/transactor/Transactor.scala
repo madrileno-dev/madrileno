@@ -6,6 +6,8 @@ import skunk.*
 import skunk.data.{Identifier, Notification}
 import skunk.util.Origin
 
+import scala.concurrent.duration.Duration
+
 type DB[A]              = Session[IO] ?=> IO[A]
 type DBInTransaction[A] = Session[IO] ?=> Transaction[IO] ?=> IO[A]
 
@@ -33,4 +35,9 @@ trait Transactor {
   def notify(channel: Identifier, payload: String): IO[Unit]
 
   def listen(channel: Identifier, maxQueued: Int): Resource[IO, Stream[IO, Notification[String]]]
+
+  /** The same pool, with `inSession`, `inTransaction` and `notify` bounded by `timeout` instead of `pg.operation-timeout`. `Duration.Inf` lifts the
+    * bound for a long batch.
+    */
+  def withOperationTimeout(timeout: Duration): Transactor = this
 }
