@@ -224,7 +224,7 @@ trait MyModule extends RecurringTaskProvider with OneTimeTaskProvider {
 
 ## The admin UI
 
-The scheduler report (Basic-Auth gated, GET-only) is served as an HTML page for people at `/admin/jobs` (also `/admin/jobs.html`) and as JSON for monitors at `/admin/jobs.json`. Both are rendered from the same `JobsReport`, so they always show the same values:
+The scheduler report (Basic-Auth gated, GET-only) is served as an HTML page for people at `/admin/jobs.html` and as JSON for monitors at `/admin/jobs.json`. Both are rendered from the same `JobsReport`, so they always show the same values:
 
 ```bash
 curl -u admin:$ADMIN_PASSWORD https://api.example.com/admin/jobs.json

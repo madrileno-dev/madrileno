@@ -10,7 +10,7 @@ import pl.iterators.stir.server.Route
 class SchedulerAdminRouterSpec extends BaseRouteSpec with TestApplicationLoader {
   override def route: Route = application.routes(wsb)
 
-  private val jobsUri = Uri.unsafeFromString("/admin/jobs")
+  private val jobsUri = Uri.unsafeFromString("/admin/jobs.html")
 
   private val admin = Authorization(BasicCredentials("admin", "admin"))
 
@@ -18,19 +18,17 @@ class SchedulerAdminRouterSpec extends BaseRouteSpec with TestApplicationLoader 
     allRoutes.orNotFound.run(Request[IO](method = Method.GET, uri = Uri.unsafeFromString(path), headers = Headers(admin))).unsafeRunSync()
 
   describe("/admin/jobs") {
-    it("returns the jobs page with the registered recurring task at /admin/jobs.html and /admin/jobs") {
-      List("/admin/jobs.html", "/admin/jobs").foreach { path =>
-        val response = jobs(path)
-        response.status shouldBe Status.Ok
-        response.contentType.exists(_.mediaType.subType == "html") shouldBe true
-        val body = response.bodyText.compile.string.unsafeRunSync()
-        // scripts:auction-block-start
-        body should include("close-expired-auctions")
-        // scripts:auction-block-end
-        body should include("Recurring tasks")
-        body should include("Registered task types")
-        body should include("send-mail")
-      }
+    it("returns the jobs page with the registered recurring task at /admin/jobs.html") {
+      val response = jobs("/admin/jobs.html")
+      response.status shouldBe Status.Ok
+      response.contentType.exists(_.mediaType.subType == "html") shouldBe true
+      val body = response.bodyText.compile.string.unsafeRunSync()
+      // scripts:auction-block-start
+      body should include("close-expired-auctions")
+      // scripts:auction-block-end
+      body should include("Recurring tasks")
+      body should include("Registered task types")
+      body should include("send-mail")
     }
 
     it("returns the same report as JSON at /admin/jobs.json") {
@@ -62,15 +60,8 @@ class SchedulerAdminRouterSpec extends BaseRouteSpec with TestApplicationLoader 
       response.status shouldBe Status.Unauthorized
     }
 
-    it("accepts /admin/jobs/ with a trailing slash") {
-      val request =
-        Request[IO](
-          method = Method.GET,
-          uri = Uri.unsafeFromString("/admin/jobs/"),
-          headers = Headers(Authorization(BasicCredentials("admin", "admin")))
-        )
-      val response = allRoutes.orNotFound.run(request).unsafeRunSync()
-      response.status shouldBe Status.Ok
+    it("serves nothing at the bare /admin/jobs path") {
+      List("/admin/jobs", "/admin/jobs/").map(jobs(_).status) shouldBe List(Status.NotFound, Status.NotFound)
     }
   }
 }

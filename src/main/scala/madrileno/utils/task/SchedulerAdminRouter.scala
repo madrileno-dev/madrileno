@@ -16,7 +16,7 @@ class SchedulerAdminRouter(
     extends BaseRouter {
 
   val routes: Route = get {
-    path("jobs.json")(complete(report)) ~ ((pathPrefix("jobs") & pathEndOrSingleSlash) | path("jobs.html")) {
+    path("jobs.json")(complete(report)) ~ path("jobs.html") {
       complete {
         report.map { report =>
           Response[IO]()
