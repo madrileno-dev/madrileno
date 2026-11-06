@@ -29,6 +29,9 @@ class JobsReportIntegrationSpec extends AsyncWordSpec with AsyncIOSpec with Matc
       JobsReport(recurring, oneTime, Nil, rows, scheduler.client.config, now)
     }
 
+  private def hangingIs(health: JobHealth)(built: JobsReport): Boolean =
+    built.running.exists(job => job.task == "hanging-import/i-1" && job.health == health)
+
   private def eventually[A](check: IO[A])(done: A => Boolean): IO[A] =
     (IO.sleep(100.millis) *> check).iterateUntil(done).timeout(15.seconds)
 
@@ -59,21 +62,16 @@ class JobsReportIntegrationSpec extends AsyncWordSpec with AsyncIOSpec with Matc
     }
 
     "call a task Stalled once the scheduler running it stops sending heartbeats" in {
-      val scheduler = Scheduler(transactor, config)
+      val scheduler = Scheduler(transactor, config.copy(missedHeartbeatLimit = 1000))
       val hanging   = Task.oneTime(TaskDescriptor[Unit]("hanging-import"))(_ => IO.never)
       val observed  = Scheduler(transactor, config)
       for {
-        _       <- scheduler.client.schedule(hanging.instance("i-1", ()))
-        running <- scheduler.run(oneTimeTasks = List(hanging)).surround {
-                     eventually(report(observed, oneTime = List(hanging)))(_.running.exists(_.task == "hanging-import/i-1"))
-                   }
-        stalled <- eventually(report(observed, oneTime = List(hanging)))(
-                     _.running.exists(job => job.task == "hanging-import/i-1" && job.health == JobHealth.Stalled)
-                   )
-      } yield {
-        running.running.find(_.task == "hanging-import/i-1").map(_.health) shouldBe Some(JobHealth.Healthy)
-        stalled.status shouldBe JobsStatus.Unhealthy
-      }
+        _ <- scheduler.client.schedule(hanging.instance("i-1", ()))
+        _ <- scheduler.run(oneTimeTasks = List(hanging)).surround {
+               eventually(report(observed, oneTime = List(hanging)))(hangingIs(JobHealth.Healthy))
+             }
+        stalled <- eventually(report(observed, oneTime = List(hanging)))(hangingIs(JobHealth.Stalled))
+      } yield stalled.status shouldBe JobsStatus.Unhealthy
     }
   }
 }
