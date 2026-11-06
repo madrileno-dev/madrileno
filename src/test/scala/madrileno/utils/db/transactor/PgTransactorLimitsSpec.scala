@@ -46,15 +46,13 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
       )
     )
 
+  private def holdingOne(transactor: Transactor): Resource[IO, Unit] =
+    Resource.eval(Deferred[IO, Unit]).flatMap { taken =>
+      transactor.inSession(taken.complete(()) *> IO.never).background.evalMap(_ => taken.get.timeout(5.seconds))
+    }
+
   private def holding(transactor: Transactor, sessions: Int): Resource[IO, Unit] =
-    Resource
-      .make(for {
-        release <- Deferred[IO, Unit]
-        taken   <- List.fill(sessions)(Deferred[IO, Unit]).sequence
-        holders <- taken.traverse(took => transactor.inSession(took.complete(()) *> release.get).start)
-        _       <- taken.traverse_(_.get).timeout(5.seconds)
-      } yield (release, holders)) { case (release, holders) => release.complete(()) *> holders.traverse_(_.joinWithNever) }
-      .void
+    List.fill(sessions)(holdingOne(transactor)).sequence_
 
   private def sqlState(result: Either[Throwable, ?]): Option[String] =
     result.left.toOption.collect { case e: PostgresErrorException => e.code }
