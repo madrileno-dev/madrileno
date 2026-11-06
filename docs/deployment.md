@@ -120,9 +120,22 @@ What's NOT done out of the box:
 
 ## Health checks
 
-The deep `/admin/health-check` endpoint exists (Postgres + SMTP probe) but it's gated by Basic Auth — designed for human ops checks, not orchestrator probes. For load balancer or orchestrator probes, hit `/v1/health-check` (unauthenticated, lightweight). See [http.md](http.md) and the `HealthCheckModule` for what's wired.
+Two unauthenticated endpoints are meant for probes:
 
-If you need a richer liveness/readiness probe, add an unauthenticated endpoint (or a separate port) that runs the same checks without the auth gate. Don't expose `/admin/*` to the orchestrator.
+- **Liveness** — `GET /v1/health-check`. Answers 200 with the app's name and version without touching any dependency, so a slow or down database never gets the process restarted.
+- **Readiness** — `GET /v1/health-check/readiness`. Runs `SELECT version()` on a connection of its own, outside the pool, and answers 200 `{"status":"Up"}` if Postgres answers within a second, 503 `{"status":"Down"}` otherwise: Postgres not answering, connection refused, no connection slots left. A busy pool doesn't make it 503: requests waiting for a connection are slow, not failing, and taking a loaded instance out of rotation would only move its traffic onto the others. The flip side is that an instance whose pool is stuck for good (a bug that never returns connections) answers 503 to API calls while readiness stays 200; watch `database-unavailable` responses for that. The endpoint is public, so concurrent requests share one check and its answer is reused for a second: an instance opens at most about one probe connection per second however often it is asked. A probe that times out can keep its connection for up to the 10-second read timeout, so against a database that is slow but not down an instance may hold several. Leave a few slots per instance in `max_connections` above instances × pool size. Without that headroom, one extra client (a surge replica during a deploy, a migration job, a `psql` session) makes every instance's probe fail with "too many clients" at the same moment, and all of them leave rotation although their pools still serve traffic. The body carries no error detail; the reason is logged. Point your load balancer's health check or the orchestrator's readiness probe here, so an instance that can't reach its database stops getting traffic and gets it back once it can.
+
+```yaml
+livenessProbe:
+  httpGet: { path: /v1/health-check, port: 9000 }
+readinessProbe:
+  httpGet: { path: /v1/health-check/readiness, port: 9000 }
+  timeoutSeconds: 2
+```
+
+Readiness checks only Postgres. Mail goes out through the scheduler and retries, so an SMTP outage delays mail without stopping requests; it is no reason to take the instance out of rotation. Because every instance shares the database, a database that is down takes them all out of rotation at once: clients then get the load balancer's error instead of the app's 503, which is the same outage either way.
+
+`/admin/health-check` is the deeper check for people: Postgres plus an SMTP connect (reported `Disabled` when `MAILER_SENDER=log`), with latencies and error messages. It sits behind the admin Basic Auth with the rest of `/admin/*`; don't point probes at it.
 
 ## What this template doesn't ship
 
