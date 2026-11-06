@@ -113,6 +113,17 @@ What happens, in order:
 
 Configure the drain window with `HTTP_SHUTDOWN_TIMEOUT` (HOCON `http.shutdown-timeout`). Pick something a little longer than your worst-case request — for an app that serves p99 = 5s requests, `30s` is plenty. For long-polling or streaming endpoints, raise it. Whatever sends the `SIGTERM` has a "give the process this long to exit" knob (`docker stop --time`, systemd `TimeoutStopSec`, k8s `terminationGracePeriodSeconds`); set it to at least the same value — otherwise it'll `SIGKILL` mid-drain.
 
+### Stopping it together with the frontend
+
+When the [frontend](https://github.com/madrileno-dev/madrileno-frontend)'s production Node server sits in front of this API (server-side rendering and the same-origin forwarding of `/v1`), stop the frontend first and the API only after the frontend has exited. The frontend drains for `SHUTDOWN_TIMEOUT_MS` (25 s by default) and finishes the requests it is forwarding. If the API stops first, a write it has already committed can lose its response on the way back, and the user sees a failure for something that happened. Each stop timeout must exceed that service's own drain window, and Docker's default of 10 s is shorter than both:
+
+```bash
+docker stop --time 30 frontend   # SHUTDOWN_TIMEOUT_MS=25000 plus slack
+docker stop --time 35 api        # HTTP_SHUTDOWN_TIMEOUT=30s plus slack
+```
+
+With Docker Compose, `depends_on: [api]` on the frontend makes `docker compose stop` and `down` stop it first; set `stop_grace_period` on both services. A rolling deploy replaces one service at a time, so there is no stack-wide stop and each service drains on its own.
+
 What's NOT done out of the box:
 
 - **In-flight scheduler tasks** are hard-canceled with the rest of the resource graph (whatever cats-effect cancellation lets them complete). If you have long-running tasks that need to checkpoint, they should do so frequently rather than relying on a graceful interrupt.
