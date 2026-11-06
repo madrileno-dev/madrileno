@@ -4,7 +4,11 @@ import cats.effect.IO
 import madrileno.utils.db.transactor.{DB, DBInTransaction, Transactor}
 import madrileno.utils.observability.TelemetryContext
 
-class SchedulerClient private[task] (repository: ClientSchedulerRepository, transactor: Transactor)(using TelemetryContext) {
+class SchedulerClient private[task] (
+  repository: ClientSchedulerRepository,
+  transactor: Transactor,
+  private[task] val config: SchedulerConfig
+)(using TelemetryContext) {
   def schedule[A](task: Task[A]): IO[Boolean] =
     transactor.inSession(scheduleInSession(task))
 

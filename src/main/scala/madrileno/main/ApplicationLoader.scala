@@ -143,11 +143,11 @@ class ApplicationLoader(
 
   private lazy val rawConfig: Config = config.config().fold(f => throw new ConfigReaderException[Config](f), identity)
 
-  lazy val schedulerAdminRouter: SchedulerAdminRouter     = new SchedulerAdminRouter(recurringTasks, oneTimeTasks, customTasks, schedulerClient)
-  lazy val loggersAdminRouter: LoggersAdminRouter         = new LoggersAdminRouter
-  lazy val configAdminRouter: ConfigAdminRouter           = new ConfigAdminRouter(rawConfig, adminConfig.config.redactedPaths)
-  lazy val threaddumpAdminRouter: ThreaddumpAdminRouter   = new ThreaddumpAdminRouter(ioRuntime, rateLimiterRuntime)
-  lazy val heapdumpAdminRouter: HeapdumpAdminRouter       = new HeapdumpAdminRouter(rateLimiterRuntime)
+  lazy val schedulerAdminRouter: SchedulerAdminRouter   = new SchedulerAdminRouter(recurringTasks, oneTimeTasks, customTasks, schedulerClient, clock)
+  lazy val loggersAdminRouter: LoggersAdminRouter       = new LoggersAdminRouter
+  lazy val configAdminRouter: ConfigAdminRouter         = new ConfigAdminRouter(rawConfig, adminConfig.config.redactedPaths)
+  lazy val threaddumpAdminRouter: ThreaddumpAdminRouter = new ThreaddumpAdminRouter(ioRuntime, rateLimiterRuntime)
+  lazy val heapdumpAdminRouter: HeapdumpAdminRouter     = new HeapdumpAdminRouter(rateLimiterRuntime)
   lazy val featureFlagAdminRouter: FeatureFlagAdminRouter = new FeatureFlagAdminRouter(featureFlagService)
 
   lazy val adminRoutes: Route = pathPrefix("admin") {
