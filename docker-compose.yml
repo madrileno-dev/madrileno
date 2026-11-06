@@ -28,7 +28,7 @@ services:
 
   openobserve:
     profiles: ["full"]
-    image: public.ecr.aws/zinclabs/openobserve:latest
+    image: public.ecr.aws/zinclabs/openobserve:v1.0.4
     environment:
       ZO_ROOT_USER_EMAIL: root@example.com
       ZO_ROOT_USER_PASSWORD: Complexpass#123
@@ -37,7 +37,8 @@ services:
     volumes:
       - madrileno-openobserve:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:5080/healthz | grep -q ok || exit 1"]
+      # The image has no shell or wget; `node status` asks the running server and fails until it answers.
+      test: ["CMD", "/openobserve", "node", "status"]
       interval: 5s
       timeout: 3s
       retries: 20
