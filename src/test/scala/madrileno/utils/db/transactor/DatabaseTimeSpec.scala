@@ -33,6 +33,17 @@ class DatabaseTimeSpec extends AsyncWordSpec with AsyncIOSpec with Matchers {
       }
     }
 
+    "keep the time a call waited for a connection apart, inside the call's time" in {
+      for {
+        time   <- DatabaseTime.create
+        result <- time.tracking(time.measure(time.waitingForConnection(IO.sleep(50.millis)) *> IO.sleep(50.millis)))
+      } yield {
+        result._2.calls shouldBe 1
+        result._2.poolWait should (be >= 50.millis and be < 100.millis)
+        result._2.time should be >= 100.millis
+      }
+    }
+
     "measure nothing when untracked" in {
       DatabaseTime.untracked.tracking(DatabaseTime.untracked.measure(IO.pure(1))).map(_ shouldBe (Right(1), DatabaseUse.none))
     }

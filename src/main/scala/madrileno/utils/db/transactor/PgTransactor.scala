@@ -84,7 +84,7 @@ object PgTransactor {
       giveUps   <- Supervisor[IO](await = true)
       abandoned <- Supervisor[IO](await = true)
     } yield new PgTransactor(
-      bounded(pool, pgConfig.acquireTimeout, tracer, giveUps),
+      bounded(pool, pgConfig.acquireTimeout, tracer, giveUps, databaseTime),
       pgConfig.idleInTransactionTimeout,
       pgConfig.operationTimeout,
       abandoned,
@@ -95,7 +95,8 @@ object PgTransactor {
     resource: Resource[IO, A],
     acquireTimeout: Duration,
     tracer: Tracer[IO],
-    giveUps: Supervisor[IO]
+    giveUps: Supervisor[IO],
+    databaseTime: DatabaseTime = DatabaseTime.untracked
   ): Resource[IO, A] =
     Resource
       .makeFull[IO, (A, IO[Unit])] { poll =>
@@ -105,7 +106,7 @@ object PgTransactor {
               waiting.joinWithNever.timeoutTo(timeout, IO.raiseError(new DatabaseUnavailable(s"No database connection became free within $timeout")))
             case _ => waiting.joinWithNever
           }
-          poll(handedOver).guaranteeCase {
+          databaseTime.waitingForConnection(poll(handedOver)).guaranteeCase {
             case Outcome.Succeeded(_) => IO.unit
             case _                    => giveUps.supervise(giveUp(waiting, tracer)).void
           }

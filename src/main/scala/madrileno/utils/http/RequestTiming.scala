@@ -29,10 +29,11 @@ object RequestTiming extends LoggingSupport {
   ): IO[Unit] = {
     val path     = request.uri.path.renderString
     val status   = outcome.fold(_ => "failed", _.status.code.toString)
+    val waited   = s"${used.poolWait.toMillis} ms of that waiting for a connection"
     val database = used.calls match {
       case 0 => "no database calls"
-      case 1 => s"${used.time.toMillis} ms of it in 1 database call"
-      case n => s"${used.time.toMillis} ms of it in $n database calls"
+      case 1 => s"${used.time.toMillis} ms of it in 1 database call, $waited"
+      case n => s"${used.time.toMillis} ms of it in $n database calls, $waited"
     }
     val message = s"${request.method.name} $path $status in ${elapsed.toMillis} ms, $database"
     val fields  = Map(
@@ -40,7 +41,8 @@ object RequestTiming extends LoggingSupport {
       "url.path"            -> path,
       "event.duration"      -> elapsed.toNanos.toString,
       "db.calls"            -> used.calls.toString,
-      "db.duration"         -> used.time.toNanos.toString
+      "db.duration"         -> used.time.toNanos.toString,
+      "db.pool_wait"        -> used.poolWait.toNanos.toString
     ) ++ outcome.toOption.map(response => "http.response.status_code" -> response.status.code.toString)
     if (path.startsWith("/v1/health-check")) logger.debug(fields)(message) else logger.info(fields)(message)
   }

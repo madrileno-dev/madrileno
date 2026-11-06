@@ -47,12 +47,15 @@ class RequestTimingSpec extends AsyncWordSpec with AsyncIOSpec with Matchers {
 
   "RequestTiming" should {
     "log one line per request with the status, the duration and the database share" in {
-      val app = (time: DatabaseTime) => Kleisli((_: Request[IO]) => time.measure(IO.sleep(50.millis)).as(Response[IO](Status.Created)))
+      val app = (time: DatabaseTime) =>
+        Kleisli((_: Request[IO]) =>
+          time.measure(time.waitingForConnection(IO.sleep(20.millis)) *> IO.sleep(30.millis)).as(Response[IO](Status.Created))
+        )
       serve(app, Request[IO](Method.GET, uri"/v1/auctions?token=secret")).map { case (response, lines) =>
         response.map(_.status) shouldBe Right(Status.Created)
         lines.map(_.getLevel) shouldBe List(Level.INFO)
         val line = lines.head
-        line.getFormattedMessage should fullyMatch regex """GET /v1/auctions 201 in \d+ ms, \d+ ms of it in 1 database call"""
+        line.getFormattedMessage should fullyMatch regex """GET /v1/auctions 201 in \d+ ms, \d+ ms of it in 1 database call, \d+ ms of that waiting for a connection"""
         line.getFormattedMessage should not include "secret"
         val fields = line.getMDCPropertyMap.asScala
         fields("http.request.method") shouldBe "GET"
@@ -60,6 +63,7 @@ class RequestTimingSpec extends AsyncWordSpec with AsyncIOSpec with Matchers {
         fields("http.response.status_code") shouldBe "201"
         fields("db.calls") shouldBe "1"
         fields("db.duration").toLong should be >= 50.millis.toNanos
+        fields("db.pool_wait").toLong should (be >= 20.millis.toNanos and be < fields("db.duration").toLong)
         fields("event.duration").toLong should be >= fields("db.duration").toLong
       }
     }

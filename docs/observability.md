@@ -162,12 +162,12 @@ The pattern is naive but fits the project's path conventions. If you start using
 `RequestTiming`, wired in `Main` inside the server span, writes one `INFO` line per request saying how long it took and how much of that went to the database:
 
 ```
-GET /v1/auctions/1f0c… 200 in 54116 ms, 54084 ms of it in 3 database calls
+GET /v1/auctions/1f0c… 200 in 54116 ms, 54084 ms of it in 3 database calls, 0 ms of that waiting for a connection
 ```
 
-It is the first line to read when a request is slow: a database share close to the total points at a query, a lock or the pool, and a small one at the code or an outbound call. The time runs until the response is ready, not until its body is streamed. The database share is the time spent in `inSession`, `inTransaction` and `notify`, waiting for a pooled connection included, and counts calls made from fibers the request starts. `PgTransactor` reports them to a `DatabaseTime` that `Main` creates; a transactor built without one (tests, `SeedMain`, `ConsoleApplication`) tracks nothing.
+It is the first line to read when a request is slow: a database share close to the total points at a query, a lock or the pool, and a small one at the code or an outbound call. The wait for a connection tells the pool apart from the rest: near zero means the pool had a free connection and the time went to the queries or to locks, and a large one means the pool was exhausted. The time runs until the response is ready, not until its body is streamed. The database share is the time spent in `inSession`, `inTransaction` and `notify`, waiting for a pooled connection included, and counts calls made from fibers the request starts. The wait is measured from asking the pool for a connection until it hands one over (opening a new connection included), or until `pg.acquire-timeout` gives up; a call that fails after it got its connection adds nothing to it. `PgTransactor` reports them to a `DatabaseTime` that `Main` creates; a transactor built without one (tests, `SeedMain`, `ConsoleApplication`) tracks nothing.
 
-The line carries `http.request.method`, `url.path` (no query string), `http.response.status_code`, `event.duration` and `db.duration` (nanoseconds), `db.calls` and the trace id as MDC fields, which structured output (the OTLP appender, JSON lines) keeps as attributes. A request that failed before it had a response logs `failed` as its status. `/v1/health-check*` logs at `DEBUG`, so probes don't drown out traffic.
+The line carries `http.request.method`, `url.path` (no query string), `http.response.status_code`, `event.duration`, `db.duration` and `db.pool_wait` (nanoseconds), `db.calls` and the trace id as MDC fields, which structured output (the OTLP appender, JSON lines) keeps as attributes. A request that failed before it had a response logs `failed` as its status. `/v1/health-check*` logs at `DEBUG`, so probes don't drown out traffic.
 
 ## Request and response log lines
 
