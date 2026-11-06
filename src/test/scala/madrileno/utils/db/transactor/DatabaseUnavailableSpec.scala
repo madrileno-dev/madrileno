@@ -1,10 +1,11 @@
 package madrileno.utils.db.transactor
 
+import com.comcast.ip4s.UnknownHostException
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import skunk.exception.{EofException, PostgresErrorException}
 
-import java.net.ConnectException
+import java.net.{ConnectException, NoRouteToHostException, SocketException}
 
 class DatabaseUnavailableSpec extends AnyWordSpec with Matchers {
 
@@ -26,6 +27,12 @@ class DatabaseUnavailableSpec extends AnyWordSpec with Matchers {
     "cover a refused or dropped connection" in {
       DatabaseUnavailable.unapply(new ConnectException("Connection refused")) shouldBe true
       DatabaseUnavailable.unapply(EofException(5, 0)) shouldBe true
+    }
+
+    "cover a reset connection, an unreachable host and a database name that no longer resolves" in {
+      DatabaseUnavailable.unapply(new SocketException("Connection reset by peer")) shouldBe true
+      DatabaseUnavailable.unapply(new NoRouteToHostException("No route to host")) shouldBe true
+      DatabaseUnavailable.unapply(new UnknownHostException("postgres: Name or service not known")) shouldBe true
     }
 
     "leave errors in the request itself to the internal-error path" in {
