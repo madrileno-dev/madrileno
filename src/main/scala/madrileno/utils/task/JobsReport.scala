@@ -10,7 +10,7 @@ enum JobHealth {
 }
 
 enum JobsStatus {
-  case Healthy, Unhealthy
+  case Healthy, Unhealthy, Unknown
 }
 
 final case class RecurringJob(
@@ -54,7 +54,8 @@ final case class JobsReport(
   overdue: List[QueuedJob],
   overdueTotal: Int,
   orphaned: List[QueuedJob],
-  registered: RegisteredJobs)
+  registered: RegisteredJobs,
+  databaseError: Option[String] = None)
     derives Encoder.AsObject,
       Decoder
 
@@ -135,6 +136,19 @@ object JobsReport {
       )
     )
   }
+
+  private[task] def withoutTaskTable(
+    recurringTasks: List[Task[?]],
+    oneTimeTasks: List[OneTimeTask[?]],
+    customTasks: List[CustomTask[?]],
+    error: Throwable,
+    now: Instant
+  ): JobsReport =
+    apply(recurringTasks, oneTimeTasks, customTasks, Nil, SchedulerConfig(), now).copy(
+      status = JobsStatus.Unknown,
+      recurring = Nil,
+      databaseError = Some(Option(error.getMessage).fold(error.getClass.getName)(message => s"${error.getClass.getName}: $message"))
+    )
 
   private def renderSchedule(schedule: Schedule): String = schedule match {
     case Schedule.Once                              => "once (immediate)"

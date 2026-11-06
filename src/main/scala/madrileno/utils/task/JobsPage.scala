@@ -18,35 +18,48 @@ object JobsPage {
           b(report.status.toString),
           span(style := "color:#666")(s" — generated at ${formatInstant(report.generatedAt)}. The same report is served as JSON at /admin/jobs.json.")
         ),
-        recurringSection(report.recurring),
-        queuedSection(s"Currently running (${report.running.size})", "Nothing in flight.", None, report.running),
-        queuedSection(
-          s"Failing (${report.failingTotal})",
-          "No tasks are failing.",
-          Some(s"Tasks with one or more consecutive failures. Showing the most recent first; ${report.failing.size} of ${report.failingTotal}."),
-          report.failing
-        ),
-        queuedSection(
-          s"Overdue (${report.overdueTotal})",
-          "Nothing is waiting past its time.",
-          Some(
-            s"Rows still waiting longer than overdue-after past their time, so no scheduler is picking them up. Oldest first; ${report.overdue.size} of ${report.overdueTotal}."
-          ),
-          report.overdue
-        ),
-        if (report.orphaned.nonEmpty)
-          queuedSection(
-            s"Orphaned rows (${report.orphaned.size})",
-            "",
-            Some(
-              "Rows whose task_name is not registered in the running app — usually tasks renamed or removed in code. The scheduler clears these lazily on pick."
-            ),
-            report.orphaned
+        report.databaseError.fold(rowSections(report))(error =>
+          div(
+            h2("Task table unavailable"),
+            p(s"The task table couldn't be read, so no task's health is known: $error"),
+            p(style := "color:#666")("The registered task types below come from this instance's code, not from the database.")
           )
-        else span(),
+        ),
         registeredSection(report.registered)
       )
     ).render
+  }
+
+  private def rowSections(report: JobsReport): TypedTag[String] = {
+    import scalatags.Text.all.*
+    div(
+      recurringSection(report.recurring),
+      queuedSection(s"Currently running (${report.running.size})", "Nothing in flight.", None, report.running),
+      queuedSection(
+        s"Failing (${report.failingTotal})",
+        "No tasks are failing.",
+        Some(s"Tasks with one or more consecutive failures. Showing the most recent first; ${report.failing.size} of ${report.failingTotal}."),
+        report.failing
+      ),
+      queuedSection(
+        s"Overdue (${report.overdueTotal})",
+        "Nothing is waiting past its time.",
+        Some(
+          s"Rows still waiting longer than overdue-after past their time, so no scheduler is picking them up. Oldest first; ${report.overdue.size} of ${report.overdueTotal}."
+        ),
+        report.overdue
+      ),
+      if (report.orphaned.nonEmpty)
+        queuedSection(
+          s"Orphaned rows (${report.orphaned.size})",
+          "",
+          Some(
+            "Rows whose task_name is not registered in the running app — usually tasks renamed or removed in code. The scheduler clears these lazily on pick."
+          ),
+          report.orphaned
+        )
+      else span()
+    )
   }
 
   private def recurringSection(jobs: List[RecurringJob]): TypedTag[String] = {
