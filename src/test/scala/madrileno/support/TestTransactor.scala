@@ -19,7 +19,7 @@ trait TestTransactor extends TestContainersForAll { self: Suite =>
   given TracerProvider[IO] = TracerProvider.noop[IO]
   given MeterProvider[IO]  = MeterProvider.noop[IO]
 
-  private lazy val pgConfig: PgConfig = withContainers { container =>
+  protected lazy val pgConfig: PgConfig = withContainers { container =>
     PgConfig(
       host = container.host,
       port = container.mappedPort(5432),
@@ -34,6 +34,9 @@ trait TestTransactor extends TestContainersForAll { self: Suite =>
 
   def trackedTransactor(databaseTime: DatabaseTime): Resource[IO, PgTransactor] =
     PgTransactor.resource(pgConfig, databaseTime)
+
+  def transactorWith(configure: PgConfig => PgConfig): Resource[IO, PgTransactor] =
+    PgTransactor.resource(configure(pgConfig))
 
   private lazy val pgTransactor: PgTransactor = {
     // Finalizer discarded — pool lifetime is tied to the Testcontainers PG container.
