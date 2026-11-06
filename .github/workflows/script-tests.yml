@@ -8,12 +8,16 @@ on:
     paths:
       - "scripts/**"
       - "src/main/**"
+      - "build.sbt"
+      - "project/**"
       - ".github/workflows/script-tests.yml"
   push:
     branches: [ "main" ]
     paths:
       - "scripts/**"
       - "src/main/**"
+      - "build.sbt"
+      - "project/**"
 
 jobs:
   compile-scripts:
