@@ -5,11 +5,11 @@ import madrileno.utils.json.JsonProtocol.*
 import java.time.Instant
 import scala.concurrent.duration.{Duration, FiniteDuration}
 
-enum JobHealth derives Encoder, Decoder {
+enum JobHealth {
   case Healthy, Failing, Overdue, Stalled, Missing
 }
 
-enum JobsStatus derives Encoder, Decoder {
+enum JobsStatus {
   case Healthy, Unhealthy
 }
 

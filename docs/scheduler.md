@@ -176,6 +176,7 @@ scheduler {
   retry-backoff-rate      = 1.5       # multiplier per attempt
   retry-max-delay         = 1h        # cap on retry delay
   max-retries             = ${?…}     # optional: drop the task after N consecutive failures
+  overdue-after           = 5m        # a row due longer than this is Overdue in /admin/jobs.json; Inf turns it off
 }
 ```
 
@@ -232,7 +233,7 @@ curl -u admin:$ADMIN_PASSWORD https://api.example.com/admin/jobs.json
 
 The report has:
 
-- An overall `status`: `Healthy`, or `Unhealthy` when any recurring task isn't `Healthy`, any row is overdue, or a running row has stalled. A failing one-time or custom row is listed but leaves `status` alone: it retries on its own, and one that fails for good (a mail to a dead address) would otherwise keep the report unhealthy until someone deletes the row. Set `maxRetries` on the task, or `scheduler.max-retries`, to have such rows dropped, and alert on `failingTotal` if you want to hear about a spike.
+- An overall `status`: `Healthy`, or `Unhealthy` when any recurring task isn't `Healthy`, any row is overdue, or a running row has stalled. A failing one-time or custom row is listed but leaves `status` alone: it retries on its own, and one that fails for good (a mail to a dead address) would otherwise keep the report unhealthy until someone deletes the row. Set `maxRetries` on the `OneTimeTask` or `CustomTask` to have such rows dropped (the global `scheduler.max-retries` also caps recurring tasks, which then show `Missing` until the next start), and alert on `failingTotal` if you want to hear about a spike.
 - Recurring tasks with their schedule, `health`, next run, last success/failure, consecutive failures and which instance owns the row.
 - Currently running rows with their picker and last heartbeat.
 - Failing rows (one or more consecutive failures), most recent first, up to 50, with the total.
@@ -246,9 +247,9 @@ Each row's `health` is one of:
 | --- | --- |
 | `Healthy` | On schedule. |
 | `Failing` | The last run failed and the row retries (`consecutiveFailures` > 0). |
-| `Overdue` | Not picked, and due longer ago than `scheduler.overdue-after` (`SCHEDULER_OVERDUE_AFTER`, default `5m`; `Inf` turns it off). Nothing is picking rows up: no scheduler is running, or all its slots are busy. Takes precedence over `Failing`, since a retry nobody picks up points at the scheduler, not the task. |
+| `Overdue` | Not picked, and due longer ago than `scheduler.overdue-after` (`SCHEDULER_OVERDUE_AFTER`, default `5m`; `Inf` turns it off). Nothing is picking rows up: no scheduler is running, or all its slots are busy. Keep it well above `polling-interval`, since an idle scheduler takes up to one interval to notice a due row. Takes precedence over `Failing`, since a retry nobody picks up points at the scheduler, not the task. |
 | `Stalled` | Picked, but no heartbeat for `heartbeat-interval` × `missed-heartbeat-limit`. The instance running it died; another scheduler revives such rows, and with none running it stays here. |
-| `Missing` | A registered recurring task with no row at all. Rows are written when a scheduler starts, so either none has started with this task, or the scheduler deleted the row: after the last retry failed (when `scheduler.max-retries` is set in config), or when the schedule has no next run. It comes back at the next start. |
+| `Missing` | A registered recurring task with no row at all. Rows are written when a scheduler starts, so either none has started with this task, or the scheduler deleted the row: after the last retry failed (when `scheduler.max-retries` is set in config), or when the schedule has no next run. During a rolling deploy, an older instance that doesn't know a newly added task deletes its row as unknown. It comes back at the next start. |
 
 The HTTP status is 200 whatever the verdict, since the report itself succeeded; a monitor alerts on `status`. Read-only — no buttons to trigger, retry, or delete; you'd add those routes yourself if you need them. It shares the `/admin` Basic-Auth subtree with the other admin routes (config, loggers, thread and heap dumps, feature flags); gate it with a strong `ADMIN_PASSWORD`.
 
