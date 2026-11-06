@@ -151,9 +151,7 @@ The contract is only as complete as the specs: an error code that a router can a
 Everything under `/admin` is gated by HTTP Basic auth using credentials from the `admin.user` / `admin.password` config (set via env vars in production). Out of the box:
 
 - `/admin/health-check` — deeper probe than the public `/v1/health-check`; checks Postgres + SMTP from `HealthCheckModule`.
-- `/admin/jobs` — read-only scheduler report, HTML or JSON by the `Accept` header, with a health verdict per task; provided by `SchedulerAdminRouter` ([scheduler.md](scheduler.md#the-admin-ui)).
-
-A route that serves more than one representation picks it with `negotiate(MediaType.application.json, MediaType.text.html)` from `BaseRouter`: standard HTTP content negotiation on `Accept` (quality values, most specific range wins, the first type on a tie or when the header is absent), 406 when nothing matches, and `Vary: Accept` on the response so caches keep the variants apart.
+- `/admin/jobs` — read-only scheduler report with a health verdict per task, as HTML at `/admin/jobs` (or `/admin/jobs.html`) and as JSON at `/admin/jobs.json`; provided by `SchedulerAdminRouter` ([scheduler.md](scheduler.md#the-admin-ui)).
 
 Admin is not a module — `ApplicationLoader` gates the whole subtree once and modules contribute via the same `route` method (the `/admin` routes live on `ApplicationLoader` itself for now, since they're cross-cutting).
 

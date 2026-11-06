@@ -16,9 +16,7 @@ object JobsPage {
         h1(style := "margin:0 0 8px 0")("Jobs"),
         p(style := "margin:0 0 24px 0")(
           b(report.status.toString),
-          span(style := "color:#666")(
-            s" — generated at ${formatInstant(report.generatedAt)}. The same report is served as JSON to Accept: application/json."
-          )
+          span(style := "color:#666")(s" — generated at ${formatInstant(report.generatedAt)}. The same report is served as JSON at /admin/jobs.json.")
         ),
         recurringSection(report.recurring),
         queuedSection(s"Currently running (${report.running.size})", "Nothing in flight.", None, report.running),

@@ -27,7 +27,6 @@ trait BaseRouter
     with KebsHttp4sStirValueEnumUnmarshallers
     with KebsEnum
     with PaginationDirectives
-    with ContentNegotiationDirectives
     with ApiVersionDirectives {
   export Status.*
 

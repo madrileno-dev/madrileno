@@ -224,10 +224,10 @@ trait MyModule extends RecurringTaskProvider with OneTimeTaskProvider {
 
 ## The admin UI
 
-`/admin/jobs` (Basic-Auth gated, GET-only) reports on the scheduler, as an HTML page for people and as JSON for monitors. Both are rendered from the same `JobsReport`, so they always show the same values; which one you get follows the request's `Accept` header (a browser gets HTML; `Accept: application/json`, `*/*` as curl sends it, or no `Accept` at all gets JSON; a request that accepts neither gets 406):
+The scheduler report (Basic-Auth gated, GET-only) is served as an HTML page for people at `/admin/jobs` (also `/admin/jobs.html`) and as JSON for monitors at `/admin/jobs.json`. Both are rendered from the same `JobsReport`, so they always show the same values:
 
 ```bash
-curl -u admin:$ADMIN_PASSWORD -H 'Accept: application/json' https://api.example.com/admin/jobs
+curl -u admin:$ADMIN_PASSWORD https://api.example.com/admin/jobs.json
 ```
 
 The report has:
