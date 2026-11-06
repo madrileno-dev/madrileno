@@ -63,7 +63,7 @@ The container needs environment variables for every `${?VAR}` substitution in `a
 
 The dev-stack `.env` is *not* a production template; it's a local-development convenience. For real deploys, generate the env from your platform's secrets store + non-secret config map.
 
-Outside `dev` this is enforced, not just advised. With `APP_ENVIRONMENT` set to `test`, `staging` or `prod`, the app refuses to boot — before it binds the port — if any credential is still a shipped default (`JWT_SECRET`, `FINGERPRINT_SECRET`, `ADMIN_PASSWORD`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`) or if `DEV_AUTH_ENABLED` is on (dev auth mints a session for any email). The startup error names each offending setting and the env var to override. Only `dev` may run on the stock values.
+Outside `dev` this is enforced, not just advised. With `APP_ENVIRONMENT` set to `test`, `staging` or `prod`, the app refuses to boot — before it binds the port — if any credential is still a shipped default or empty (`JWT_SECRET`, `FINGERPRINT_SECRET`, `ADMIN_PASSWORD`, and `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` when `OBJECT_STORAGE` is `s3`), if `JWT_SECRET` or `FINGERPRINT_SECRET` is shorter than 32 characters (both key HMAC-SHA256, and HS256 wants a 256-bit key), if `ADMIN_PASSWORD` is shorter than 16, or if `DEV_AUTH_ENABLED` is on (dev auth mints a session for any email). An empty `JWT_SECRET` would otherwise start and report ready, then fail every login; an empty `ADMIN_PASSWORD` would let anyone in with an empty password. `openssl rand -base64 48` makes a suitable value. The startup error names each offending setting and the env var to override. Only `dev` may run on the stock values.
 
 ## Migrations are a separate step
 
