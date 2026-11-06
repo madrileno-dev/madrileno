@@ -4,8 +4,8 @@ import cats.effect.IO
 import io.circe.syntax.EncoderOps
 import madrileno.auth.domain.AuthContext
 import madrileno.support.{BaseRouteSpec, SectionSpec, SeededEvent, TestApplicationLoader, TestData, TicketSeed}
-import madrileno.ticket.domain.{ChargeId, EventId, EventSeat, EventStatus, Order, SeatId, SeatLabel, Ticket, TicketId, TicketStatus}
-import madrileno.ticket.routers.dto.{HoldSeatsRequest, OrderDto, PayTicketRequest, TicketDto}
+import madrileno.ticket.domain.{ChargeId, EventId, EventName, EventSeat, EventStatus, Order, SeatId, SeatLabel, Ticket, TicketId, TicketStatus}
+import madrileno.ticket.routers.dto.{CreateEventRequest, EventDto, HoldSeatsRequest, OrderDto, PayTicketRequest, TicketDto}
 import madrileno.user.domain.User
 import madrileno.utils.http.Error
 import madrileno.utils.json.JsonProtocol.*
@@ -371,6 +371,82 @@ class TicketRouterSpec extends BaseRouteSpec with TestApplicationLoader {
     )
   )
 
+  private val farFuture = Instant.parse("2030-12-01T18:30:00Z")
+
+  path("/v1/events")(
+    supports(
+      POST,
+      description = "Create an event",
+      summary = "Creates an OnSale event without sections. Any authenticated user may do so (no organizer roles yet)",
+      securitySchemes = Seq(bearerScheme),
+      tags = Seq("Tickets")
+    )(
+      onRequest(body = CreateEventRequest(EventName(" Concert "), farFuture), security = bearer.apply(validJwt(stranger)))
+        .respondsWith[EventDto](Created, description = "Event created")
+        .assert { ctx =>
+          val response = ctx.performRequest(allRoutes)
+          response.body.name shouldBe EventName("Concert")
+          response.body.startsAt shouldBe farFuture
+          response.body.status shouldBe EventStatus.OnSale
+          val stored = application.transactor.inSession(application.eventRepository.find(response.body.id)).unsafeRunSync()
+          stored.map(_.startsAt) shouldBe Some(farFuture)
+        },
+      // An offset is accepted by the Instant decoder and normalised: 19:30+01:00 is 18:30Z.
+      onRequest(body = RawEventRequest("Concert", "2030-12-01T19:30:00+01:00"), security = bearer.apply(validJwt(stranger)))
+        .respondsWith[EventDto](Created, description = "Event created from a date with an offset")
+        .assert { ctx =>
+          val response = ctx.performRequest(allRoutes)
+          response.body.startsAt shouldBe farFuture
+          val stored = application.transactor.inSession(application.eventRepository.find(response.body.id)).unsafeRunSync()
+          stored.map(_.startsAt) shouldBe Some(farFuture)
+        },
+      onRequest(body = CreateEventRequest(EventName("Old"), Instant.now().minusSeconds(3600)), security = bearer.apply(validJwt(stranger)))
+        .respondsWith[Error[Unit]](UnprocessableContent, description = "Event starts in the past")
+        .assert { ctx =>
+          val response = ctx.performRequest(allRoutes)
+          response.body.title shouldBe Some("Event must start in the future")
+        },
+      onRequest(body = RawEventRequest("   ", "2030-12-01T18:30:00Z"), security = bearer.apply(validJwt(stranger)))
+        .respondsWith[Error[Unit]](BadRequest, description = "Blank name")
+        .assert(_.performRequest(allRoutes)),
+      onRequest(body = RawEventRequest("Concert", "next friday"), security = bearer.apply(validJwt(stranger)))
+        .respondsWith[Error[Unit]](BadRequest, description = "Malformed date")
+        .assert(_.performRequest(allRoutes)),
+      onRequest(body = CreateEventRequest(EventName("Concert"), farFuture))
+        .respondsWith[Error[Unit]](Unauthorized, description = "Missing credentials")
+        .assert(_.performRequest(allRoutes))
+    )
+  )
+
+  path("/v1/events/{eventId}")(
+    supports(
+      GET,
+      description = "Get an event by id",
+      summary = "Returns the event itself, without its seating plan",
+      securitySchemes = Seq(bearerScheme),
+      pathParameters = p[EventId]("eventId"),
+      tags = Seq("Tickets")
+    )(
+      withSetup(seedSale())
+        .request(sale => onRequest(security = bearer.apply(validJwt(stranger)), pathParameters = sale.event.eventId))
+        .respondsWith[EventDto](Ok, description = "Event found")
+        .assert { case (ctx, sale) =>
+          val response = ctx.performRequest(allRoutes)
+          response.body.id shouldBe sale.event.eventId
+          response.body.status shouldBe EventStatus.OnSale
+        },
+      onRequest(security = bearer.apply(validJwt(stranger)), pathParameters = TestData.randomEventId())
+        .respondsWith[Error[Unit]](NotFound, description = "Event not found")
+        .assert { ctx =>
+          val response = ctx.performRequest(allRoutes)
+          response.body.title shouldBe Some("Event not found")
+        },
+      onRequest(pathParameters = TestData.randomEventId())
+        .respondsWith[Error[Unit]](Unauthorized, description = "Missing credentials")
+        .assert(_.performRequest(allRoutes))
+    )
+  )
+
   private val ordersOfCustomer: Query[UUID, Long] =
     sql"SELECT count(*) FROM ticket_order WHERE customer_id = $uuid".query(int8)
 
@@ -378,4 +454,7 @@ class TicketRouterSpec extends BaseRouteSpec with TestApplicationLoader {
 
   // Same wire shape as PayTicketRequest, but with a plain String so a test can send a value ChargeId rejects.
   private final case class BlankChargeRequest(chargeId: String) derives Encoder.AsObject
+
+  // Plain strings, so a test can send a blank name, a malformed date or a date with an offset.
+  private final case class RawEventRequest(name: String, startsAt: String) derives Encoder.AsObject
 }

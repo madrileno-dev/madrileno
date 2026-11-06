@@ -29,6 +29,13 @@ enum PayTicketResult {
   case TicketExpired
 }
 
+final case class CreateEventCommand(name: EventName, startsAt: Instant)
+
+enum CreateEventResult {
+  case EventCreated(event: Event)
+  case EventInThePast
+}
+
 final case class HoldSeatsCommand(
   eventId: EventId,
   customerId: UserId,
@@ -90,6 +97,21 @@ class TicketService(
   // missing one, so the endpoint cannot be used to probe which ticket ids exist.
   def find(id: TicketId, requesterId: UserId): IO[Option[Ticket]] =
     transactor.inSession(ticketRepository.find(id)).map(_.filter(_.customerId == requesterId))
+
+  // Any authenticated user may create an event: there are no organizer roles in this step (a conscious simplification).
+  def createEvent(command: CreateEventCommand): IO[CreateEventResult] =
+    for {
+      now    <- Clock[IO].realTimeInstant
+      id     <- IdGenerator.generateId(EventId)
+      result <- Event.create(id, command.name, command.startsAt, now) match {
+                  case Left(EventCreationRejection.EventInThePast) => IO.pure(CreateEventResult.EventInThePast)
+                  case Right(event) => transactor.inSession(eventRepository.save(event)).as(CreateEventResult.EventCreated(event))
+                }
+    } yield result
+
+  // Reads only the event itself, without its seating plan.
+  def getEvent(id: EventId): IO[Option[Event]] =
+    transactor.inSession(eventRepository.find(id))
 
   def payTicket(command: PayTicketCommand): IO[PayTicketResult] = {
     transactor.inTransaction {

@@ -10,6 +10,10 @@ enum EventStatus {
   case OnSale, Cancelled
 }
 
+enum EventCreationRejection {
+  case EventInThePast
+}
+
 enum HoldRejection {
   case NoSeatsSelected, DuplicateSeats, EventNotOnSale, EventCancelled, SeatNotInEvent
 }
@@ -26,9 +30,11 @@ final case class EventSection(
 // availability is decided by the database (partial unique index on live tickets), not by a check made here.
 final case class Event(
   id: EventId,
-  name: String,
+  name: EventName,
   startsAt: Instant,
   status: EventStatus,
+  createdAt: Instant,
+  updatedAt: Instant,
   sections: List[EventSection]) {
 
   // Guard order: event state first (so a cancelled event is reported as gone no matter what was selected), then the
@@ -64,4 +70,17 @@ final case class Event(
 
   private def seatsById: Map[SeatId, (EventSeat, EventSection)] =
     sections.flatMap(section => section.seats.map(seat => seat.id -> (seat, section))).toMap
+}
+
+object Event {
+
+  // A new event is OnSale and has no sections yet (the seating plan is added in a later step). `now` is passed in,
+  // the domain never reads the clock. Boundary: an event starting exactly at `now` has already started, so it is rejected.
+  def create(
+    id: EventId,
+    name: EventName,
+    startsAt: Instant,
+    now: Instant
+  ): Either[EventCreationRejection, Event] =
+    Either.cond(startsAt.isAfter(now), Event(id, name, startsAt, EventStatus.OnSale, now, now, Nil), EventCreationRejection.EventInThePast)
 }

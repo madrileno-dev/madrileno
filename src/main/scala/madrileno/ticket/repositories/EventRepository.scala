@@ -9,21 +9,31 @@ import skunk.codec.all.*
 
 import java.time.Instant
 
-// The event tables are read-only for this module (no admin/CRUD yet), so the tables below map only the columns the read
-// model needs; created_at/updated_at of `event` are left out on purpose. Do not use these tables for writes.
+// Events are only ever inserted (`save`), there is no update path yet. Sections and seats are read-only for this module
+// (no seating plan management yet): do not use SectionRowTable/SeatRowTable for writes.
 private[repositories] final case class EventRow(
   id: EventId,
-  name: String,
+  name: EventName,
   startsAt: Instant,
-  status: EventStatus)
+  status: EventStatus,
+  createdAt: Instant,
+  updatedAt: Instant)
+
+private[repositories] object EventRow {
+  // Sections and seats live in their own tables, so only the event itself is flattened into the row.
+  def apply(event: Event): EventRow =
+    EventRow(event.id, event.name, event.startsAt, event.status, event.createdAt, event.updatedAt)
+}
 
 private[repositories] object EventRowTable extends Table[EventRow]("event") with IdTable[EventRow, EventId] {
   override val id: Column[EventId] = column("id", uuid.as[EventId])
-  val name: Column[String]         = column("name", text)
+  val name: Column[EventName]      = column("name", text.as[EventName])
   val startsAt: Column[Instant]    = column("starts_at", timestamptz.asInstant)
   val status: Column[EventStatus]  = column("status", text.asEnum[EventStatus])
+  val createdAt: Column[Instant]   = column("created_at", timestamptz.asInstant)
+  val updatedAt: Column[Instant]   = column("updated_at", timestamptz.asInstant)
 
-  def mapping: (List[Column[?]], Codec[EventRow]) = (id, name, startsAt, status)
+  def mapping: (List[Column[?]], Codec[EventRow]) = (id, name, startsAt, status, createdAt, updatedAt)
 }
 
 // Money is flattened into two columns (price_minor, currency), like in TicketRow.
@@ -66,6 +76,14 @@ private[repositories] object SeatRowTable extends Table[SeatRow]("event_seat") w
 
 class EventRepository {
 
+  // Inserts a NEW event. Its sections and seats are not written (they have no write path yet).
+  def save(event: Event): DB[Unit] =
+    eventRepository.create(EventRow(event)).void
+
+  // Reads only the event row: `sections` is always empty. Use findWithSeats when the seating plan is needed.
+  def find(id: EventId): DB[Option[Event]] =
+    eventRepository.findById(id).map(_.map(toEvent(_, Nil)))
+
   // Three plain queries (event, its sections, their seats) assembled in Scala, instead of one wide join.
   // Sections and seats are sorted by name/label so the result does not depend on the physical row order.
   def findWithSeats(id: EventId): DB[Option[Event]] =
@@ -81,9 +99,12 @@ class EventRepository {
             val seats = seatsBySection.getOrElse(section.id, Nil).sortBy(_.label.unwrap).map(seat => EventSeat(seat.id, seat.label))
             EventSection(section.id, section.name, section.price, seats)
           }
-          Some(Event(eventRow.id, eventRow.name, eventRow.startsAt, eventRow.status, sections))
+          Some(toEvent(eventRow, sections))
         }
     }
+
+  private def toEvent(row: EventRow, sections: List[EventSection]): Event =
+    Event(row.id, row.name, row.startsAt, row.status, row.createdAt, row.updatedAt, sections)
 
   private val eventRepository: IdRepository[EventRow, EventId] =
     new IdRepository[EventRow, EventId](_.id) {

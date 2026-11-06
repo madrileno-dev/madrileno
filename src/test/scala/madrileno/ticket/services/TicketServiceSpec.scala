@@ -227,4 +227,25 @@ class TicketServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matchers wit
 
   private def cancel(id: TicketId): IO[Unit] =
     transactor.inTransaction(ticketRepo.update(id, _.cancel(Instant.now()))).void
+
+  "TicketService.createEvent" should {
+    "persist an OnSale event that getEvent returns" in {
+      val startsAt = Instant.now().plusSeconds(86400).truncatedTo(java.time.temporal.ChronoUnit.MICROS)
+      for {
+        result <- service.createEvent(CreateEventCommand(EventName("Concert"), startsAt))
+        created = result match {
+                    case CreateEventResult.EventCreated(event) => event
+                    case other                                 => fail(s"unexpected $other")
+                  }
+        found <- service.getEvent(created.id)
+      } yield {
+        created.status shouldBe EventStatus.OnSale
+        found.map(e => (e.name, e.startsAt, e.status)) shouldBe Some((EventName("Concert"), startsAt, EventStatus.OnSale))
+      }
+    }
+
+    "reject an event in the past and store nothing" in {
+      service.createEvent(CreateEventCommand(EventName("Old"), Instant.now().minusSeconds(60))).map(_ shouldBe CreateEventResult.EventInThePast)
+    }
+  }
 }

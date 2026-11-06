@@ -34,7 +34,7 @@ class EventRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers w
         found.map(_.sections.map(_.name)) shouldBe Some(List("Parter", "VIP"))
         found.map(_.sections.flatMap(_.seats.map(_.label))) shouldBe Some(List(SeatLabel("P-1"), SeatLabel("V-1"), SeatLabel("V-2")))
         found.map(_.sections.map(_.price)) shouldBe Some(List(parter, vip))
-        found.map(e => (e.id, e.name, e.startsAt, e.status)) shouldBe Some((seeded.eventId, "Test event", startsAt, EventStatus.OnSale))
+        found.map(e => (e.id, e.name, e.startsAt, e.status)) shouldBe Some((seeded.eventId, EventName("Test event"), startsAt, EventStatus.OnSale))
         found.map(_.sections.flatMap(_.seats).map(_.id).toSet) shouldBe Some(seeded.allSeats.map(_.id).toSet)
       }
     }
@@ -88,6 +88,36 @@ class EventRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers w
         seeded <- TicketSeed.event(Nil)
         result <- orderRepo.save(Order(TestData.randomOrderId(), seeded.eventId, TestData.randomUserId(), now)).attempt
       } yield result.isLeft shouldBe true
+    }
+  }
+
+  "EventRepository.save and find" should {
+    "round-trip a new event, with no sections, and keep the instant" in withRollback {
+      val startsAt = Instant.parse("2030-12-01T18:30:00Z")
+      val created  = Instant.parse("2026-01-01T10:00:00Z")
+      val event    = Event(TestData.randomEventId(), EventName("Concert"), startsAt, EventStatus.OnSale, created, created, Nil)
+      for {
+        _     <- eventRepo.save(event)
+        found <- eventRepo.find(event.id)
+        full  <- eventRepo.findWithSeats(event.id)
+      } yield {
+        found shouldBe Some(event)
+        full shouldBe Some(event)
+      }
+    }
+
+    "return None for an unknown event" in withRollback {
+      eventRepo.find(TestData.randomEventId()).map(_ shouldBe None)
+    }
+
+    "find an event without loading its seating plan" in withRollback {
+      for {
+        seeded <- TicketSeed.event(List(SectionSpec("VIP", vip, List(SeatLabel("V-1")))))
+        found  <- eventRepo.find(seeded.eventId)
+      } yield {
+        found.map(_.id) shouldBe Some(seeded.eventId)
+        found.map(_.sections) shouldBe Some(Nil)
+      }
     }
   }
 }

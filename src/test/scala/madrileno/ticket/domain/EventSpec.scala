@@ -28,7 +28,7 @@ class EventSpec extends AnyWordSpec with Matchers {
   private val parterSect  = EventSection(SectionId(uuid(22)), "Parter", parterPrice, List(parter1))
   private val startsAt    = now.plus(Duration.ofDays(1))
 
-  private val event = Event(EventId(uuid(3)), "Concert", startsAt, EventStatus.OnSale, List(vipSection, parterSect))
+  private val event = Event(EventId(uuid(3)), EventName("Concert"), startsAt, EventStatus.OnSale, now, now, List(vipSection, parterSect))
 
   // Deterministic ticket ids derived from the seat id, so assertions can name them.
   private def ticketIdFor(seatId: SeatId): TicketId = TicketId(UUID.nameUUIDFromBytes(seatId.unwrap.toString.getBytes))
@@ -116,6 +116,27 @@ class EventSpec extends AnyWordSpec with Matchers {
 
     "check duplicates before membership" in {
       hold(seatIds = List(foreignSeat, foreignSeat)) shouldBe Left(HoldRejection.DuplicateSeats)
+    }
+  }
+
+  "Event.create" should {
+    val name = EventName("Concert")
+    val id   = EventId(uuid(7))
+
+    "create an OnSale event without sections, timestamped with now" in {
+      Event.create(id, name, startsAt, now) shouldBe Right(Event(id, name, startsAt, EventStatus.OnSale, now, now, Nil))
+    }
+
+    "accept an event starting one millisecond after now" in {
+      Event.create(id, name, now.plusMillis(1), now).isRight shouldBe true
+    }
+
+    "reject an event in the past" in {
+      Event.create(id, name, now.minusSeconds(1), now) shouldBe Left(EventCreationRejection.EventInThePast)
+    }
+
+    "reject an event starting exactly now (boundary)" in {
+      Event.create(id, name, now, now) shouldBe Left(EventCreationRejection.EventInThePast)
     }
   }
 }

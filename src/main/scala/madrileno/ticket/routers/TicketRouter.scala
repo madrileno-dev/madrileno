@@ -2,8 +2,16 @@ package madrileno.ticket.routers
 
 import madrileno.auth.domain.AuthContext
 import madrileno.ticket.domain.{EventId, TicketId}
-import madrileno.ticket.routers.dto.{HoldSeatsRequest, OrderDto, PayTicketRequest, TicketDto}
-import madrileno.ticket.services.{HoldSeatsCommand, HoldSeatsResult, PayTicketCommand, PayTicketResult, TicketService}
+import madrileno.ticket.routers.dto.{CreateEventRequest, EventDto, HoldSeatsRequest, OrderDto, PayTicketRequest, TicketDto}
+import madrileno.ticket.services.{
+  CreateEventCommand,
+  CreateEventResult,
+  HoldSeatsCommand,
+  HoldSeatsResult,
+  PayTicketCommand,
+  PayTicketResult,
+  TicketService
+}
 import madrileno.utils.http.BaseRouter
 import madrileno.utils.observability.TelemetryContext
 import pl.iterators.stir.marshalling.ToResponseMarshallable
@@ -28,6 +36,22 @@ class TicketRouter(ticketService: TicketService)(using TelemetryContext) extends
             case PayTicketResult.TicketAlreadyPaid => error(Conflict, "ticket-already-paid", "Ticket has already been paid")
             case PayTicketResult.TicketCancelled   => error(Gone, "ticket-cancelled", "Ticket has been cancelled")
             case PayTicketResult.TicketExpired     => error(Gone, "ticket-expired", "Ticket hold has expired")
+          }
+        }
+      } ~
+      (post & path("events") & pathEndOrSingleSlash & entity(as[CreateEventRequest])) { request =>
+        complete {
+          ticketService.createEvent(CreateEventCommand(request.name, request.startsAt)).map[ToResponseMarshallable] {
+            case CreateEventResult.EventCreated(event) => Created -> EventDto(event)
+            case CreateEventResult.EventInThePast      => error(UnprocessableContent, "event-in-the-past", "Event must start in the future")
+          }
+        }
+      } ~
+      (get & path("events" / JavaUUID.as[EventId]) & pathEndOrSingleSlash) { eventId =>
+        complete {
+          ticketService.getEvent(eventId).map[ToResponseMarshallable] {
+            case Some(event) => Ok -> EventDto(event)
+            case None        => error(NotFound, "event-not-found", "Event not found")
           }
         }
       } ~
