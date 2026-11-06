@@ -1,7 +1,7 @@
 package madrileno.main
 
 import cats.effect.std.{SecureRandom, Supervisor}
-import cats.effect.{Clock, IO, IOApp, Resource}
+import cats.effect.{Clock, ExitCode, IO, Resource}
 import cats.syntax.all.*
 import io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender
 import madrileno.utils.cache.CacheRuntime
@@ -9,7 +9,7 @@ import madrileno.utils.db.Migrations
 import madrileno.utils.db.transactor.{PgConfig, PgTransactor}
 import madrileno.utils.events.bus.EventBusRuntime
 import madrileno.utils.http.{Cors, CorsConfig, RateLimiterRuntime}
-import madrileno.utils.observability.{LoggingSupport, TelemetryContext}
+import madrileno.utils.observability.TelemetryContext
 import madrileno.utils.resilience.CircuitBreakerRuntime
 import madrileno.utils.storage.{ObjectStoreRuntime, StorageConfig}
 import madrileno.utils.task.{Scheduler, SchedulerConfig}
@@ -27,8 +27,8 @@ import pl.iterators.stir.server.ToHttpRoutes
 import pureconfig.*
 import sttp.client4.httpclient.fs2.HttpClientFs2Backend
 
-object Main extends IOApp.Simple with LoggingSupport {
-  override def run: IO[Unit] =
+object Main extends LoggedApp {
+  override protected def runLogged(args: List[String]): IO[ExitCode] =
     (for {
       config    <- Resource.eval(IO.delay(ConfigSource.default))
       appConfig <- Resource.eval(IO.delay(config.at("app").loadOrThrow[AppConfig]))
@@ -115,5 +115,4 @@ object Main extends IOApp.Simple with LoggingSupport {
       .use { _ =>
         IO.never
       }
-      .onError { case e => loggerWithoutTracing.error(e)("Application stopped with an error") }
 }
