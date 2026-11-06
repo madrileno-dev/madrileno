@@ -39,6 +39,18 @@ All routes are under `/v1` and need `Authorization: Bearer <jwt>`; a missing or 
 | `POST /tickets/{ticketId}/pay` | `200` ticket | `404: ticket-not-found`, `409: ticket-already-paid`, `409: charge-already-used`, `410: ticket-cancelled`, `410: ticket-expired` |
 | `POST /tickets/{ticketId}/cancel` | `200` ticket | `404: ticket-not-found`, `409: ticket-already-paid`, `410: ticket-cancelled` |
 
+### Rate limits
+
+The three write endpoints that create rows are limited per user (the key is the authenticated user id, not the IP), using the same `rateLimited` directive as the auction module (see [rate-limiting.md](rate-limiting.md)). Over the limit the answer is `429 rate-limited` with a `Retry-After` header.
+
+| Endpoint | Limit | Bucket | Why this number |
+| --- | --- | --- | --- |
+| `POST /events` | 10 per minute | `events.create` | the same as `auctions.create`: creating an aggregate is rare for a real user |
+| `POST /events/{eventId}/sections` | 10 per minute | `events.add-section` | also creates rows (up to 500 seats) and takes the event lock, so it follows the create limit |
+| `POST /events/{eventId}/orders` (hold) | 30 per minute | `events.hold` | the same as `auctions.bid`: a frequent, contended action, but every call locks seats and writes tickets |
+
+Reads and the pay/cancel endpoints are not limited. The specs run with an unbounded limiter (`TestRateLimiterRuntime.unbounded`) and, as for the auction module, there is no 429 scenario in the ticket router specs.
+
 The status split follows one rule: `409` is a state that could still change (sales not open yet, a retry racing the first payment), `410` is permanent (a cancelled event or ticket will never come back), `422` is a request that is well-formed but breaks a business rule, `404` is also used for anything that belongs to somebody else.
 
 ## Key decisions

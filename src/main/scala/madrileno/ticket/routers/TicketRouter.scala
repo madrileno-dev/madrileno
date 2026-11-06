@@ -1,5 +1,6 @@
 package madrileno.ticket.routers
 
+import cats.effect.IO
 import madrileno.auth.domain.AuthContext
 import madrileno.ticket.domain.{Event, EventId, TicketId}
 import madrileno.ticket.routers.dto.{
@@ -25,13 +26,20 @@ import madrileno.ticket.services.{
   PayTicketResult,
   TicketService
 }
-import madrileno.utils.http.BaseRouter
+import madrileno.utils.http.{BaseRouter, RateLimitDirectives, RateLimiterRuntime}
 import madrileno.utils.observability.TelemetryContext
+import org.http4s.Request
 import pl.iterators.stir.marshalling.ToResponseMarshallable
 import pl.iterators.stir.server.Route
 
-class TicketRouter(ticketService: TicketService)(using TelemetryContext) extends BaseRouter {
+import scala.concurrent.duration.DurationInt
+
+class TicketRouter(ticketService: TicketService, override protected val rateLimiterRuntime: RateLimiterRuntime)(using TelemetryContext)
+    extends BaseRouter
+    with RateLimitDirectives {
   def authedRoutes(authContext: AuthContext): Route = {
+    // The write endpoints that create rows are limited per user (the routes are authenticated), like the auction ones.
+    val byUser: Request[IO] => String = _ => s"user:${authContext.userId}"
     (get & path("tickets" / JavaUUID.as[TicketId]) & pathEndOrSingleSlash) { id =>
       complete {
         ticketService.find(id, authContext.userId).map[ToResponseMarshallable] {
@@ -65,12 +73,14 @@ class TicketRouter(ticketService: TicketService)(using TelemetryContext) extends
         }
       } ~
       (post & path("events") & pathEndOrSingleSlash & entity(as[CreateEventRequest])) { request =>
-        complete {
-          ticketService.createEvent(CreateEventCommand(request.name, request.startsAt)).map[ToResponseMarshallable] {
-            case CreateEventResult.EventCreated(event) => Created -> EventDto(event)
-            case CreateEventResult.EventInThePast      => error(UnprocessableContent, "event-in-the-past", "Event must start in the future")
-            case CreateEventResult.EventTooFarInFuture =>
-              error(UnprocessableContent, "event-too-far-in-future", "Event must start within 5 years from now")
+        rateLimited("events.create", to = 10, within = 1.minute, by = byUser) {
+          complete {
+            ticketService.createEvent(CreateEventCommand(request.name, request.startsAt)).map[ToResponseMarshallable] {
+              case CreateEventResult.EventCreated(event) => Created -> EventDto(event)
+              case CreateEventResult.EventInThePast      => error(UnprocessableContent, "event-in-the-past", "Event must start in the future")
+              case CreateEventResult.EventTooFarInFuture =>
+                error(UnprocessableContent, "event-too-far-in-future", "Event must start within 5 years from now")
+            }
           }
         }
       } ~
@@ -83,38 +93,42 @@ class TicketRouter(ticketService: TicketService)(using TelemetryContext) extends
         }
       } ~
       (post & path("events" / JavaUUID.as[EventId] / "sections") & pathEndOrSingleSlash & entity(as[AddSectionRequest])) { (eventId, request) =>
-        complete {
-          ticketService.addSection(AddSectionCommand(eventId, request.name, request.price, request.seatLabels)).map[ToResponseMarshallable] {
-            case AddSectionResult.SectionAdded(_, section) => Created -> SectionDto(section)
-            case AddSectionResult.EventNotFound            => error(NotFound, "event-not-found", "Event not found")
-            // 409: could change (e.g. sales are not open); 410: a cancelled event will never sell again. Same as holding seats.
-            case AddSectionResult.EventNotOnSale        => error(Conflict, "event-not-on-sale", "Event is not on sale")
-            case AddSectionResult.EventCancelled        => error(Gone, "event-cancelled", "Event has been cancelled")
-            case AddSectionResult.NoSeats               => error(UnprocessableContent, "no-seats-in-section", "A section needs at least one seat")
-            case AddSectionResult.TooManySeatsInSection =>
-              error(UnprocessableContent, "too-many-seats-in-section", s"A section can have at most ${Event.MaxSeatsPerSection} seats")
-            case AddSectionResult.DuplicateSeatLabels =>
-              error(UnprocessableContent, "duplicate-seat-labels", "Each seat label may be used only once in a section")
-            case AddSectionResult.PriceMustBePositive =>
-              error(UnprocessableContent, "price-must-be-positive", "Section price must be greater than zero")
-            case AddSectionResult.SectionNameTaken => error(Conflict, "section-name-taken", "The event already has a section with this name")
+        rateLimited("events.add-section", to = 10, within = 1.minute, by = byUser) {
+          complete {
+            ticketService.addSection(AddSectionCommand(eventId, request.name, request.price, request.seatLabels)).map[ToResponseMarshallable] {
+              case AddSectionResult.SectionAdded(_, section) => Created -> SectionDto(section)
+              case AddSectionResult.EventNotFound            => error(NotFound, "event-not-found", "Event not found")
+              // 409: could change (e.g. sales are not open); 410: a cancelled event will never sell again. Same as holding seats.
+              case AddSectionResult.EventNotOnSale        => error(Conflict, "event-not-on-sale", "Event is not on sale")
+              case AddSectionResult.EventCancelled        => error(Gone, "event-cancelled", "Event has been cancelled")
+              case AddSectionResult.NoSeats               => error(UnprocessableContent, "no-seats-in-section", "A section needs at least one seat")
+              case AddSectionResult.TooManySeatsInSection =>
+                error(UnprocessableContent, "too-many-seats-in-section", s"A section can have at most ${Event.MaxSeatsPerSection} seats")
+              case AddSectionResult.DuplicateSeatLabels =>
+                error(UnprocessableContent, "duplicate-seat-labels", "Each seat label may be used only once in a section")
+              case AddSectionResult.PriceMustBePositive =>
+                error(UnprocessableContent, "price-must-be-positive", "Section price must be greater than zero")
+              case AddSectionResult.SectionNameTaken => error(Conflict, "section-name-taken", "The event already has a section with this name")
+            }
           }
         }
       } ~
       (post & path("events" / JavaUUID.as[EventId] / "orders") & pathEndOrSingleSlash & entity(as[HoldSeatsRequest])) { (eventId, request) =>
-        complete {
-          ticketService.holdSeats(HoldSeatsCommand(eventId, authContext.userId, request.seatIds)).map[ToResponseMarshallable] {
-            case HoldSeatsResult.SeatsHeld(order, tickets) => Created -> OrderDto(order, tickets)
-            case HoldSeatsResult.EventNotFound             => error(NotFound, "event-not-found", "Event not found")
-            // 409: could change (e.g. sales are not open); 410: a cancelled event will never sell again.
-            case HoldSeatsResult.EventNotOnSale  => error(Conflict, "event-not-on-sale", "Event is not on sale")
-            case HoldSeatsResult.EventCancelled  => error(Gone, "event-cancelled", "Event has been cancelled")
-            case HoldSeatsResult.NoSeatsSelected => error(UnprocessableContent, "no-seats-selected", "At least one seat must be selected")
-            case HoldSeatsResult.TooManySeats    =>
-              error(UnprocessableContent, "too-many-seats", s"At most ${Event.MaxSeatsPerOrder} seats can be selected in one order")
-            case HoldSeatsResult.DuplicateSeats   => error(UnprocessableContent, "duplicate-seats", "Each seat may be selected only once")
-            case HoldSeatsResult.SeatNotInEvent   => error(UnprocessableContent, "seat-not-in-event", "A selected seat does not belong to this event")
-            case HoldSeatsResult.SeatAlreadyTaken => error(Conflict, "seat-already-taken", "A selected seat has already been taken")
+        rateLimited("events.hold", to = 30, within = 1.minute, by = byUser) {
+          complete {
+            ticketService.holdSeats(HoldSeatsCommand(eventId, authContext.userId, request.seatIds)).map[ToResponseMarshallable] {
+              case HoldSeatsResult.SeatsHeld(order, tickets) => Created -> OrderDto(order, tickets)
+              case HoldSeatsResult.EventNotFound             => error(NotFound, "event-not-found", "Event not found")
+              // 409: could change (e.g. sales are not open); 410: a cancelled event will never sell again.
+              case HoldSeatsResult.EventNotOnSale  => error(Conflict, "event-not-on-sale", "Event is not on sale")
+              case HoldSeatsResult.EventCancelled  => error(Gone, "event-cancelled", "Event has been cancelled")
+              case HoldSeatsResult.NoSeatsSelected => error(UnprocessableContent, "no-seats-selected", "At least one seat must be selected")
+              case HoldSeatsResult.TooManySeats    =>
+                error(UnprocessableContent, "too-many-seats", s"At most ${Event.MaxSeatsPerOrder} seats can be selected in one order")
+              case HoldSeatsResult.DuplicateSeats => error(UnprocessableContent, "duplicate-seats", "Each seat may be selected only once")
+              case HoldSeatsResult.SeatNotInEvent => error(UnprocessableContent, "seat-not-in-event", "A selected seat does not belong to this event")
+              case HoldSeatsResult.SeatAlreadyTaken => error(Conflict, "seat-already-taken", "A selected seat has already been taken")
+            }
           }
         }
       }

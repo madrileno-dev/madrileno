@@ -7,7 +7,7 @@ import madrileno.ticket.repositories.{EventRepository, OrderRepository, TicketRe
 import madrileno.ticket.routers.TicketRouter
 import madrileno.ticket.services.TicketService
 import madrileno.utils.db.transactor.Transactor
-import madrileno.utils.http.AuthRouteProvider
+import madrileno.utils.http.{AuthRouteProvider, RateLimiterRuntime}
 import madrileno.utils.observability.TelemetryContext
 import madrileno.utils.task.{RecurringTaskProvider, Task}
 import pl.iterators.stir.server.Route
@@ -17,6 +17,7 @@ trait TicketModule extends AuthRouteProvider with RecurringTaskProvider {
   val config: ConfigSource
   val clock: Clock[IO]
   val transactor: Transactor
+  val rateLimiterRuntime: RateLimiterRuntime
   given telemetryContext: TelemetryContext
   lazy val ticketConfig: TicketConfig         = config.at("ticket").loadOrThrow[TicketConfig]
   lazy val ticketRepository: TicketRepository = wire[TicketRepository]
