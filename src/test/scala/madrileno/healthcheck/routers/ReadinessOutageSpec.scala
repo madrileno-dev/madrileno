@@ -4,6 +4,7 @@ import cats.effect.{Deferred, IO, Resource}
 import cats.syntax.all.*
 import io.circe.Json
 import madrileno.auth.domain.AuthContext
+import madrileno.healthcheck.services.HealthCheckService
 import madrileno.support.{BaseRouteSpec, TestApplicationLoader, TestData}
 import madrileno.utils.db.transactor.PgConfig
 import org.http4s.circe.CirceEntityCodec.*
@@ -57,7 +58,9 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
 
   describe("While Postgres does not respond at all") {
     it("readiness answers 503 within its timeout and liveness stays 200") {
-      val (readiness, liveness) = postgresPaused.surround((get("/v1/health-check/readiness"), get("/v1/health-check")).tupled).unsafeRunSync()
+      val (readiness, liveness) = postgresPaused
+        .surround(IO.sleep(HealthCheckService.readinessReusedFor) *> (get("/v1/health-check/readiness"), get("/v1/health-check")).tupled)
+        .unsafeRunSync()
       readiness._2.status shouldBe Status.ServiceUnavailable
       readiness._1 should be < 3.seconds
       liveness._2.status shouldBe Status.Ok

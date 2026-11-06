@@ -17,15 +17,14 @@ class PostgresProbe(
     extends LoggingSupport {
 
   def check(within: FiniteDuration): IO[DepCheck] =
-    clock
-      .timed(transactor.inNewConnection(healthCheckRepository.version()))
-      .start
-      .flatMap { probe =>
-        probe.joinWithNever
-          .timeoutTo(within, probe.cancel.start *> IO.raiseError(new TimeoutException(s"Postgres did not answer within $within")))
+    IO.uncancelable { poll =>
+      clock.timed(transactor.inNewConnection(healthCheckRepository.version())).start.flatMap { probe =>
+        poll(
+          probe.joinWithNever.timeoutTo(within, probe.cancel.start *> IO.raiseError(new TimeoutException(s"Postgres did not answer within $within")))
+        )
           .onCancel(probe.cancel.start.void)
       }
-      .map { case (rtt, _) => DepCheck(DepStatus.Up, Some(rtt.toMillis), None) }
+    }.map { case (rtt, _) => DepCheck(DepStatus.Up, Some(rtt.toMillis), None) }
       .handleErrorWith { t =>
         logger.error(t)("Postgres health check failed").as(DepCheck(DepStatus.Down, None, Some(t.getMessage)))
       }

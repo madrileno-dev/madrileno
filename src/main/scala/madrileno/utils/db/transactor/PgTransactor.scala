@@ -65,7 +65,7 @@ object PgTransactor {
     } yield new PgTransactor(
       bounded(pool, pgConfig.acquireTimeout, tracer),
       pgConfig.idleInTransactionTimeout,
-      builder(pgConfig).withReadTimeout(newConnectionReadTimeout).single
+      builder(pgConfig).withReadTimeout(pgConfig.readTimeout.min(newConnectionReadTimeout)).single
     )
 
   private[transactor] def bounded[A](
