@@ -26,15 +26,12 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
 
   private val signedIn = Headers(Authorization(Credentials.Token(AuthScheme.Bearer, validJwt(AuthContext(TestData.user())))))
 
-  private val everyConnectionBusy: Resource[IO, Unit] =
-    Resource
-      .make(for {
-        release <- Deferred[IO, Unit]
-        taken   <- List.fill(2)(Deferred[IO, Unit]).sequence
-        holders <- taken.traverse(took => application.transactor.inSession(took.complete(()) *> release.get).start)
-        _       <- taken.traverse_(_.get)
-      } yield (release, holders)) { case (release, holders) => release.complete(()) *> holders.traverse_(_.joinWithNever) }
-      .void
+  private val holdingOneConnection: Resource[IO, Unit] =
+    Resource.eval(Deferred[IO, Unit]).flatMap { taken =>
+      application.transactor.inSession(taken.complete(()) *> IO.never).background.evalMap(_ => taken.get)
+    }
+
+  private val everyConnectionBusy: Resource[IO, Unit] = holdingOneConnection >> holdingOneConnection
 
   private def postgresPaused: Resource[IO, Unit] = {
     val docker      = DockerClientFactory.instance().client()
