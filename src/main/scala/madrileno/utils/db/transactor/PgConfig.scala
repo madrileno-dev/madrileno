@@ -29,6 +29,7 @@ final case class PgConfig(
   acquireTimeout: Duration = 5.seconds,
   statementTimeout: Duration = 30.seconds,
   idleInTransactionTimeout: Duration = 1.minute,
+  operationTimeout: Duration = 1.minute,
   telemetry: PgTelemetryConfig = PgTelemetryConfig()) {
   def connectionParameters: Map[String, String] = {
     val timeouts = List("statement_timeout" -> statementTimeout, "idle_in_transaction_session_timeout" -> idleInTransactionTimeout).collect {

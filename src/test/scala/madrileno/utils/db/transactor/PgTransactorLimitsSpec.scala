@@ -8,6 +8,7 @@ import cats.syntax.all.*
 import madrileno.support.TestTransactor
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
+import org.testcontainers.DockerClientFactory
 import org.typelevel.otel4s.trace.Tracer
 import skunk.*
 import skunk.codec.all.*
@@ -21,6 +22,7 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
 
   private val one: Query[Void, Int]                 = sql"SELECT 1".query(int4)
   private val sleepTenSeconds: Query[Void, Int]     = sql"SELECT 1 FROM pg_sleep(10)".query(int4)
+  private val sleepOneSecond: Query[Void, Int]      = sql"SELECT 1 FROM pg_sleep(1)".query(int4)
   private val backendPid: Query[Void, Int]          = sql"SELECT pg_backend_pid()".query(int4)
   private val statementTimeout: Query[Void, String] = sql"SHOW statement_timeout".query(text)
   private val terminate: Query[Int, Boolean]        = sql"SELECT pg_terminate_backend($int4)".query(bool)
@@ -35,7 +37,8 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
     max: Int = 1,
     acquireTimeout: Duration = 5.seconds,
     statementTimeout: Duration = 30.seconds,
-    idleInTransactionTimeout: Duration = 1.minute
+    idleInTransactionTimeout: Duration = 1.minute,
+    operationTimeout: Duration = 1.minute
   ): Resource[IO, PgTransactor] =
     transactorWith(
       _.copy(
@@ -43,6 +46,7 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
         acquireTimeout = acquireTimeout,
         statementTimeout = statementTimeout,
         idleInTransactionTimeout = idleInTransactionTimeout,
+        operationTimeout = operationTimeout,
         parameters = Session.DefaultConnectionParameters + ("application_name" -> name)
       )
     )
@@ -54,6 +58,14 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
 
   private def holding(transactor: Transactor, sessions: Int): Resource[IO, Unit] =
     List.fill(sessions)(holdingOne(transactor)).sequence_
+
+  private def postgresPaused: Resource[IO, Unit] = {
+    val docker      = DockerClientFactory.instance().client()
+    val containerId = withContainers(_.containerId)
+    Resource.make(IO.blocking(docker.pauseContainerCmd(containerId).exec()).void)(_ =>
+      IO.blocking(docker.unpauseContainerCmd(containerId).exec()).void
+    )
+  }
 
   private def sqlState(result: Either[Throwable, ?]): Option[String] =
     result.left.toOption.collect { case e: PostgresErrorException => e.code }
@@ -271,6 +283,36 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
         } yield {
           unavailable(lost) shouldBe true
           after should not be pid
+        }
+      }
+    }
+  }
+
+  "The operation timeout" should {
+    "answer a request with database-unavailable once Postgres stops answering mid-query" in {
+      limited("operation-timeout-frozen", operationTimeout = 1.second).use { db =>
+        for {
+          _       <- db.inSession(run(one))
+          started <- IO.monotonic
+          frozen  <- postgresPaused.surround(db.inSession(run(one)).attempt.start.flatMap(_.joinWithNever.timeout(10.seconds)).attempt)
+          ended   <- IO.monotonic
+          after   <- db.inSession(run(one)).timeout(10.seconds)
+        } yield {
+          frozen.map(unavailable) shouldBe Right(true)
+          (ended - started) should be < 5.seconds
+          after shouldBe 1
+        }
+      }
+    }
+
+    "end a slow block that stays under the statement timeout, and be lifted with withOperationTimeout" in {
+      limited("operation-timeout-slow", operationTimeout = 300.millis).use { db =>
+        for {
+          bounded <- db.inTransaction(run(sleepOneSecond)).attempt
+          lifted  <- db.withOperationTimeout(Duration.Inf).inTransaction(run(sleepOneSecond))
+        } yield {
+          unavailable(bounded) shouldBe true
+          lifted shouldBe 1
         }
       }
     }
