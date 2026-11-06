@@ -196,6 +196,27 @@ class TicketServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matchers wit
       }
     }
 
+    // Inserting in request order would make [A,B] and [B,A] wait for each other (deadlock, 40P01). Repeated because the
+    // interleaving is timing dependent; every round uses fresh seats.
+    "never deadlock on holds of the same seats in opposite order" in {
+      def round: IO[List[HoldSeatsResult]] =
+        for {
+          a     <- seedCustomer()
+          b     <- seedCustomer()
+          event <- seedEvent(List("A-1", "A-2"))
+          (s1, s2) = (event.seat("A-1"), event.seat("A-2"))
+          results <- (service.holdSeats(command(event, a, s1, s2)), service.holdSeats(command(event, b, s2, s1))).parMapN(List(_, _))
+        } yield results
+
+      List.fill(20)(round).sequence.asserting { rounds =>
+        rounds.foreach { results =>
+          results.count(isHeld) shouldBe 1
+          results.count(_ == HoldSeatsResult.SeatAlreadyTaken) shouldBe 1
+        }
+        rounds.size shouldBe 20
+      }
+    }
+
     "allow a hold on a seat whose previous ticket was cancelled" in {
       for {
         first  <- seedCustomer()

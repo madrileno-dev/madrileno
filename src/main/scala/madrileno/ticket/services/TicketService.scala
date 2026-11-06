@@ -156,6 +156,11 @@ class TicketService(
 
   // Whether a seat is free is NOT checked beforehand (that would be check-then-act and race with a concurrent hold):
   // the insert itself is the check, and the partial unique index ticket_live_seat_uidx rejects the loser.
+  // The tickets are INSERTED in a canonical order (by seat id), not in request order, while the returned tickets keep
+  // the request order. A unique-index insert waits for a concurrent transaction that inserted the same seat first, so
+  // two holds of [A,B] and [B,A] inserting in request order would each wait for the other (Postgres 40P01 deadlock,
+  // a 500). With one global order the one that gets the lowest contested seat first wins and the other fails cleanly
+  // with a unique violation.
   // DEBT: the order and its tickets are written in one transaction and no event is emitted for other modules
   // (accepted compromise, there is no outbox in this project).
   def holdSeats(command: HoldSeatsCommand): IO[HoldSeatsResult] = {
@@ -172,7 +177,10 @@ class TicketService(
               result    <- event.holdSeats(orderId, ticketIds, command.customerId, command.seatIds, now, ticketConfig.holdDurationJava) match {
                           case Left(rejection)         => IO.pure(TicketService.toResult(rejection))
                           case Right((order, tickets)) =>
-                            orderRepository.save(order) *> tickets.traverse_(ticketRepository.save(_)).as(HoldSeatsResult.SeatsHeld(order, tickets))
+                            orderRepository.save(order) *> tickets
+                              .sortBy(_.seatId.unwrap)
+                              .traverse_(ticketRepository.save(_))
+                              .as(HoldSeatsResult.SeatsHeld(order, tickets))
                         }
             } yield result
         }
