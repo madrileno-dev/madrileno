@@ -104,6 +104,8 @@ String length is counted in code points, like Postgres `char_length`. Control ch
 - **No organizer roles.** Any logged-in user can create events and add sections to any event. Marked in the service methods.
 - **No outbox.** An order and its tickets are written in one transaction, and no domain event is published for other modules. Accepted for now.
 - **No payment gateway.** The client supplies `chargeId` (an opaque provider reference); the module only guarantees that one charge pays at most one ticket. Nothing verifies the charge.
+  The `chargeId` is neither verified against a gateway nor tied to the amount or customer, so a made-up id marks a ticket Paid and whoever submits a real charge id first claims it (the global unique index only guarantees that a charge pays at most one ticket).
+- **`pay` is not idempotent.** A retry after a successful payment, even with the same `chargeId` on the same ticket, returns `409 ticket-already-paid`, so a client that never saw the first `200` cannot tell its own success from a conflict. The assignment asks for that `409`; idempotency keys are the topic of the next course session (M2 S3).
 - **Free tickets are unsupported.** `price_minor > 0` is a database `CHECK`; allowing `0` means changing the domain and the constraints together.
 - **Payment is per ticket.** There is no order-level payment and no refunds, so a paid ticket cannot be cancelled (`409 ticket-already-paid`).
 - **No way to edit or remove a section or seat** once created (the size of one section is capped, see [input limits](#input-limits)).
