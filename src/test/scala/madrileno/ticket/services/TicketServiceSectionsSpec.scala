@@ -2,7 +2,7 @@ package madrileno.ticket.services
 
 import cats.effect.std.UUIDGen
 import cats.effect.testing.scalatest.AsyncIOSpec
-import cats.effect.{Clock, IO}
+import cats.effect.{Clock, Deferred, IO}
 import cats.syntax.all.*
 import io.opentelemetry.api.OpenTelemetry
 import madrileno.support.{TestData, TestGivens, TestTransactor}
@@ -136,6 +136,45 @@ class TicketServiceSectionsSpec extends AsyncWordSpec with AsyncIOSpec with Matc
         results.collect { case Right(AddSectionResult.SectionAdded(_, _)) => 1 }.size shouldBe 1
         results.collect { case Right(AddSectionResult.SectionNameTaken) => 1 }.size shouldBe 3
         sections shouldBe 1L
+      }
+    }
+
+    // Deterministic: the transaction of the "slow" addSection takes the event lock through the repository and then waits
+    // on a latch, so the lock is certainly held while holdSeats runs. With FOR UPDATE the hold would block on the
+    // FOR KEY SHARE lock of the ticket_order.event_id foreign key check and the timeout would fire.
+    "not block a hold on the event while a section addition holds the event lock" in {
+      val eventRepo = new EventRepository
+      for {
+        customer     <- seedCustomer()
+        event        <- createEvent()
+        (_, section) <- service.addSection(addCommand(event)).map(added)
+        lockTaken    <- Deferred[IO, Unit]
+        release      <- Deferred[IO, Unit]
+        newSectionId = TestData.randomSectionId()
+        slowAddition <- transactor.inTransaction {
+                          eventRepo.addSection(
+                            event.id,
+                            _.addSection(
+                              newSectionId,
+                              _ => TestData.randomSeatId(),
+                              SectionName("Slow"),
+                              price,
+                              List(SeatLabel("S-1")),
+                              Instant.now()
+                            )
+                          ) *> lockTaken.complete(()) *> release.get
+                        }.start
+        _    <- lockTaken.get.timeout(10.seconds)
+        hold <- service.holdSeats(HoldSeatsCommand(event.id, customer.id, section.seats.take(1).map(_.id))).start
+        // Timing out the join does not cancel the hold, so a blocked hold is released (and the test fails cleanly) below.
+        result   <- hold.join.timeout(5.seconds).attempt.guarantee(release.complete(()).void)
+        _        <- hold.joinWithNever
+        _        <- slowAddition.joinWithNever
+        sections <- withSession(summon[Session[IO]].unique(countSections)(event.id.unwrap))
+      } yield {
+        result.isRight shouldBe true
+        // The slow addition committed after the hold finished.
+        sections shouldBe 2L
       }
     }
 

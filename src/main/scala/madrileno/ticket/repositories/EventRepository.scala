@@ -92,15 +92,19 @@ class EventRepository {
   def find(id: EventId): DB[Option[Event]] =
     eventRepository.findById(id).map(_.map(toEvent(_, Nil)))
 
-  // The only write path of the seating plan, same shape as TicketRepository.update. The event row is locked FOR UPDATE
-  // first, which serialises concurrent additions to the same event: the section-name check in `f` (the domain) then
+  // The only write path of the seating plan, same shape as TicketRepository.update. The event row is locked first,
+  // which serialises concurrent additions to the same event: the section-name check in `f` (the domain) then
   // sees every section committed before ours and is race-free. The plan is loaded only after the lock is held.
+  // The lock is FOR NO KEY UPDATE, not FOR UPDATE, on purpose: the event row itself is never updated here, and
+  // FOR UPDATE would conflict with the FOR KEY SHARE lock that Postgres takes on the event row for the foreign key
+  // check of ticket_order.event_id, so adding a section would block every concurrent hold on that event.
+  // FOR NO KEY UPDATE still conflicts with itself (additions stay serialised) but not with FOR KEY SHARE.
   // On Left nothing is written; None when the event does not exist.
   // A unique violation on event_section_event_id_name_key / event_seat_section_id_label_key can therefore only be a bug
   // (the domain rejects duplicates, the lock removes the race): those constraints are a backstop and are deliberately
   // not translated into a result.
   def addSection[E](id: EventId, f: Event => Either[E, (Event, EventSection)]): DBInTransaction[Option[Either[E, (Event, EventSection)]]] =
-    eventRepository.findById(id, Lock.ForUpdate).flatMap {
+    eventRepository.findById(id, Lock.ForNoKeyUpdate).flatMap {
       case None    => IO.pure(None)
       case Some(_) =>
         findWithSeats(id).flatMap {
