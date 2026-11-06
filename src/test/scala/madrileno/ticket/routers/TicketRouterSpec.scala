@@ -176,6 +176,25 @@ class TicketRouterSpec extends BaseRouteSpec with TestApplicationLoader {
           val response = ctx.performRequest(allRoutes)
           response.body.title shouldBe Some("Ticket hold has expired")
         },
+      // The charge already paid another ticket: the unique index on charge_id is translated, not a 500.
+      withSetup {
+        val _ = seedTicket(_.copy(status = TicketStatus.Paid, chargeId = Some(ChargeId("ch_router_reused")), paidAt = Some(Instant.now())))
+        seedTicket()
+      }
+        .request(seeded =>
+          onRequest(
+            body = PayTicketRequest(ChargeId("ch_router_reused")),
+            security = bearer.apply(validJwt(seeded.ownerAuth)),
+            pathParameters = seeded.ticket.id
+          )
+        )
+        .respondsWith[Error[Unit]](Conflict, description = "Charge was already used for another ticket")
+        .assert { case (ctx, seeded) =>
+          val response = ctx.performRequest(allRoutes)
+          response.body.title shouldBe Some("This charge was already used for another ticket")
+          val stored = application.transactor.inSession(application.ticketRepository.find(seeded.ticket.id)).unsafeRunSync()
+          stored.map(_.status) shouldBe Some(TicketStatus.Held)
+        },
       // A blank chargeId fails ChargeId validation while decoding the body, before the handler runs.
       withSetup(seedTicket())
         .request(seeded =>

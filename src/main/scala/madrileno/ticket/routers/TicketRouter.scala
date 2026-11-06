@@ -36,6 +36,7 @@ class TicketRouter(ticketService: TicketService)(using TelemetryContext) extends
             case PayTicketResult.TicketAlreadyPaid => error(Conflict, "ticket-already-paid", "Ticket has already been paid")
             case PayTicketResult.TicketCancelled   => error(Gone, "ticket-cancelled", "Ticket has been cancelled")
             case PayTicketResult.TicketExpired     => error(Gone, "ticket-expired", "Ticket hold has expired")
+            case PayTicketResult.ChargeAlreadyUsed => error(Conflict, "charge-already-used", "This charge was already used for another ticket")
           }
         }
       } ~

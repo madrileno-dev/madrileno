@@ -228,6 +228,25 @@ class TicketServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matchers wit
   private def cancel(id: TicketId): IO[Unit] =
     transactor.inTransaction(ticketRepo.update(id, _.cancel(Instant.now()))).void
 
+  "TicketService.payTicket" should {
+    "report ChargeAlreadyUsed when the charge already paid another ticket, leaving the second ticket Held" in {
+      for {
+        customer <- seedCustomer()
+        event    <- seedEvent(List("A-1", "A-2"))
+        first    <- holdOrFail(command(event, customer, event.seat("A-1")))
+        second   <- holdOrFail(command(event, customer, event.seat("A-2")))
+        charge = ChargeId("ch_reused_service")
+        r1     <- service.payTicket(PayTicketCommand(first.tickets.head.id, customer.id, charge))
+        r2     <- service.payTicket(PayTicketCommand(second.tickets.head.id, customer.id, charge))
+        stored <- withSession(ticketRepo.find(second.tickets.head.id))
+      } yield {
+        r1 shouldBe a[PayTicketResult.TicketPaid]
+        r2 shouldBe PayTicketResult.ChargeAlreadyUsed
+        stored.map(_.status) shouldBe Some(TicketStatus.Held)
+      }
+    }
+  }
+
   "TicketService.createEvent" should {
     "persist an OnSale event that getEvent returns" in {
       val startsAt = Instant.now().plusSeconds(86400).truncatedTo(java.time.temporal.ChronoUnit.MICROS)

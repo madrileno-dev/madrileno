@@ -22,6 +22,36 @@ class TicketServiceSeatTakenSpec extends AsyncWordSpec with AsyncIOSpec with Mat
     }
   }
 
+  "TicketService.isChargeReusedViolation" should {
+    "accept only 23505 on ticket_charge_id_uidx" in {
+      TicketService.isChargeReusedViolation("23505", Some("ticket_charge_id_uidx")) shouldBe true
+      TicketService.isChargeReusedViolation("23505", Some("ticket_live_seat_uidx")) shouldBe false
+      TicketService.isChargeReusedViolation("23505", None) shouldBe false
+      TicketService.isChargeReusedViolation("23503", Some("ticket_charge_id_uidx")) shouldBe false
+    }
+  }
+
+  "TicketService.chargeReusedOrRethrow" should {
+    "turn the charge-id unique violation into ChargeAlreadyUsed" in {
+      TicketService.chargeReusedOrRethrow(pgError("23505", Some("ticket_charge_id_uidx"))).asserting(_ shouldBe PayTicketResult.ChargeAlreadyUsed)
+    }
+
+    "rethrow a unique violation of another constraint" in {
+      val error = pgError("23505", Some("ticket_live_seat_uidx"))
+      TicketService.chargeReusedOrRethrow(error).attempt.asserting(_ shouldBe Left(error))
+    }
+
+    "rethrow a Postgres error with another code" in {
+      val error = pgError("23503", Some("ticket_charge_id_uidx"))
+      TicketService.chargeReusedOrRethrow(error).attempt.asserting(_ shouldBe Left(error))
+    }
+
+    "rethrow errors that are not Postgres errors" in {
+      val error = new RuntimeException("unrelated")
+      TicketService.chargeReusedOrRethrow(error).attempt.asserting(_ shouldBe Left(error))
+    }
+  }
+
   "TicketService.seatTakenOrRethrow" should {
     "turn the live-seat unique violation into SeatAlreadyTaken" in {
       TicketService.seatTakenOrRethrow(pgError("23505", Some("ticket_live_seat_uidx"))).asserting(_ shouldBe HoldSeatsResult.SeatAlreadyTaken)

@@ -27,6 +27,7 @@ enum PayTicketResult {
   case TicketAlreadyPaid
   case TicketCancelled
   case TicketExpired
+  case ChargeAlreadyUsed
 }
 
 final case class CreateEventCommand(name: EventName, startsAt: Instant)
@@ -55,11 +56,24 @@ enum HoldSeatsResult {
 object TicketService {
   private val PostgresUniqueViolation = "23505"
   private val LiveSeatIndex           = "ticket_live_seat_uidx"
+  private val ChargeIdIndex           = "ticket_charge_id_uidx"
 
-  // True only for the unique violation raised by the partial index that allows one live ticket per seat.
-  // Any other failure (another constraint, another error class) is not "seat taken" and must stay an error.
+  // True only for a unique violation (23505) of the named constraint: another constraint or another error class
+  // is never translated and must stay an error.
+  private def isUniqueViolationOf(
+    code: String,
+    constraintName: Option[String],
+    index: String
+  ): Boolean =
+    code == PostgresUniqueViolation && constraintName.contains(index)
+
+  // The partial index that allows one live ticket per seat.
   private[services] def isSeatTakenViolation(code: String, constraintName: Option[String]): Boolean =
-    code == PostgresUniqueViolation && constraintName.contains(LiveSeatIndex)
+    isUniqueViolationOf(code, constraintName, LiveSeatIndex)
+
+  // The unique index on charge_id: a payment-provider charge can pay for one ticket only.
+  private[services] def isChargeReusedViolation(code: String, constraintName: Option[String]): Boolean =
+    isUniqueViolationOf(code, constraintName, ChargeIdIndex)
 
   // Meant to be attached to the IO returned by `transactor.inTransaction`, i.e. OUTSIDE the transaction: a failed
   // statement aborts the Postgres transaction ("current transaction is aborted"), so nothing can be done inside it
@@ -69,6 +83,15 @@ object TicketService {
     error match {
       case e: PostgresErrorException if isSeatTakenViolation(e.code, e.constraintName) => IO.pure(HoldSeatsResult.SeatAlreadyTaken)
       case other                                                                       => IO.raiseError(other)
+    }
+
+  // Same contract as seatTakenOrRethrow, for payTicket: attach it OUTSIDE `transactor.inTransaction` (a failed
+  // statement aborts the Postgres transaction, so nothing can be done inside it). The transaction has been rolled
+  // back by then, so the ticket stays Held and reporting ChargeAlreadyUsed is accurate.
+  private[services] def chargeReusedOrRethrow(error: Throwable): IO[PayTicketResult] =
+    error match {
+      case e: PostgresErrorException if isChargeReusedViolation(e.code, e.constraintName) => IO.pure(PayTicketResult.ChargeAlreadyUsed)
+      case other                                                                          => IO.raiseError(other)
     }
 
   private[services] def toResult(rejection: HoldRejection): HoldSeatsResult =
@@ -114,19 +137,21 @@ class TicketService(
     transactor.inSession(eventRepository.find(id))
 
   def payTicket(command: PayTicketCommand): IO[PayTicketResult] = {
-    transactor.inTransaction {
-      Clock[IO].realTimeInstant.flatMap { now =>
-        ticketRepository.update(command.ticketId, _.pay(command.requesterId, command.chargeId, now)).map {
-          case None => PayTicketResult.TicketNotFound
-          // Deliberately the same result as a missing ticket: do not leak that the ticket exists.
-          case Some(Left(PayRejection.NotOwner))         => PayTicketResult.TicketNotFound
-          case Some(Left(PayRejection.AlreadyPaid))      => PayTicketResult.TicketAlreadyPaid
-          case Some(Left(PayRejection.AlreadyCancelled)) => PayTicketResult.TicketCancelled
-          case Some(Left(PayRejection.HoldExpired))      => PayTicketResult.TicketExpired
-          case Some(Right(paid))                         => PayTicketResult.TicketPaid(paid)
+    transactor
+      .inTransaction {
+        Clock[IO].realTimeInstant.flatMap { now =>
+          ticketRepository.update(command.ticketId, _.pay(command.requesterId, command.chargeId, now)).map {
+            case None => PayTicketResult.TicketNotFound
+            // Deliberately the same result as a missing ticket: do not leak that the ticket exists.
+            case Some(Left(PayRejection.NotOwner))         => PayTicketResult.TicketNotFound
+            case Some(Left(PayRejection.AlreadyPaid))      => PayTicketResult.TicketAlreadyPaid
+            case Some(Left(PayRejection.AlreadyCancelled)) => PayTicketResult.TicketCancelled
+            case Some(Left(PayRejection.HoldExpired))      => PayTicketResult.TicketExpired
+            case Some(Right(paid))                         => PayTicketResult.TicketPaid(paid)
+          }
         }
       }
-    }
+      .handleErrorWith(TicketService.chargeReusedOrRethrow)
   }
 
   // Whether a seat is free is NOT checked beforehand (that would be check-then-act and race with a concurrent hold):
