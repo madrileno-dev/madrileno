@@ -1,6 +1,6 @@
 package madrileno.utils.db.transactor
 
-import cats.effect.std.Random
+import cats.effect.std.{Random, Supervisor}
 import cats.effect.syntax.all.*
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.{Deferred, IO, Ref, Resource}
@@ -207,18 +207,28 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
       List(30.seconds, 1.micro, Duration.Inf)
         .traverse_ { acquireTimeout =>
           (Ref[IO].of(0), Ref[IO].of(0)).flatMapN { (acquired, released) =>
-            val round = Deferred[IO, Unit].flatMap { handover =>
-              val connection = Resource.make(handover.get *> acquired.update(_ + 1))(_ => released.update(_ + 1))
-              PgTransactor.bounded(connection, acquireTimeout, Tracer.noop[IO]).use_.attempt.start.flatMap { request =>
-                IO.cede *> (handover.complete(()), request.cancel).parTupled.void
+            val rounds = Supervisor[IO](await = true).use { giveUps =>
+              val round = Deferred[IO, Unit].flatMap { handover =>
+                val connection = Resource.make(handover.get *> acquired.update(_ + 1))(_ => released.update(_ + 1))
+                PgTransactor.bounded(connection, acquireTimeout, Tracer.noop[IO], giveUps).use_.attempt.start.flatMap { request =>
+                  IO.cede *> (handover.complete(()), request.cancel).parTupled.void
+                }
               }
+              round.replicateA_(5000) *> IO.sleep(200.millis)
             }
-            round.replicateA_(5000) *> IO.sleep(200.millis) *> (acquired.get, released.get).tupled.map { case (opened, closed) =>
+            rounds *> (acquired.get, released.get).tupled.map { case (opened, closed) =>
               withClue(s"acquire timeout $acquireTimeout: ")(closed shouldBe opened)
             }
           }
         }
         .as(succeed)
+    }
+
+    "return every connection before the pool closes, even one still opening for a request that gave up" in {
+      val round = limited("acquire-gave-up-at-shutdown", acquireTimeout = 30.seconds).use { db =>
+        db.inSession(run(one)).start.flatMap(waiter => IO.sleep(2.millis) *> waiter.cancel)
+      }
+      round.replicateA_(30).attempt.map(_.left.toOption.map(_.getClass.getSimpleName) shouldBe None)
     }
   }
 

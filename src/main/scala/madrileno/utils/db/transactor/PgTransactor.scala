@@ -1,5 +1,6 @@
 package madrileno.utils.db.transactor
 
+import cats.effect.std.Supervisor
 import cats.effect.{Fiber, IO, Outcome, Resource}
 import fs2.Stream
 import org.typelevel.otel4s.metrics.MeterProvider
@@ -60,10 +61,11 @@ object PgTransactor {
 
   def resource(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, PgTransactor] =
     for {
-      tracer <- Resource.eval(TracerProvider[IO].get("madrileno.utils.db.transactor"))
-      pool   <- builder(pgConfig).pooled(pgConfig.max)
+      tracer  <- Resource.eval(TracerProvider[IO].get("madrileno.utils.db.transactor"))
+      pool    <- builder(pgConfig).pooled(pgConfig.max)
+      giveUps <- Supervisor[IO](await = true)
     } yield new PgTransactor(
-      bounded(pool, pgConfig.acquireTimeout, tracer),
+      bounded(pool, pgConfig.acquireTimeout, tracer, giveUps),
       pgConfig.idleInTransactionTimeout,
       builder(pgConfig).withReadTimeout(pgConfig.readTimeout.min(newConnectionReadTimeout)).single
     )
@@ -71,7 +73,8 @@ object PgTransactor {
   private[transactor] def bounded[A](
     resource: Resource[IO, A],
     acquireTimeout: Duration,
-    tracer: Tracer[IO]
+    tracer: Tracer[IO],
+    giveUps: Supervisor[IO]
   ): Resource[IO, A] =
     Resource
       .makeFull[IO, (A, IO[Unit])] { poll =>
@@ -83,14 +86,14 @@ object PgTransactor {
           }
           poll(handedOver).guaranteeCase {
             case Outcome.Succeeded(_) => IO.unit
-            case _                    => giveUp(waiting, tracer)
+            case _                    => giveUps.supervise(giveUp(waiting, tracer)).void
           }
         }
       } { case (_, release) => tracer.noopScope(release) }
       .map(_._1)
 
   private def giveUp[A](waiting: Fiber[IO, Throwable, (A, IO[Unit])], tracer: Tracer[IO]): IO[Unit] =
-    (waiting.cancel *> waiting.join.flatMap(_.fold(IO.unit, _ => IO.unit, _.flatMap { case (_, release) => tracer.noopScope(release) }))).start.void
+    waiting.cancel *> waiting.join.flatMap(_.fold(IO.unit, _ => IO.unit, _.flatMap { case (_, release) => tracer.noopScope(release) }))
 
   private val newConnectionReadTimeout = 10.seconds
 

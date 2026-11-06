@@ -1,8 +1,9 @@
 package madrileno.utils.db.transactor
 
+import com.comcast.ip4s.UnknownHostException
 import skunk.exception.{EofException, PostgresErrorException}
 
-import java.net.ConnectException
+import java.net.SocketException
 
 final class DatabaseUnavailable(message: String) extends Exception(message)
 
@@ -12,7 +13,8 @@ object DatabaseUnavailable {
   def unapply(error: Throwable): Boolean = error match {
     case _: DatabaseUnavailable    => true
     case e: PostgresErrorException => unavailableStates.contains(e.code) || (e.code.startsWith("08") && e.code != "08P01")
-    case _: ConnectException       => true
+    case _: SocketException        => true
+    case _: UnknownHostException   => true
     case _: EofException           => true
     case _                         => false
   }
