@@ -51,6 +51,13 @@ class TicketEventRouterSpec extends BaseRouteSpec with TestApplicationLoader wit
           val response = ctx.performRequest(allRoutes)
           response.body.title shouldBe Some("Event must start in the future")
         },
+      // Year +999999999 is a valid Instant for the JSON decoder (Instant goes up to year 1,000,000,000), so it reaches
+      // the domain, which rejects it; without the horizon Postgres would fail on it with a 500.
+      onRequest(body = RawEventRequest("Concert", "+999999999-12-31T00:00:00Z"), security = bearer.apply(validJwt(stranger)))
+        .respondsWith[Error[Unit]](UnprocessableContent, description = "Event starts too far in the future")
+        .assert { ctx =>
+          ctx.performRequest(allRoutes).body.title shouldBe Some("Event must start within 5 years from now")
+        },
       onRequest(body = RawEventRequest("   ", "2030-12-01T18:30:00Z"), security = bearer.apply(validJwt(stranger)))
         .respondsWith[Error[Unit]](BadRequest, description = "Blank name")
         .assert(_.performRequest(allRoutes)),

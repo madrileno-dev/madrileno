@@ -46,6 +46,7 @@ final case class CreateEventCommand(name: EventName, startsAt: Instant)
 enum CreateEventResult {
   case EventCreated(event: Event)
   case EventInThePast
+  case EventTooFarInFuture
 }
 
 final case class AddSectionCommand(
@@ -184,7 +185,8 @@ class TicketService(
       now    <- Clock[IO].realTimeInstant
       id     <- IdGenerator.generateId(EventId)
       result <- Event.create(id, command.name, command.startsAt, now) match {
-                  case Left(EventCreationRejection.EventInThePast) => IO.pure(CreateEventResult.EventInThePast)
+                  case Left(EventCreationRejection.EventInThePast)      => IO.pure(CreateEventResult.EventInThePast)
+                  case Left(EventCreationRejection.EventTooFarInFuture) => IO.pure(CreateEventResult.EventTooFarInFuture)
                   case Right(event) => transactor.inSession(eventRepository.save(event)).as(CreateEventResult.EventCreated(event))
                 }
     } yield result

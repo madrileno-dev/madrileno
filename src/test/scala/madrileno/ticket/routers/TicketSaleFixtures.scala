@@ -2,11 +2,10 @@ package madrileno.ticket.routers
 
 import madrileno.auth.domain.AuthContext
 import madrileno.support.{BaseRouteSpec, SectionSpec, SeededEvent, TestApplicationLoader, TestData, TicketSeed}
-import madrileno.ticket.domain.{EventSeat, EventStatus, SeatLabel}
+import madrileno.ticket.domain.{EventSeat, EventStatus, Money, SeatLabel}
 import madrileno.user.domain.User
 
 import java.time.Instant
-import madrileno.ticket.domain.Money
 
 // Fixtures shared by the router specs of the ticket module. Split in two specs because one class with all the
 // scenarios exceeds the JVM limit on the size of a constructor (64 KB), which Baklava's `path(...)` blocks fill.

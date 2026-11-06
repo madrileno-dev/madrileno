@@ -267,5 +267,21 @@ class EventSpec extends AnyWordSpec with Matchers {
     "reject an event starting exactly now (boundary)" in {
       Event.create(id, name, now, now) shouldBe Left(EventCreationRejection.EventInThePast)
     }
+
+    "accept an event starting exactly at now + the horizon (boundary)" in {
+      Event.create(id, name, now.plus(Event.MaxEventHorizon), now).isRight shouldBe true
+    }
+
+    "reject an event starting one nanosecond after now + the horizon" in {
+      Event.create(id, name, now.plus(Event.MaxEventHorizon).plusNanos(1), now) shouldBe Left(EventCreationRejection.EventTooFarInFuture)
+    }
+
+    "use a horizon of 5 * 365 days" in {
+      Event.MaxEventHorizon shouldBe Duration.ofDays(1825)
+    }
+
+    "check the past before the horizon" in {
+      Event.create(id, name, now.minusSeconds(1), now) shouldBe Left(EventCreationRejection.EventInThePast)
+    }
   }
 }

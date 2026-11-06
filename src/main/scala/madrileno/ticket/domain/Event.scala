@@ -11,7 +11,7 @@ enum EventStatus {
 }
 
 enum EventCreationRejection {
-  case EventInThePast
+  case EventInThePast, EventTooFarInFuture
 }
 
 enum HoldRejection {
@@ -123,13 +123,22 @@ object Event {
   // seat) and the work done under the event row lock bounded; the request body limit (10 MiB) alone would allow more.
   val MaxSeatsPerSection: Int = 500
 
+  // How far ahead an event may be scheduled: 5 years of 365 days (leap days are ignored on purpose, the limit is a
+  // sanity bound, not a calendar rule). Without it a year like +999999999 passes the JSON decoder (it is a valid
+  // Instant) and then fails in Postgres, which cannot store such a timestamptz, as a 500.
+  val MaxEventHorizon: Duration = Duration.ofDays(5 * 365)
+
   // A new event is OnSale and has no sections yet (the seating plan is added in a later step). `now` is passed in,
-  // the domain never reads the clock. Boundary: an event starting exactly at `now` has already started, so it is rejected.
+  // the domain never reads the clock. Boundary: an event starting exactly at `now` has already started, so it is rejected;
+  // one starting exactly at `now + MaxEventHorizon` is still accepted. The past is checked before the horizon.
   def create(
     id: EventId,
     name: EventName,
     startsAt: Instant,
     now: Instant
   ): Either[EventCreationRejection, Event] =
-    Either.cond(startsAt.isAfter(now), Event(id, name, startsAt, EventStatus.OnSale, now, now, Nil), EventCreationRejection.EventInThePast)
+    for {
+      _ <- Either.cond(startsAt.isAfter(now), (), EventCreationRejection.EventInThePast)
+      _ <- Either.cond(!startsAt.isAfter(now.plus(MaxEventHorizon)), (), EventCreationRejection.EventTooFarInFuture)
+    } yield Event(id, name, startsAt, EventStatus.OnSale, now, now, Nil)
 }

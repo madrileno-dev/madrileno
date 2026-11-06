@@ -69,6 +69,8 @@ class TicketRouter(ticketService: TicketService)(using TelemetryContext) extends
           ticketService.createEvent(CreateEventCommand(request.name, request.startsAt)).map[ToResponseMarshallable] {
             case CreateEventResult.EventCreated(event) => Created -> EventDto(event)
             case CreateEventResult.EventInThePast      => error(UnprocessableContent, "event-in-the-past", "Event must start in the future")
+            case CreateEventResult.EventTooFarInFuture =>
+              error(UnprocessableContent, "event-too-far-in-future", "Event must start within 5 years from now")
           }
         }
       } ~
