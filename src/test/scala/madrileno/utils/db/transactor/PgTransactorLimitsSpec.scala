@@ -3,11 +3,12 @@ package madrileno.utils.db.transactor
 import cats.effect.std.Random
 import cats.effect.syntax.all.*
 import cats.effect.testing.scalatest.AsyncIOSpec
-import cats.effect.{Deferred, IO, Resource}
+import cats.effect.{Deferred, IO, Ref, Resource}
 import cats.syntax.all.*
 import madrileno.support.TestTransactor
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
+import org.typelevel.otel4s.trace.Tracer
 import skunk.*
 import skunk.codec.all.*
 import skunk.exception.PostgresErrorException
@@ -200,6 +201,24 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
             }
         }
       }
+    }
+
+    "release a connection that arrives just as its request is cancelled or times out" in {
+      List(30.seconds, 1.micro, Duration.Inf)
+        .traverse_ { acquireTimeout =>
+          (Ref[IO].of(0), Ref[IO].of(0)).flatMapN { (acquired, released) =>
+            val round = Deferred[IO, Unit].flatMap { handover =>
+              val connection = Resource.make(handover.get *> acquired.update(_ + 1))(_ => released.update(_ + 1))
+              PgTransactor.bounded(connection, acquireTimeout, Tracer.noop[IO]).use_.attempt.start.flatMap { request =>
+                IO.cede *> (handover.complete(()), request.cancel).parTupled.void
+              }
+            }
+            round.replicateA_(5000) *> IO.sleep(200.millis) *> (acquired.get, released.get).tupled.map { case (opened, closed) =>
+              withClue(s"acquire timeout $acquireTimeout: ")(closed shouldBe opened)
+            }
+          }
+        }
+        .as(succeed)
     }
   }
 
