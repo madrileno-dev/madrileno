@@ -3,6 +3,8 @@ package madrileno.utils.events.outbox
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
+import io.circe.Json
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.support.{RecordingTracer, TestData, TestTransactor}
 import madrileno.utils.observability.TelemetryContext
 import madrileno.utils.task.{Scheduler, SchedulerConfig}
@@ -18,7 +20,7 @@ import java.time.Instant
 
 class OutboxRecoverySpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
-  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
   private lazy val outbox          = new OutboxRepository
   private lazy val delivery        = new OutboxDeliveryRepository
@@ -54,8 +56,8 @@ class OutboxRecoverySpec extends AsyncWordSpec with AsyncIOSpec with Matchers wi
     "case a: creates ledger rows + tasks for events a consumer never got, only for subscribed types" in {
       val d       = subscribed
       val matched =
-        DomainEvent(DomainEventId(TestData.randomUuid()), "dispatch-event.v1", "dispatch", TestData.randomUuid(), io.circe.Json.obj(), now)
-      val other = DomainEvent(DomainEventId(TestData.randomUuid()), "unrelated.v1", "dispatch", TestData.randomUuid(), io.circe.Json.obj(), now)
+        DomainEvent(DomainEventId(TestData.randomUuid()), "dispatch-event.v1", "dispatch", TestData.randomUuid(), Json.obj(), now)
+      val other = DomainEvent(DomainEventId(TestData.randomUuid()), "unrelated.v1", "dispatch", TestData.randomUuid(), Json.obj(), now)
       for {
         _  <- transactor.inTransaction(outbox.append(matched) *> outbox.append(other))
         _  <- recovery(d).recoverOnce
@@ -74,7 +76,7 @@ class OutboxRecoverySpec extends AsyncWordSpec with AsyncIOSpec with Matchers wi
 
     "case b: re-enqueues a pending ledger row whose task vanished" in {
       val d = subscribed
-      val e = DomainEvent(DomainEventId(TestData.randomUuid()), "dispatch-event.v1", "dispatch", TestData.randomUuid(), io.circe.Json.obj(), now)
+      val e = DomainEvent(DomainEventId(TestData.randomUuid()), "dispatch-event.v1", "dispatch", TestData.randomUuid(), Json.obj(), now)
       for {
         _ <- transactor.inTransaction(outbox.append(e) *> delivery.openDelivery(e.id, "billing", now).void)
         _ <- recovery(d).recoverOnce
@@ -84,7 +86,7 @@ class OutboxRecoverySpec extends AsyncWordSpec with AsyncIOSpec with Matchers wi
 
     "wrap a pass in an outbox.recover span carrying the opened and re-enqueued counts" in {
       val d = subscribed
-      val e = DomainEvent(DomainEventId(TestData.randomUuid()), "dispatch-event.v1", "dispatch", TestData.randomUuid(), io.circe.Json.obj(), now)
+      val e = DomainEvent(DomainEventId(TestData.randomUuid()), "dispatch-event.v1", "dispatch", TestData.randomUuid(), Json.obj(), now)
       for {
         recorder <- RecordingTracer.create
         _        <- transactor.inTransaction(outbox.append(e))

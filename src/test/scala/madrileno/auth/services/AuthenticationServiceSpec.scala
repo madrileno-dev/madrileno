@@ -6,6 +6,7 @@ import cats.effect.{Clock, IO}
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.auth.domain.*
 import madrileno.auth.repositories.*
 import madrileno.support.{FakeAuthVerifier, TestData, TestGivens, TestMailpit, TestTransactor}
@@ -35,7 +36,7 @@ class AuthenticationServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matc
   given Clock[IO]         = testClock
   given UUIDGen[IO]       = testUUIDGen
   given SecureRandom[IO]  = TestGivens.secureRandom
-  given TelemetryContext  = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  given TelemetryContext  = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
   private val jwtConfig  = JwtService.Config(secret = "test-secret-at-least-256-bits-long-for-hs256!!", validFor = Duration.ofMinutes(5))
   private val jwtService = JwtService(jwtConfig)
@@ -43,6 +44,7 @@ class AuthenticationServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matc
   private lazy val userRepo         = new UserRepository
   private lazy val userAuthRepo     = new UserAuthRepository
   private lazy val refreshTokenRepo = new RefreshTokenRepository
+  private lazy val accountCleanup   = new AuthAccountCleanupService(userAuthRepo, refreshTokenRepo)
 
   private lazy val smtpSender = SmtpSender(MailerConfig(host = mailpitHost, port = mailpitSmtpPort, fromAddress = "test@example.com", tls = false))
   private lazy val scheduler  = Scheduler(transactor, SchedulerConfig(pollingInterval = 1.second))
@@ -65,6 +67,7 @@ class AuthenticationServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matc
       userAuthRepo,
       refreshTokenRepo,
       userRepo,
+      accountCleanup,
       verifiers,
       jwtService,
       transactor,
@@ -126,6 +129,24 @@ class AuthenticationServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matc
       }
     }
 
+    "register a new user when the identity still points at a deleted account" in {
+      val (service, token) = serviceWithFreshAuth()
+      for {
+        first    <- service.authenticateWithProvider(Provider.Firebase, command)
+        original <- linkedUserId(token).map(_.getOrElse(fail("no identity after first login")))
+        _        <- transactor.inTransaction(userRepo.anonymize(original, testClock.now))
+        second   <- service.authenticateWithProvider(Provider.Firebase, command)
+        renewed  <- linkedUserId(token)
+        stale    <- transactor.inSession(refreshTokenRepo.listActive(original, testClock.now))
+      } yield {
+        first shouldBe a[AuthenticationResult.UserCreated]
+        second shouldBe a[AuthenticationResult.UserCreated]
+        renewed should not be Some(original)
+        renewed should not be empty
+        stale shouldBe empty
+      }
+    }
+
     "send welcome email on first login" in {
       val (service, _) = serviceWithFreshAuth()
       scheduler
@@ -148,6 +169,9 @@ class AuthenticationServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matc
     case AuthenticationResult.Authenticated(_, issued) => issued
     case other                                         => fail(s"Expected tokens, got $other")
   }
+
+  private def linkedUserId(token: VerifiedExternalToken): IO[Option[UserId]] =
+    transactor.inTransaction(userAuthRepo.findForUpdate(token.provider, token.providerUserId)).map(_.map(_.userId))
 
   private def refreshWith(secret: RefreshTokenSecret) =
     AuthenticateWithRefreshTokenCommand(secret, UserAgent("test-agent"), TestData.defaultIpAddress)
@@ -268,6 +292,19 @@ class AuthenticationServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matc
       }
     }
 
+    "refuse to redeliver the successor once the account is deleted" in {
+      val (service, token) = serviceWithFreshAuth()
+      for {
+        login <- service.authenticateWithProvider(Provider.Firebase, command)
+        first = issuedOf(login)
+        _      <- service.authenticateWithRefreshToken(refreshWith(first.secret))
+        userId <- linkedUserId(token).map(_.getOrElse(fail("no identity after login")))
+        _      <- transactor.inTransaction(userRepo.anonymize(userId, testClock.now))
+        _ = testClock.advance(reuseGrace.minusSeconds(1).toMillis)
+        replay <- service.authenticateWithRefreshToken(refreshWith(first.secret))
+      } yield replay shouldBe AuthenticationResult.InvalidToken
+    }
+
     "treat a replay within the grace window as theft once the successor was used" in {
       val (service, _) = serviceWithFreshAuth()
       for {
@@ -347,6 +384,16 @@ class AuthenticationServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matc
         replay shouldBe AuthenticationResult.InvalidToken
         afterward shouldBe AuthenticationResult.InvalidToken
       }
+    }
+
+    "reject a refresh token of a deleted account before its cleanup has run" in {
+      val (service, token) = serviceWithFreshAuth()
+      for {
+        login  <- service.authenticateWithProvider(Provider.Firebase, command)
+        userId <- linkedUserId(token).map(_.getOrElse(fail("no identity after login")))
+        _      <- transactor.inTransaction(userRepo.anonymize(userId, testClock.now))
+        result <- service.authenticateWithRefreshToken(refreshWith(issuedOf(login).secret))
+      } yield result shouldBe AuthenticationResult.InvalidToken
     }
 
     "reject an unknown refresh token" in {

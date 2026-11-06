@@ -3,6 +3,9 @@
 //> using scala 3.9.0
 //> using jvm 21
 //> using toolkit default
+//> using dep com.lihaoyi::mainargs:0.7.8
+//> using file workspace
+//> using mainClass Doctor
 
 // Smoke-test the dev setup. Diagnose only — does not start anything for you.
 // Each step prints pass / fail / skipped, with a one-line hint pointing at
@@ -13,13 +16,16 @@
 // Reads `.env` for ports (so changes to PG_PORT etc. are picked up); falls
 // back to `.env.sample` defaults when `.env` is missing.
 
+import mainargs.{ParserForMethods, main}
+
 import java.io.File
-import java.net.{InetSocketAddress, Socket, URI}
+import java.net.{ConnectException, InetSocketAddress, Socket, URI}
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.nio.file.{Files, Paths}
 import java.time.Duration
 import scala.jdk.CollectionConverters.*
 import scala.util.{Try, Using}
+import workspace.{AgentsMd, Plan}
 
 object Doctor {
 
@@ -33,18 +39,22 @@ object Doctor {
     def isSkip: Boolean = this match { case _: Skip => true; case _ => false }
   }
 
-  final case class Check(name: String, outcome: Outcome, sub: List[String] = Nil)
+  final case class Check(
+    name: String,
+    outcome: Outcome,
+    sub: List[String] = Nil)
 
-  private val isTty: Boolean   = System.console() != null
-  private val Green: String    = if (isTty) "[32m" else ""
-  private val Red: String      = if (isTty) "[31m" else ""
-  private val Dim: String      = if (isTty) "[2m" else ""
-  private val Reset: String    = if (isTty) "[0m" else ""
-  private val passGlyph        = "✓"
-  private val failGlyph        = "✗"
-  private val skipGlyph        = "-"
+  private val isTty: Boolean = System.console() != null
+  private val Green: String  = if (isTty) "[32m" else ""
+  private val Red: String    = if (isTty) "[31m" else ""
+  private val Dim: String    = if (isTty) "[2m" else ""
+  private val Reset: String  = if (isTty) "[0m" else ""
+  private val passGlyph      = "✓"
+  private val failGlyph      = "✗"
+  private val skipGlyph      = "-"
 
-  def main(args: Array[String]): Unit = {
+  @main(doc = "Check the dev setup: tools, .env, the compose stack, the database and the app. Exit 1 when a check fails.")
+  def run(): Unit = {
     val env             = readEnv()
     val pgPort          = env.get("PG_PORT").flatMap(_.toIntOption).getOrElse(55432)
     val appPort         = env.get("PORT").flatMap(_.toIntOption).getOrElse(9000)
@@ -53,8 +63,8 @@ object Doctor {
     val siloApiPort     = 59000
     val openobservePort = 55080
 
-    val envCheck    = checkEnvFile()
-    val dockerCheck = checkDockerAvailable()
+    val envCheck     = checkEnvFile()
+    val dockerCheck  = checkDockerAvailable()
     val composeCheck =
       if (dockerCheck.outcome.isPass) checkComposeServices()
       else Check("docker compose services up", Outcome.Skip("docker not available"))
@@ -64,10 +74,15 @@ object Doctor {
       dockerCheck,
       composeCheck,
       checkPostgresReachable(pgPort),
-      checkHttp("mailpit reachable", s"http://localhost:$mailpitUiPort/api/v1/info", "docker compose up -d mailpit"),
-      checkHttp("silo reachable", s"http://localhost:$siloApiPort/minio/health/live", "docker compose up -d silo"),
-      checkHttp("openobserve reachable", s"http://localhost:$openobservePort/healthz", "docker compose up -d openobserve"),
-      checkHttp("app responding", s"http://localhost:$appPort/$apiVersion/health-check", "sbt --client reStart (or ~reStart in an sbt shell to rebuild on save)")
+      checkFullProfileHttp("mailpit reachable", "mailpit", s"http://localhost:$mailpitUiPort/api/v1/info"),
+      checkFullProfileHttp("silo reachable", "silo", s"http://localhost:$siloApiPort/minio/health/live"),
+      checkFullProfileHttp("openobserve reachable", "openobserve", s"http://localhost:$openobservePort/healthz"),
+      checkHttp(
+        "app responding",
+        s"http://localhost:$appPort/$apiVersion/health-check",
+        "./scripts/app.scala start (or ~reStart in an sbt shell to rebuild on save)"
+      ),
+      checkWorkspace()
     )
 
     results.foreach(printCheck)
@@ -77,8 +92,12 @@ object Doctor {
     val skippedCount = results.count(_.outcome.isSkip)
 
     println()
-    if (failedCount == 0) println(s"${Green}All $passedCount checks passed. Happy hacking.${Reset}")
-    else println(s"${Red}$failedCount of ${results.size} checks failed${Reset}${if (skippedCount > 0) s" ($skippedCount skipped)" else ""}. See hints above.")
+    if (failedCount == 0)
+      println(s"${Green}All $passedCount checks passed${if (skippedCount > 0) s" ($skippedCount skipped)" else ""}. Happy hacking.${Reset}")
+    else
+      println(
+        s"${Red}$failedCount of ${results.size} checks failed${Reset}${if (skippedCount > 0) s" ($skippedCount skipped)" else ""}. See hints above."
+      )
 
     sys.exit(if (failedCount == 0) 0 else 1)
   }
@@ -98,29 +117,64 @@ object Doctor {
     }
 
   // Compose *service* names (top-level keys in docker-compose.yml), not container names.
-  private val ExpectedServices: List[String] =
-    List("postgres", "mailpit", "silo", "openobserve")
+  private val RequiredServices: List[String]    = List("postgres")
+  private val FullProfileServices: List[String] = List("mailpit", "silo", "openobserve")
+  private val FullProfileHint: String           = "docker compose --profile full up -d"
 
-  private def checkComposeServices(): Check = {
-    runCmd("docker", "compose", "ps", "--format", "{{.Service}}\t{{.Status}}") match {
-      case Left(err) =>
-        Check("docker compose services up", Outcome.Fail(detail = err.trim.linesIterator.take(1).mkString, hint = "run from project root: docker compose up -d"))
-      case Right(out) =>
-        val rows: Map[String, String] = out.linesIterator
-          .map(_.split('\t').toList)
-          .collect { case name :: status :: _ => name -> status }
-          .toMap
-        val missing  = ExpectedServices.filterNot(rows.contains)
-        val notUp    = rows.filterNot { case (_, status) => status.startsWith("Up") }.keys.toList.filter(ExpectedServices.contains)
-        val sub      = ExpectedServices.map { svc =>
-          rows.get(svc) match {
-            case Some(status) => f"$svc%-14s $status"
-            case None         => f"$svc%-14s NOT RUNNING"
-          }
-        }
-        if (missing.isEmpty && notUp.isEmpty) Check("docker compose services up", Outcome.Pass(), sub)
-        else Check("docker compose services up", Outcome.Fail(detail = s"${missing.size + notUp.size} of ${ExpectedServices.size} not running", hint = "docker compose up -d"), sub)
+  private lazy val composeStatus: Either[String, Map[String, String]] =
+    runCmd("docker", "compose", "ps", "--all", "--format", "{{.Service}}\t{{.Status}}").map { out =>
+      out.linesIterator
+        .map(_.split('\t').toList)
+        .collect { case name :: status :: _ => name -> status }
+        .toMap
     }
+
+  private def serviceUp(service: String): Boolean = composeStatus.exists(_.get(service).exists(_.startsWith("Up")))
+
+  private def checkComposeServices(): Check =
+    composeStatus match {
+      case Left(err) =>
+        Check(
+          "docker compose services up",
+          Outcome.Fail(detail = err.trim.linesIterator.take(1).mkString, hint = "run from project root: docker compose up -d")
+        )
+      case Right(rows) =>
+        def line(svc: String, note: String): String = rows.get(svc) match {
+          case Some(status) => f"$svc%-14s $status"
+          case None         => f"$svc%-14s NOT RUNNING$note"
+        }
+        val requiredDown = RequiredServices.filterNot(serviceUp)
+        val sub          = RequiredServices.map(line(_, "")) ++ FullProfileServices.map(line(_, " (full profile, optional)"))
+        if (requiredDown.isEmpty) Check("docker compose services up", Outcome.Pass(), sub)
+        else
+          Check(
+            "docker compose services up",
+            Outcome.Fail(detail = s"${requiredDown.mkString(", ")} not running", hint = "docker compose up -d"),
+            sub
+          )
+    }
+
+  private def checkFullProfileHttp(
+    name: String,
+    service: String,
+    url: String
+  ): Check =
+    if (serviceUp(service)) checkHttp(name, url, FullProfileHint)
+    else Check(name, Outcome.Skip(s"$service not started; part of the full profile: $FullProfileHint"))
+
+  private def checkWorkspace(): Check = {
+    val name     = "workspace root up to date"
+    val root     = os.pwd / os.up
+    val agentsMd = root / "AGENTS.md"
+    if (!os.isFile(agentsMd) || !os.read(agentsMd).contains(AgentsMd.Begin))
+      Check(name, Outcome.Skip("the parent directory is not a generated workspace"))
+    else
+      Plan.changes(root, os.pwd.last) match {
+        case Right(Nil)     => Check(name, Outcome.Pass(root.toString))
+        case Right(changes) =>
+          Check(name, Outcome.Fail(detail = s"stale: ${changes.map(_.path).mkString(", ")}", hint = "./scripts/workspace.scala generate"))
+        case Left(error) => Check(name, Outcome.Fail(detail = error, hint = "fix that file, then ./scripts/workspace.scala generate"))
+      }
   }
 
   private def checkPostgresReachable(port: Int): Check = {
@@ -129,7 +183,11 @@ object Doctor {
     else Check("postgres reachable", Outcome.Fail(detail = s"localhost:$port refused", hint = "docker compose up -d postgres"))
   }
 
-  private def checkHttp(name: String, url: String, hint: String): Check = {
+  private def checkHttp(
+    name: String,
+    url: String,
+    hint: String
+  ): Check = {
     httpGetStatus(url) match {
       case Right(status) if status >= 200 && status < 400 =>
         Check(name, Outcome.Pass(s"$url → $status"))
@@ -146,7 +204,10 @@ object Doctor {
     val source = if (new File(".env").isFile) ".env" else ".env.sample"
     if (!new File(source).isFile) Map.empty
     else
-      Files.readAllLines(Paths.get(source)).asScala.toList
+      Files
+        .readAllLines(Paths.get(source))
+        .asScala
+        .toList
         .map(_.trim)
         .filter(l => l.nonEmpty && !l.startsWith("#"))
         .flatMap { line =>
@@ -173,7 +234,11 @@ object Doctor {
     }.toEither.left.map(_.getMessage).flatMap(identity)
   }
 
-  private def tcpReachable(host: String, port: Int, timeoutMs: Int): Boolean =
+  private def tcpReachable(
+    host: String,
+    port: Int,
+    timeoutMs: Int
+  ): Boolean =
     Using(new Socket()) { s =>
       s.connect(new InetSocketAddress(host, port), timeoutMs)
       true
@@ -186,8 +251,8 @@ object Doctor {
       val req = HttpRequest.newBuilder(URI.create(url)).GET().timeout(Duration.ofSeconds(3)).build()
       http.send(req, HttpResponse.BodyHandlers.discarding()).statusCode()
     }.toEither.left.map {
-      case e: java.net.ConnectException => "connection refused"
-      case e                            => Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
+      case e: ConnectException => "connection refused"
+      case e                   => Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
     }
 
   private def printCheck(c: Check): Unit = {
@@ -203,4 +268,10 @@ object Doctor {
       case _                     => ()
     }
   }
+
+  def main(args: Array[String]): Unit =
+    ParserForMethods(this).runEither(args.toIndexedSeq).left.foreach { usage =>
+      System.err.println(usage)
+      sys.exit(2)
+    }
 }

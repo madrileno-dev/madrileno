@@ -3,6 +3,7 @@ package madrileno.utils.observability.admin
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 import com.comcast.ip4s.*
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.utils.http.RateLimiterRuntime
 import madrileno.utils.observability.TelemetryContext
 import org.http4s.{Method, Request, Status, Uri}
@@ -17,7 +18,7 @@ import java.io.File
 
 class AdminRateLimitSpec extends AnyFunSpec with Matchers {
 
-  private given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  private given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
   private given IORuntime        = IORuntime.global
 
   private def fromClient(req: Request[IO], ip: String): Request[IO] =

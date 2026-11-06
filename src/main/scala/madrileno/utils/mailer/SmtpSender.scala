@@ -8,8 +8,8 @@ import jakarta.mail.util.ByteArrayDataSource
 
 import java.util.Properties
 
-class SmtpSender(config: MailerConfig) {
-  def send(mail: SerializedMail): IO[Unit] = IO.blocking {
+class SmtpSender(config: MailerConfig) extends MailSender {
+  override def send(mail: SerializedMail): IO[Unit] = IO.blocking {
     val session = createSession()
     val message = buildMessage(mail, session)
     Transport.send(message)

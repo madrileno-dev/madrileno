@@ -150,7 +150,7 @@ class AuctionRepository {
     val offLim    = filter.offsetLimitFragment
     val rowCodec  = AuctionRowTable.c ~ BidRowTable.amount.c
     val rowsQuery = sql"""
-      SELECT ${AuctionRowTable.*("a")}, COALESCE(b.amount, a.${AuctionRowTable.startingPrice.n})
+      SELECT ${AuctionRowTable.*("a")}, COALESCE(b.${BidRowTable.amount.n}, a.${AuctionRowTable.startingPrice.n})
       FROM ${AuctionRowTable.n} a
       LEFT JOIN LATERAL (
         SELECT ${BidRowTable.amount.n}

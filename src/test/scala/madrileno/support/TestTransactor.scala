@@ -5,27 +5,16 @@ import cats.effect.{IO, Resource}
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.dimafeng.testcontainers.scalatest.TestContainersForAll
 import madrileno.utils.db.transactor.{DB, DBInTransaction, PgConfig, PgTransactor, Transactor}
-import org.flywaydb.core.Flyway
 import org.scalatest.Suite
 import org.typelevel.otel4s.metrics.MeterProvider
 import org.typelevel.otel4s.trace.TracerProvider
-import skunk.Session
+import skunk.{Session, Transaction}
 
 trait TestTransactor extends TestContainersForAll { self: Suite =>
 
   override type Containers = PostgreSQLContainer
 
-  override def startContainers(): PostgreSQLContainer = {
-    val container = PostgreSQLContainer.Def().start()
-
-    Flyway
-      .configure()
-      .dataSource(container.jdbcUrl, container.username, container.password)
-      .load()
-      .migrate()
-
-    container
-  }
+  override def startContainers(): PostgreSQLContainer = TestPostgres.start()
 
   given TracerProvider[IO] = TracerProvider.noop[IO]
   given MeterProvider[IO]  = MeterProvider.noop[IO]
@@ -59,7 +48,7 @@ trait TestTransactor extends TestContainersForAll { self: Suite =>
     transactor.inSession {
       val session = summon[Session[IO]]
       session.transaction.use { tx =>
-        given skunk.Transaction[IO] = tx
+        given Transaction[IO] = tx
         f.flatTap(_ => tx.rollback)
       }
     }

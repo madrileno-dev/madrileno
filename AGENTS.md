@@ -1,56 +1,62 @@
-You are an expert backend software engineer and architect.
+You are an expert backend engineer on a Madrileño service: Scala 3, http4s +
+stir, skunk on Postgres, cats-effect.
 
-# Scala projects
+# Where things are
 
-* ALWAYS use tools to compile and run tests instead of relying on bash commands
-* after adding a dependency to `build.sbt`, ALWAYS run the `import-build` tool
-* to lookup a dependency or the latest version, use the `find-dep` tool
-* to lookup the API of a class, use the `inspect` tool
-* use `sbt --client` instead of `sbt` to connect to a running sbt server for
-  faster execution
-* NEVER run commands that block until interrupted: watch commands (`~reStart`,
-  `~test`, `~compile`), `sbt run`, or a bare `sbt` shell
-* before starting the app, run `curl -sf http://localhost:9000/v1/health-check`.
-  If it answers, the app is already running, usually a developer's `~reStart`
-  loop that rebuilds on save: do NOT run `reStart`, use that app
-* if it doesn't answer, start the app with `sbt --client reStart`. It forks the
-  app into its own JVM and returns in about a second. After changing code, run
-  `reStart` again, but only for an app you started yourself
-* `reStart` prints success even when the app fails to start (for example when
-  port 9000 is taken). After every `reStart`, poll the health check every 2
-  seconds for up to 60 seconds. If it never answers, the error is at the end
-  of `logs/madrileno.log`: run `tail -n 50 logs/madrileno.log`
-* the dev setup runs three kinds of background processes. Stop them with:
-  - the app JVM: `sbt --client reStop`
-  - the sbt server (also stops the app): `sbt --client shutdown`
-  - the compose stack: `docker compose stop` (`down -v` also wipes data)
-* before committing, ALWAYS format all changed Scala files using the sbt
-  `scalafmt` plugin: `sbt --client scalafmtAll` and run `scalafix` with
-  `sbt --client scalafixAll`
-* pipe every command's output to tmp file for easier analysis
-* prefer using braces `{}`
-* prefer top-level (or scope-level) imports over FQNs
-* NEVER use non-local returns
-* ALWAYS use functional programming: immutable data types, pattern matching,
-  immutable collections, higher order functions, algebraic data types
-* instead of mutable state, ALWAYS prefer writing testable, pure functions that
-  accept and return a state data type. Use mutable state only locally at the
-  top-level
+* `src/main/scala/<pkg>/<module>/`: one vertical slice per module, with
+  `domain/`, `repositories/`, `services/`, `routers/` (DTOs in `routers/dto/`)
+  and `<Module>Module.scala`, wired in `main/ApplicationLoader.scala`
+* `src/main/scala/<pkg>/utils/`: the shared platform (http, db, auth, mailer,
+  storage, scheduler, outbox, ...)
+* `src/main/resources/db/migration/`: Flyway migrations, `V<n>__<name>.sql`
+* `src/test/scala/` mirrors main; factories live in `support/TestData.scala`
+* docs: "doc `<name>`" means `madrileno_doc("<name>")` on the madrileno MCP
+  server (`madrileno_overview` lists them), or `docs/<name>.md` if this project
+  kept its docs. Read the doc for the area you touch, not all of them
+* the router specs (Baklava) generate the API contract; the client view the
+  frontend and mobile apps sync is `target/baklava/views/client/orpc/src`
 
-# Coding style
+# Procedures
 
-* take care of good naming; responsibilities in code should be segregated
-  between appropriately named entities
-* when dealing with resources, properly track who owns which resources, and
-  ensure proper ordering on cleanup
-* when possible, restrict visibility of classes and top-level constructs to
-  appropriate sub-packages. No need to restrict visibility to the main package.
-* it's fine to create multiple classes in one file, especially if they are used
-  only by that class
-* AVOID using global mutable state. Instead use immutable state that is passed &
-  returned from functions. Local mutable state, such a mutable variables tightly
-  scoped in a method are fine
-* AVOID shared mutable state at any cost
-* AVOID using mutable collections
-* comment on any aspects that aren't obvious from the implementation, but are
-  important to know when reading the code
+Use these skills instead of rebuilding the steps from existing modules:
+`backend-add-module` (new aggregate with its table and endpoints),
+`backend-schema-change` (migration, table object, repository),
+`backend-add-endpoint` (route, DTOs, error codes, router spec).
+
+# Build, run, test
+
+* compile and test through the Metals MCP tools when they are connected
+  (`compile-module`, `test`; `import-build` after editing `build.sbt`,
+  `find-dep`, `inspect`); otherwise `sbt --client ...`, never a bare `sbt`
+* NEVER run commands that block until interrupted: `~reStart`, `~test`,
+  `~compile`, `sbt run`, a bare `sbt` shell
+* run the app with `./scripts/app.scala`, in the foreground: `start` compiles,
+  applies pending migrations and returns once the health check answers, or
+  exits 1 with the log tail; `restart` after a code or `.env` change; `stop`,
+  `status`, `logs`, `migrate`. If `start` reports an app it did not start, a
+  developer's `~reStart` loop owns the port: use that app and leave it alone
+* while working, run only the specs for what you changed:
+  `sbt --client "testOnly <pkg>.<module>.*"`. Before committing, once:
+  `sbt --client "scalafmtAll; scalafixAll; Test/verifyAll"` (format check,
+  compile, every suite, error codes in the contract)
+* after adding or moving modules, services, repositories, events or tables:
+  `./scripts/architecture.scala --diff main --mermaid`; fix the new warnings
+  and unclassified items, and paste the output into the PR description
+* write long command output to a file under `target/agent-logs/`, not `/tmp`:
+  sessions in other worktrees use the same `/tmp` names
+* stop what you started: the app `./scripts/app.scala stop`, the sbt server
+  `sbt --client shutdown`, the compose stack `docker compose stop`
+
+# Code rules
+
+* functional style: immutable data and collections, ADTs, pattern matching,
+  pure functions that take and return state; mutable state only local to a
+  method, never shared
+* braces `{}`; no non-local returns; top-level imports, not FQNs
+  (`QualifiedNamesSpec` fails otherwise)
+* name things for their responsibility; restrict visibility to sub-packages
+  where possible; track who owns each resource and release in order
+* in hand-written `sql"..."`, name tables and columns through their `Table`
+  object (`HandWrittenSqlSpec` fails otherwise; exceptions go in its
+  `exemptions`, with the reason)
+* comments only for what the code cannot say; most files have none

@@ -44,28 +44,30 @@ Watch is on Scala/SBT/HOCON files only — not `.env`, not docker-compose state.
 
 ## Running the app without a watch loop
 
-Watch loops, `sbt run`, and a bare `sbt` shell never return, so a script, a CI smoke test, or anything else that needs its shell back uses the one-shot tasks through `sbt --client` instead:
+Watch loops, `sbt run`, and a bare `sbt` shell never return, so a script, a CI smoke test, or anything else that needs its shell back starts the app through the launcher instead:
 
 ```bash
-sbt --client reStart                              # compile, fork the app, return; rerun after a code change
-for i in $(seq 30); do curl -sf http://localhost:9000/v1/health-check && break; sleep 2; done   # wait up to 60 s
-tail -n 50 logs/madrileno.log                     # never answered? the startup error is here
-sbt --client reStop                               # stop the app
+./scripts/app.scala start       # sbt --client compile, apply pending migrations, run from the cached classpath, return once /v1/health-check answers
+./scripts/app.scala restart     # after a code change, or a .env change
+./scripts/app.scala status      # exit 0 when it is up
+./scripts/app.scala logs        # the end of the application log
+./scripts/app.scala stop
 ```
 
-`reStart` compiles what changed, forks the app into its own JVM and returns in about a second. It reports success as soon as the JVM is launched, even if the app then fails to start (for example when port 9000 is taken), so always wait for the health check. The detached sbt server discards the app's console output; `Main` logs any error that stops the app, so `logs/madrileno.log` is the place to look.
+`start` compiles through the sbt client (a no-op well under a second when nothing changed), applies pending migrations (about a second when there are none), runs `Main` from the classpath that `compile` caches in `target/console-classpath`, and waits up to 60 seconds for the health check. It exits 1 with the last log lines when the app dies or never answers, and in the second case stops the half-started process, so a failed `start` leaves nothing running. The app reads `.env` at every start, unlike the sbt server, which caches it. The pid lives in `target/app/app.pid`; `--help` lists the options, [scripts.md](scripts.md#appscala) the details.
 
-Only one app can bind port 9000, so a `~reStart` loop in a terminal and a one-shot `reStart` elsewhere can't run side by side. `curl -sf http://localhost:9000/v1/health-check` tells you whether something already owns it.
+`start` refuses when something answers the health check that it did not start, typically a `~reStart` loop in a terminal, because only one app can bind the port. Use that app, or stop it where it was started.
 
 The dev setup leaves three kinds of background processes. Each has its own stop command:
 
 | Process | Started by | Stopped by |
 | --- | --- | --- |
-| App JVM | `sbt --client reStart` | `sbt --client reStop` |
-| sbt server | the first `sbt --client` call | `sbt --client shutdown` (also stops the app JVM) |
-| Postgres, Mailpit, OpenObserve, Silo | `docker compose up -d` | `docker compose stop` (`docker compose down -v` also wipes their data) |
+| App JVM | `./scripts/app.scala start`, or a `~reStart` loop | `./scripts/app.scala stop`, or `reStop` in that sbt shell |
+| sbt server | the first `sbt --client` call | `sbt --client shutdown` (also stops an app started by `reStart`, not one started by the launcher) |
+| Postgres | `docker compose up -d` | `docker compose stop` (`docker compose down -v` also wipes its data) |
+| Mailpit, OpenObserve, Silo (optional) | `docker compose --profile full up -d` | `docker compose stop mailpit openobserve silo` |
 
-How a coding assistant is expected to use these tasks is in [ai-assisted-dev.md](ai-assisted-dev.md#how-the-assistant-runs-the-app).
+`sbt --client reStart` and `reStop` still work in an sbt shell. How a coding assistant is expected to use it is in [ai-assisted-dev.md](ai-assisted-dev.md#how-the-assistant-runs-the-app).
 
 ## Running tests
 
@@ -80,7 +82,7 @@ How a coding assistant is expected to use these tasks is in [ai-assisted-dev.md]
 
 The `--` separates sbt args from scalatest args. `-z` is substring match on the test name; `-t` is exact match. Useful when you've broken one test and don't want to wait for the whole suite.
 
-Baklava generation is a side effect of the test run — the OpenAPI spec at `/swagger` is regenerated from `*RouterSpec` files. **Use `testFull`, not `test`, for a full run or contract regeneration.** Under sbt 2, `test` is *incremental* (testQuick-like) and its results are cached in a global store (`~/.cache/sbt`, so it survives a `target/` wipe and a fresh sbt server); on a warm cache `test` can skip the router specs — or every suite — and still report success, regenerating an **empty** spec that clobbers the real one. `testFull` is the uncached, run-everything task. `testOnly <pattern>` also always runs (it's an input task, not cached). If `/swagger` looks stale, rerun `testFull`.
+Baklava generation is a side effect of the test run — the OpenAPI spec at `/swagger` and the oRPC contract are regenerated from `*RouterSpec` files. Under sbt 2, `test` is *incremental* (testQuick-like) and its results are cached in a global store (`~/.cache/sbt`, so it survives a `target/` wipe and a fresh sbt server); on a warm cache it skips every suite whose code and dependencies haven't changed. That is fine for the contract: each run merges the calls of the suites that ran into a persistent store (`target/baklava/store/`, one directory per suite) and regenerates the output from the whole store, so `test`, `testOnly <pattern>` and the incremental run after a one-line change all leave the spec complete. Two things to know: a filtered run (`testOnly *AuctionRouterSpec -- -z DELETE`) replaces that suite's entries with the subset that ran, so run the suite unfiltered afterwards; and when the store is empty — a fresh checkout on a machine with a warm `~/.cache/sbt`, or right after `baklavaClean` — `test` may run nothing and generate nothing (Baklava prints a message), so run `testFull` once. `testFull` is the uncached, run-everything task and stays the CI gate.
 
 Tests use Testcontainers for Postgres / Mailpit / Silo — they spin up their own containers, so the docker-compose dev stack and the test run don't share state. Telemetry is stubbed with noop tracer/meter in tests; there's no OpenObserve container.
 
@@ -183,7 +185,7 @@ You've opted into `SBT_TPOLECAT_DEV=true` and the local build is in relaxed mode
 You edited a migration that's already been applied. Either roll back the file change or `runMain madrileno.main.MigrateMain clean` your dev DB and re-migrate (only on dev — never on shared environments).
 
 **OpenObserve traces tab is empty.**
-Streams are created on first ingest; hit the app a few times, refresh, give it a moment. If it's still empty, check `OTEL_EXPORTER_OTLP_*` in `.env`.
+Streams are created on first ingest; hit the app a few times, refresh, give it a moment. If it's still empty, check that `.env` has `OTEL_SDK_DISABLED=false` (the stock value is `true`, for the Postgres-only stack) and the `OTEL_EXPORTER_OTLP_*` endpoints.
 
 **`/v1/auth/firebase` returns 503 (`provider-unavailable`).**
 Firebase auth is only enabled when `FIREBASE_PROJECT_ID` is set; the stock `.env` leaves it blank, so the app boots but Firebase login is off. Set it to your Firebase project id — or, in dev, use `POST /v1/auth/dev` with `{"email":"you@example.com"}` (see below), which logs you in (creating the user) with no provider config at all.

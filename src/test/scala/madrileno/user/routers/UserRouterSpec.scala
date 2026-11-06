@@ -45,7 +45,7 @@ class UserRouterSpec extends BaseRouteSpec with TestApplicationLoader {
         },
       withSetup {
         val user = seedUser()
-        val _    = application.accountService.deleteAccount(user.id).unsafeRunSync()
+        val _    = application.transactor.inTransaction(application.userRepository.anonymize(user.id, Instant.now())).unsafeRunSync()
         user
       }.request { user => onRequest(security = bearer.apply(validJwt(AuthContext(user)))) }
         .respondsWith[Error[Unit]](Unauthorized, description = "Valid JWT for a deleted account (the residual access-token window)")
@@ -57,7 +57,7 @@ class UserRouterSpec extends BaseRouteSpec with TestApplicationLoader {
     supports(
       DELETE,
       description =
-        "Delete the authenticated user's account: anonymizes the profile, revokes all refresh tokens (already-issued access tokens stay valid until they expire), and asynchronously cleans up the user's auctions",
+        "Delete the authenticated user's account: anonymizes the profile, then asynchronously revokes all refresh tokens (already-issued access tokens stay valid until they expire) and cleans up the user's auctions",
       summary = "Delete own account (idempotent)",
       securitySchemes = Seq(bearerScheme),
       tags = Seq("Users")

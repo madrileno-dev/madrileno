@@ -131,5 +131,5 @@ Ask Claude to walk through those changes against your auth code and propose upda
 ## Where to look next
 
 - [`updating-from-upstream.md`](updating-from-upstream.md) — the catch-up-with-upstream workflow built on `madrileno_changes` / `madrileno_diff`.
-- [`scripts.md`](scripts.md) — the rest of the scala-cli scripts under `scripts/` (init, scaffold, dev-console).
+- [`scripts.md`](scripts.md) — the rest of the scala-cli scripts under `scripts/`: init, scaffold, dev console, doctor and the architecture map.
 - [`adding-a-module.md`](adding-a-module.md) — the vertical-slice walkthrough the MCP's `madrileno_doc("adding-a-module")` returns.

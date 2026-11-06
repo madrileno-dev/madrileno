@@ -4,6 +4,7 @@
 //> using jvm 21
 //> using toolkit default
 //> using dep com.lihaoyi::mainargs:0.7.8
+//> using mainClass ScaffoldModule
 
 // Scaffold a new module (aggregate vertical slice) under the project's package.
 // Run from the project root, either directly:
@@ -20,19 +21,18 @@
 
 import mainargs.{ParserForMethods, arg, main}
 
+import java.util.regex.Pattern
 import scala.util.matching.Regex
 
 object ScaffoldModule {
 
-  @main
+  @main(doc = "Generate a new module: domain, repository, service, router, migration and specs, wired into ApplicationLoader.")
   def run(
     @arg(positional = true, doc = "Aggregate name in PascalCase, e.g. Wine") aggregate: String,
     @arg(positional = true, doc = "Plural lowercase, e.g. wines") plural: String
-  ): Unit = {
-    require(aggregate.matches("[A-Z][A-Za-z0-9]*"),
-      s"aggregate '$aggregate' must be PascalCase (start with uppercase, alphanumeric only)")
-    require(plural.matches("[a-z][a-z0-9_]*"),
-      s"plural '$plural' must be lowercase (start with letter, alphanumeric or underscore)")
+  ): Unit = guarded {
+    require(aggregate.matches("[A-Z][A-Za-z0-9]*"), s"aggregate '$aggregate' must be PascalCase (start with uppercase, alphanumeric only)")
+    require(plural.matches("[a-z][a-z0-9_]*"), s"plural '$plural' must be lowercase (start with letter, alphanumeric or underscore)")
 
     val singular      = aggregate.head.toLower.toString + aggregate.tail
     val capitalPlural = plural.head.toUpper.toString + plural.tail
@@ -42,20 +42,17 @@ object ScaffoldModule {
     // / V5__auction.sql etc.); plural drives URL segments and OpenAPI tags.
 
     val root = os.pwd
-    require(os.exists(root / "build.sbt"),
-      s"$root doesn't look like the project root (no build.sbt)")
+    require(os.exists(root / "build.sbt"), s"$root doesn't look like the project root (no build.sbt)")
 
     val mainScalaDir = root / "src" / "main" / "scala"
     require(os.exists(mainScalaDir), s"missing $mainScalaDir")
 
     val packageDirs = os.list(mainScalaDir).filter(os.isDir(_))
-    require(packageDirs.size == 1,
-      s"expected exactly one package directory under src/main/scala/, found: ${packageDirs.map(_.last).mkString(", ")}")
+    require(packageDirs.size == 1, s"expected exactly one package directory under src/main/scala/, found: ${packageDirs.map(_.last).mkString(", ")}")
     val packageName = packageDirs.head.last
 
     val templates = root / "scripts" / "templates" / "module"
-    require(os.exists(templates),
-      s"missing $templates — the scaffold templates are bundled with the script")
+    require(os.exists(templates), s"missing $templates — the scaffold templates are bundled with the script")
 
     val mainDest      = mainScalaDir / packageName / singular
     val testDest      = root / "src" / "test" / "scala" / packageName / singular
@@ -70,23 +67,27 @@ object ScaffoldModule {
     // generated `<Aggregate>Module` class name already exists elsewhere (e.g. the
     // built-in `HealthCheckModule`), which would leave `ApplicationLoader` with
     // ambiguous duplicate `with <X>Module` clauses on different packages.
-    val moduleClassFile = s"${aggregate}Module.scala"
+    val moduleClassFile    = s"${aggregate}Module.scala"
     val existingModuleFile = os.walk(mainScalaDir).find(_.last == moduleClassFile)
-    require(existingModuleFile.isEmpty,
+    require(
+      existingModuleFile.isEmpty,
       s"module class '${aggregate}Module' already exists at ${existingModuleFile.getOrElse("")}. " +
-        "Choose a different aggregate name to avoid an ambiguous `with` in ApplicationLoader.")
+        "Choose a different aggregate name to avoid an ambiguous `with` in ApplicationLoader."
+    )
 
     // Table-name collision check — scan existing migrations for `CREATE TABLE <singular>`.
     // The Flyway runner would catch this eventually, but catching it here keeps the
     // failure on the script side (no files written, no migration shipped).
     val createTableRegex =
-      s"""(?i)CREATE\\s+TABLE\\s+(IF\\s+NOT\\s+EXISTS\\s+)?"?${java.util.regex.Pattern.quote(singular)}"?\\s*\\(""".r
+      s"""(?i)CREATE\\s+TABLE\\s+(IF\\s+NOT\\s+EXISTS\\s+)?"?${Pattern.quote(singular)}"?\\s*\\(""".r
     val tableCollision = os.list(migrationDest).filter(os.isFile(_)).find { f =>
       createTableRegex.findFirstIn(os.read(f)).isDefined
     }
-    require(tableCollision.isEmpty,
+    require(
+      tableCollision.isEmpty,
       s"singular '$singular' would collide with a table already created in ${tableCollision.getOrElse("")}. " +
-        "Choose a different aggregate name.")
+        "Choose a different aggregate name."
+    )
 
     // Preflight the auto-wire anchors before any writes — if `ApplicationLoader.scala`
     // is missing or has been restructured, we want to abort before stranding generated
@@ -96,37 +97,55 @@ object ScaffoldModule {
     require(os.exists(loader), s"missing $loader (expected the loader at this path)")
     val loaderText   = os.read(loader)
     val importAnchor = s"import $packageName.healthcheck.HealthCheckModule"
-    require(loaderText.contains(importAnchor),
+    require(
+      loaderText.contains(importAnchor),
       s"can't auto-wire: import anchor '$importAnchor' not found in $loader.\n" +
-        s"  Add `import $packageName.$singular.${aggregate}Module` manually.")
+        s"  Add `import $packageName.$singular.${aggregate}Module` manually."
+    )
     val withAnchor = "    with HealthCheckModule"
-    require(loaderText.contains(withAnchor),
+    require(
+      loaderText.contains(withAnchor),
       s"can't auto-wire: extends-clause anchor '$withAnchor' not found in $loader.\n" +
-        s"  Add `with ${aggregate}Module` to the extends chain manually.")
+        s"  Add `with ${aggregate}Module` to the extends chain manually."
+    )
 
     // Preflight the TestData injection anchors too — same reasoning as the loader
     // anchors above: validate before any writes so a missing marker can't strand a
     // half-written scaffold on disk. The actual injection happens after the writes.
     val testData = root / "src" / "test" / "scala" / packageName / "support" / "TestData.scala"
-    require(os.exists(testData),
+    require(
+      os.exists(testData),
       s"missing $testData (expected the shared test-data factory at this path).\n" +
-        s"  Add `import $packageName.$singular.domain.${aggregate}Id` and a `random${aggregate}Id()` factory manually.")
+        s"  Add `import $packageName.$singular.domain.${aggregate}Id` and a `random${aggregate}Id()` factory manually."
+    )
     val testDataText    = os.read(testData)
     val tdImportPattern = ("(?m)^import " + Regex.quote(packageName) + """\.utils\.crypto\.(?:UuidV7|\{[^}]*\bUuidV7\b[^}]*\})$""").r
-    val tdImportAnchor  = tdImportPattern.findFirstIn(testDataText).getOrElse(
-      throw new IllegalArgumentException(
-        s"can't inject id factory: no `import $packageName.utils.crypto.UuidV7` (bare or braced) found in $testData.\n" +
-          s"  Add `import $packageName.$singular.domain.${aggregate}Id` and a `random${aggregate}Id()` factory manually."))
+    val tdImportAnchor  = tdImportPattern
+      .findFirstIn(testDataText)
+      .getOrElse(
+        throw new IllegalArgumentException(
+          s"can't inject id factory: no `import $packageName.utils.crypto.UuidV7` (bare or braced) found in $testData.\n" +
+            s"  Add `import $packageName.$singular.domain.${aggregate}Id` and a `random${aggregate}Id()` factory manually."
+        )
+      )
     val tdFactoryAnchor = "  // scripts:scaffold-id-factories"
-    require(testDataText.contains(tdFactoryAnchor),
+    require(
+      testDataText.contains(tdFactoryAnchor),
       s"can't inject id factory: factory anchor '$tdFactoryAnchor' not found in $testData.\n" +
-        s"  Add a `random${aggregate}Id(): ${aggregate}Id = ${aggregate}Id(randomUuid())` factory manually.")
+        s"  Add a `random${aggregate}Id(): ${aggregate}Id = ${aggregate}Id(randomUuid())` factory manually."
+    )
 
     // Next Flyway version — max V<N>__ + 1. Filter to files only so a subdirectory
     // (Flyway supports a `vendor` subfolder) can't accidentally satisfy the regex.
-    val nextVersion = os.list(migrationDest).filter(os.isFile(_)).map(_.last).flatMap { f =>
-      """^V(\d+)__""".r.findFirstMatchIn(f).map(_.group(1).toInt)
-    }.maxOption.getOrElse(0) + 1
+    val nextVersion = os
+      .list(migrationDest)
+      .filter(os.isFile(_))
+      .map(_.last)
+      .flatMap { f =>
+        """^V(\d+)__""".r.findFirstMatchIn(f).map(_.group(1).toInt)
+      }
+      .maxOption
+      .getOrElse(0) + 1
 
     // Placeholders are non-overlapping (the trailing `__` on each token means neither
     // `__aggregate__` nor `__Aggregate__` is a substring of its plural form), so order
@@ -144,26 +163,33 @@ object ScaffoldModule {
       subs.foldLeft(s) { case (acc, (key, value)) => acc.replace(key, value) }
 
     def copyTree(srcDir: os.Path, destDir: os.Path): List[os.Path] = {
-      os.walk(srcDir).filter(os.isFile(_)).map { src =>
-        val rel          = src.relativeTo(srcDir)
-        val destSegments = rel.segments.map(substitute)
-        val dest         = destSegments.foldLeft(destDir)((acc, seg) => acc / seg)
-        os.makeDir.all(dest / os.up)
-        os.write(dest, substitute(os.read(src)))
-        dest
-      }.toList
+      os.walk(srcDir)
+        .filter(os.isFile(_))
+        .map { src =>
+          val rel          = src.relativeTo(srcDir)
+          val destSegments = rel.segments.map(substitute)
+          val dest         = destSegments.foldLeft(destDir)((acc, seg) => acc / seg)
+          os.makeDir.all(dest / os.up)
+          os.write(dest, substitute(os.read(src)))
+          dest
+        }
+        .toList
     }
 
     val writtenMain = copyTree(templates / "main", mainDest)
     val writtenTest = copyTree(templates / "test", testDest)
 
     // Migration: each template SQL becomes V<next>__<substituted-name>.sql.
-    val writtenMigration = os.list(templates / "migration").filter(os.isFile(_)).map { src =>
-      val baseName = substitute(src.last)
-      val dest     = migrationDest / s"V${nextVersion}__$baseName"
-      os.write(dest, substitute(os.read(src)))
-      dest
-    }.toList
+    val writtenMigration = os
+      .list(templates / "migration")
+      .filter(os.isFile(_))
+      .map { src =>
+        val baseName = substitute(src.last)
+        val dest     = migrationDest / s"V${nextVersion}__$baseName"
+        os.write(dest, substitute(os.read(src)))
+        dest
+      }
+      .toList
 
     // Auto-wire: insert both the `import` line and the `with <Aggregate>Module`
     // clause anchored on HealthCheckModule (already validated above). Insertion isn't
@@ -205,5 +231,17 @@ object ScaffoldModule {
     println("  sbt 'compile; scalafmtAll; scalafixAll'   # verify, format, sort the auto-wired import")
   }
 
-  def main(args: Array[String]): Unit = ParserForMethods(this).runOrExit(args)
+  private def guarded(body: => Unit): Unit =
+    try body
+    catch {
+      case e: IllegalArgumentException =>
+        System.err.println(s"error: ${e.getMessage.stripPrefix("requirement failed: ")}")
+        sys.exit(2)
+    }
+
+  def main(args: Array[String]): Unit =
+    ParserForMethods(this).runEither(args.toIndexedSeq).left.foreach { usage =>
+      System.err.println(usage)
+      sys.exit(2)
+    }
 }

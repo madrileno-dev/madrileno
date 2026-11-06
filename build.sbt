@@ -35,13 +35,14 @@ libraryDependencies ++= {
   val scalatagsV         = "0.13.1"
   val scaffeineV         = "5.3.0"
   val testcontainersV    = "0.44.1"
-  val baklavaV           = "2.2.0"
+  val baklavaV           = "2.3.0"
   val swaggerUiV         = "5.32.14"
   val flywayV            = "13.5.0"
   val awsSdkV            = "2.54.13"
   val scrimageV          = "4.6.7"
   val scalatestV         = "3.2.20"
   val reflectionsV       = "0.10.2"
+  val scalametaV         = "4.17.4"
   Seq(
     "org.http4s"                      %% "http4s-ember-server"                       % http4sV,
     "org.http4s"                      %% "http4s-dsl"                                % http4sV,
@@ -104,6 +105,7 @@ libraryDependencies ++= {
     "org.flywaydb"                     % "flyway-database-postgresql"                % flywayV,
     "org.scalatest"                   %% "scalatest"                                 % scalatestV         % "test",
     "org.reflections"                  % "reflections"                               % reflectionsV       % "test",
+    "org.scalameta"                   %% "scalameta"                                 % scalametaV         % "test",
     "io.opentelemetry"                 % "opentelemetry-sdk-testing"                 % otelV              % "test",
     "org.typelevel"                   %% "cats-effect-testkit"                       % catsEffectV        % "test",
     "org.typelevel"                   %% "cats-effect-testing-scalatest"             % catsEffectTestingV % "test"
@@ -190,6 +192,7 @@ Compile / scalacOptions ++= {
 }
 coverageMinimumStmtTotal := 75
 coverageFailOnMinimum := true
+coverageDataDir := (Compile / classDirectory).value
 addCommandAlias("coverageAll", "; coverage; testFull; coverageReport; coverageOff")
 
 // scalafix
@@ -213,6 +216,23 @@ Test / verifyErrorCodes := Def.uncached {
   }
   streams.value.log.info(s"All ${emitted.size} router error codes appear in the generated contract")
 }
+
+Test / sourceGenerators += Def.task {
+  val inputs = ((Compile / unmanagedSources).value ++ (Test / unmanagedSources).value ++
+    ((Compile / resourceDirectory).value / "db" / "migration" ** "*.sql").get() ++
+    (baseDirectory.value / ".agents" ** "*.md").get() ++ (baseDirectory.value / "docs" * "*.md").get() ++
+    Seq(baseDirectory.value / "AGENTS.md").filter(_.exists())).sortBy(_.getPath)
+  val sha256 = java.security.MessageDigest.getInstance("SHA-256")
+  inputs.foreach { file =>
+    sha256.update(IO.relativize(baseDirectory.value, file).getOrElse(file.getPath).getBytes("UTF-8"))
+    sha256.update(IO.readBytes(file))
+  }
+  val digest = sha256.digest().map(byte => f"$byte%02x").mkString
+  val file   = (Test / sourceManaged).value / "SourcesDigest.scala"
+  val code   = s"package madrileno.sourcechecks\n\nprivate[sourcechecks] object SourcesDigest {\n  val value: String = \"$digest\"\n}\n"
+  if (!file.exists() || IO.read(file) != code) IO.write(file, code)
+  Seq(file)
+}.taskValue
 
 lazy val verifyAll = taskKey[Unit]("Performs all verifications to assure that the build will pass CI checks.")
 Test / verifyAll := Def.uncached {

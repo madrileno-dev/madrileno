@@ -18,7 +18,7 @@ You'll need four tools. Install each from its package manager or official instal
 
 - **JDK 21 (Temurin)** — [adoptium.net/installation](https://adoptium.net/installation/) (apt repo on Linux, `brew install --cask temurin@21` on macOS, winget on Windows)
 - **sbt 1.12+** — [scala-sbt.org/download](https://www.scala-sbt.org/download/) (`sbt --version` to check; the launcher reads `project/build.properties` and pulls the pinned sbt itself)
-- **scala-cli** — [scala-cli.virtuslab.org/install](https://scala-cli.virtuslab.org/install) — needed for the tools under `scripts/` (`scaffold-module`, `doctor`, `dev-console`, …)
+- **scala-cli** — [scala-cli.virtuslab.org/install](https://scala-cli.virtuslab.org/install) — needed for the tools under `scripts/` (`app`, `scaffold-module`, `doctor`, `dev-console`, …). Versions before 1.18 print a warning about TASTY files from Scala 3.9 on every run; it is harmless.
 - **Docker** with `docker compose` — [docs.docker.com/engine/install](https://docs.docker.com/engine/install/)
 
 The three JVM tools also install together via [SDKMAN](https://sdkman.io/):
@@ -32,22 +32,25 @@ sdk install scalacli
 ### 1. Boot the dev stack
 
 ```bash
-docker compose up -d
+docker compose up -d                  # Postgres only: everything the app needs
+docker compose --profile full up -d   # plus Mailpit, OpenObserve and Silo
 ```
 
-That brings up four services on non-standard host ports so they don't clash with anything you already have running:
+Postgres is the whole default stack. The app stores uploads on disk, writes outgoing mail to its log and keeps telemetry off until you ask for more, so a clone runs with one container and nothing to configure. The `full` profile adds the three services behind the SMTP, OTLP and S3 integrations; flip the three matching lines in `.env` (`MAILER_SENDER=smtp`, `OTEL_SDK_DISABLED=false`, `OBJECT_STORAGE=s3`) and the same binary uses them.
 
-| Service       | Image                                          | Host port(s)                              | Login                                |
-|---------------|------------------------------------------------|-------------------------------------------|--------------------------------------|
-| Postgres      | `postgres:latest`                              | `55432` → 5432                            | `postgres` / `postgres`              |
-| Mailpit       | `axllent/mailpit:latest`                       | `51025` (SMTP), `58025` (UI)              | —                                    |
-| OpenObserve   | `public.ecr.aws/zinclabs/openobserve:latest`   | `55080` (UI + OTLP HTTP)                  | `root@example.com` / `Complexpass#123` |
-| Silo          | `pgsty/silo:RELEASE.2026-09-16T00-00-00Z`      | `59000` (S3 API), `59001` (Console UI)    | `minioadmin` / `minioadmin`          |
+All host ports are non-standard so they don't clash with anything you already have running:
+
+| Service       | Profile | Image                                          | Host port(s)                              | Login                                |
+|---------------|---------|------------------------------------------------|-------------------------------------------|--------------------------------------|
+| Postgres      | default | `postgres:18`                                  | `55432` → 5432                            | `postgres` / `postgres`              |
+| Mailpit       | `full`  | `axllent/mailpit:latest`                       | `51025` (SMTP), `58025` (UI)              | —                                    |
+| OpenObserve   | `full`  | `public.ecr.aws/zinclabs/openobserve:latest`   | `55080` (UI + OTLP HTTP)                  | `root@example.com` / `Complexpass#123` |
+| Silo          | `full`  | `pgsty/silo:RELEASE.2026-09-16T00-00-00Z`      | `59000` (S3 API), `59001` (Console UI)    | `minioadmin` / `minioadmin`          |
 
 State persists across restarts in named volumes. To wipe and start clean:
 
 ```bash
-docker compose down -v
+docker compose --profile full down -v
 docker compose up -d
 ```
 
@@ -57,7 +60,7 @@ docker compose up -d
 cp .env.sample .env
 ```
 
-The sample is wired against the docker-compose ports above — including a working `Authorization` header for OpenObserve so OTLP traces show up in the UI immediately.
+The sample is wired against the docker-compose ports above, including a working `Authorization` header for OpenObserve so OTLP traces show up in the UI as soon as you enable them. Out of the box it selects the Postgres-only stack: `MAILER_SENDER=log`, `OBJECT_STORAGE=disk`, `OTEL_SDK_DISABLED=true`.
 
 `JWT_SECRET` is fine as-is for local dev — change it when you don't want strangers to be able to forge tokens. External auth providers (`FIREBASE_PROJECT_ID`, `OIDC_*`) ship empty; the app boots fine without them and the dev login (`POST /v1/auth/dev`) is enabled by default via `DEV_AUTH_ENABLED=true`.
 
@@ -93,6 +96,8 @@ Inside the sbt shell:
 
 `~reStart` watches sources and restarts the app on every save (compile-on-save). Plain `reStart` runs it once. The app comes up on `http://localhost:9000` (override with `PORT` in `.env`).
 
+Without an sbt shell, from a script or a coding assistant, the launcher does the same as a one-shot: `./scripts/app.scala start` compiles, applies pending migrations, runs the app in the background and returns once the health check answers. `restart`, `stop`, `status` and `logs` do what they say, and `migrate` applies migrations without starting. See [docs/scripts.md](docs/scripts.md#appscala).
+
 Quick smoke test from another terminal:
 
 ```bash
@@ -108,18 +113,19 @@ To check the whole setup at once — Docker, the compose services, Postgres, and
 ### 5. Look around
 
 - **App** — http://localhost:9000/v1/health-check
-- **Mailpit UI** (sent mail lands here in dev) — http://localhost:58025
-- **OpenObserve UI** (traces, metrics, logs) — http://localhost:55080 → Login → Traces tab. The first OTLP frame from the app creates the streams.
-- **OpenAPI / Swagger UI** — http://localhost:9000/swagger (dev only — gated on `app.environment=dev`). The spec is generated by Baklava as part of `sbt testFull`; if `/swagger` shows nothing, run `sbt testFull` once first (plain `test` can skip cached suites and write an empty spec, see [docs/dev-workflow.md](docs/dev-workflow.md)).
+- **Sent mail** — in the application log (`./scripts/app.scala logs`), one entry per mail with recipients, subject and text body. With the `full` profile and `MAILER_SENDER=smtp`: the Mailpit UI at http://localhost:58025.
+- **OpenObserve UI** (traces, metrics, logs; `full` profile and `OTEL_SDK_DISABLED=false`) — http://localhost:55080 → Login → Traces tab. The first OTLP frame from the app creates the streams.
+- **Uploads** — under `uploads/` with the default disk backend; in the Silo console at http://localhost:59001 with the `full` profile and `OBJECT_STORAGE=s3`. Presigned uploads (`POST /v1/auctions/{id}/images/presign`) need `s3`; the disk backend has no URLs to sign, so the endpoint answers 500.
+- **OpenAPI / Swagger UI** — http://localhost:9000/swagger (dev only — gated on `app.environment=dev`). The spec is generated by Baklava from the router specs on every test run — `sbt test` and `testOnly` refresh the suites that ran and keep the rest. If `/swagger` shows nothing, run `sbt testFull` once: on a fresh checkout sbt 2's cached `test` may run no suites at all (see [docs/dev-workflow.md](docs/dev-workflow.md)).
 
 ## Things that catch people out
 
-- **`reStart` reports success even when the app fails to start** (e.g. port 9000 is taken). Check `curl -sf http://localhost:9000/v1/health-check` before assuming it's up; if it never answers, the error is at the end of `logs/madrileno.log`.
-- **sbt caches `.env` at JVM startup.** If you change `.env`, exit sbt and start it again. Same goes for the long-lived sbt server (`~/.sbt/1.0/server/...`).
-- **`docker compose down` keeps volumes; `docker compose down -v` wipes them.** Wipe when you want a clean PG, change OpenObserve credentials, or cycle a corrupted state.
+- **`reStart` reports success even when the app fails to start** (e.g. port 9000 is taken). Check `curl -sf http://localhost:9000/v1/health-check` before assuming it's up; if it never answers, the error is at the end of `logs/madrileno.log`. `./scripts/app.scala start` waits for the health check itself and fails with those lines.
+- **sbt caches `.env` at JVM startup.** If you change `.env`, exit sbt and start it again. Same goes for the long-lived sbt server (`~/.sbt/1.0/server/...`). An app started by `./scripts/app.scala` reads `.env` at every start, so there a `restart` is enough.
+- **`docker compose down` keeps volumes; `docker compose down -v` wipes them.** Wipe when you want a clean PG, change OpenObserve credentials, or cycle a corrupted state. Add `--profile full` to reach the optional services' containers and volumes.
 - **Tests don't use the docker-compose stack.** Testcontainers spins up its own. Don't worry about polluting your dev DB during a test run.
-- **Migrations don't run automatically when the app starts.** Run `sbt "runMain madrileno.main.MigrateMain"` after adding one or after wiping volumes.
-- **OpenObserve creates OTLP streams on first ingest.** If the Traces tab is empty right after boot, hit the app a few times, refresh, give it a moment.
+- **The app doesn't run migrations when it starts.** Run `sbt "runMain madrileno.main.MigrateMain"` or `./scripts/app.scala migrate` after adding one or after wiping volumes; `./scripts/app.scala start` runs them before it starts the app.
+- **OpenObserve creates OTLP streams on first ingest.** If the Traces tab is empty right after boot, hit the app a few times, refresh, give it a moment. Still empty? `OTEL_SDK_DISABLED` is `true` in the stock `.env`.
 
 ## Documentation
 

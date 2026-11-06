@@ -36,12 +36,27 @@ final case class ExternalProfile(
   emailVerified: Boolean,
   avatarUrl: Option[URI])
 
+extension (user: User) {
+  def withUpdatedProfile(externalProfile: ExternalProfile): User = {
+    user.copy(
+      fullName = externalProfile.fullName.orElse(user.fullName),
+      emailAddress = externalProfile.emailAddress.orElse(user.emailAddress),
+      emailVerified = externalProfile.emailVerified || user.emailVerified,
+      avatarUrl = externalProfile.avatarUrl.orElse(user.avatarUrl)
+    )
+  }
+}
+
 final case class VerifiedExternalToken(
   provider: Provider,
   providerUserId: ProviderUserId,
   credential: Credential,
   profile: ExternalProfile,
-  metadata: Metadata)
+  metadata: Metadata) {
+  def toUser(id: UserId): User = {
+    User(id, profile.fullName, profile.emailAddress, profile.emailVerified, profile.avatarUrl, blockedAt = None)
+  }
+}
 
 final case class UserAuth(
   id: UserAuthId,

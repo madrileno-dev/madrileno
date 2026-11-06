@@ -4,6 +4,7 @@
 //> using jvm 21
 //> using toolkit default
 //> using dep com.lihaoyi::mainargs:0.7.8
+//> using mainClass InitProject
 
 // Rename this project from `madrileno` to `<name>`, swap the package, and delete
 // the auction demo. Run from the project root, either directly:
@@ -33,7 +34,7 @@ object InitProject {
 
   private val MadrilenoUpstream = "https://github.com/madrileno-dev/madrileno.git"
 
-  @main
+  @main(doc = "Rename the template to your project: package, names, docs and CI. Run once, right after cloning.")
   def run(
     @arg(positional = true, doc = "Project name (e.g. 'wine-cellar')")
     name: String,
@@ -41,29 +42,33 @@ object InitProject {
     packageOpt: Option[String] = None,
     @arg(name = "keep-docs", doc = "Keep the `docs/` tree (default: deleted — MCP server serves them from the pinned ref)")
     keepDocs: Flag = Flag()
-  ): Unit = {
+  ): Unit = guarded {
 
-    require(name.matches("[A-Za-z][A-Za-z0-9_-]*"),
-      s"project name '$name' must start with a letter and contain only letters, digits, '-' and '_' (sbt + HOCON + docker-compose all share that bar)")
+    require(
+      name.matches("[A-Za-z][A-Za-z0-9_-]*"),
+      s"project name '$name' must start with a letter and contain only letters, digits, '-' and '_' (sbt + HOCON + docker-compose all share that bar)"
+    )
     val packageName = packageOpt.getOrElse(name.toLowerCase.replaceAll("[^a-z0-9]", ""))
-    require(packageName.matches("[a-z][a-z0-9]*"),
-      s"package '$packageName' is not a lowercase Scala identifier (derived from '$name'; pass --package explicitly)")
+    require(
+      packageName.matches("[a-z][a-z0-9]*"),
+      s"package '$packageName' is not a lowercase Scala identifier (derived from '$name'; pass --package explicitly)"
+    )
 
     val root = os.pwd
-    require(os.exists(root / "build.sbt"),
-      s"$root doesn't look like an sbt project (no build.sbt)")
-    require(os.exists(root / "src" / "main" / "scala" / "madrileno"),
-      "no src/main/scala/madrileno tree found — already renamed?")
+    require(os.exists(root / "build.sbt"), s"$root doesn't look like an sbt project (no build.sbt)")
+    require(os.exists(root / "src" / "main" / "scala" / "madrileno"), "no src/main/scala/madrileno tree found — already renamed?")
 
     // Read the upstream sha + the local clone's `origin` URL before doing any destructive work.
     // The MCP server hard-requires `.madrileno-ref` to point at a real commit reachable from
     // some git remote; if we can't resolve either here, fail now rather than mid-init.
     val shaProc = os.proc("git", "-C", root.toString, "rev-parse", "HEAD").call(check = false)
     val sha     = shaProc.out.text().trim
-    require(shaProc.exitCode == 0 && sha.nonEmpty,
+    require(
+      shaProc.exitCode == 0 && sha.nonEmpty,
       s"can't resolve upstream sha (`git -C $root rev-parse HEAD` failed). " +
         "init-project must be run from a git clone of madrileno — that's how the MCP anchor is pinned. " +
-        "If you don't have git, you can skip init-project entirely (the rename/auction-delete is optional) and write `.madrileno-ref` by hand for the MCP server (see docs/mcp.md).")
+        "If you don't have git, you can skip init-project entirely (the rename/auction-delete is optional) and write `.madrileno-ref` by hand for the MCP server (see docs/mcp.md)."
+    )
 
     // Derive the upstream URL from `git remote get-url origin`, so users who cloned from a fork
     // (or via SSH from upstream) get a `.madrileno-ref` that actually resolves the sha. Fall back
@@ -74,11 +79,11 @@ object InitProject {
 
     // 1. Delete the auction demo: source, tests, related Flyway migrations.
     val auctionDirs = for {
-      kind    <- Seq("main", "test")
+      kind <- Seq("main", "test")
       auction = root / "src" / kind / "scala" / "madrileno" / "auction"
       if os.exists(auction)
     } yield auction
-    val migrations = root / "src" / "main" / "resources" / "db" / "migration"
+    val migrations        = root / "src" / "main" / "resources" / "db" / "migration"
     val auctionMigrations =
       if (os.exists(migrations))
         os.list(migrations).filter(p => p.last.toLowerCase.contains("auction") || p.last.toLowerCase.contains("bid")).toList
@@ -96,6 +101,7 @@ object InitProject {
       root / ".github" / "workflows" / "link-check.yml",
       root / ".github" / "workflows" / "script-tests.yml",
       root / ".github" / "workflows" / "site-dispatch.yml",
+      root / ".github" / "workflows" / "workspace.yml",
       root / "scripts" / "check-links.scala"
     ).filter(os.exists)
     templateCiFiles.foreach(os.remove)
@@ -123,14 +129,15 @@ object InitProject {
     // docs/mcp.md documents the MCP system itself — its `madrileno` references (tool names, the
     // upstream repo URL in the `.madrileno-ref` example, package paths in the example query)
     // are intentional and must not be renamed. Skip the file from the rewrite pass.
-    val mcpDoc = root / "docs" / "mcp.md"
-    val touched = os.walk(root)
+    val mcpDoc  = root / "docs" / "mcp.md"
+    val touched = os
+      .walk(root)
       .filter(p => os.isFile(p, followLinks = false))
       .filter(p => !p.relativeTo(root).segments.exists(SkipDirs.contains))
       .filter(p => !BinaryExts.contains(p.ext.toLowerCase))
       .filter(p => p != mcpDoc)
       .flatMap { p =>
-        val original = os.read(p)
+        val original    = os.read(p)
         val transformed = auctionBlock
           .replaceAllIn(original, "")
           .replaceAll("""(?m)^import madrileno\.auction\..*\r?\n""", "")
@@ -147,7 +154,7 @@ object InitProject {
     // 3. Rename the source directories.
     for {
       kind <- Seq("main", "test")
-      old  = root / "src" / kind / "scala" / "madrileno"
+      old = root / "src" / kind / "scala" / "madrileno"
       if os.exists(old)
     } {
       os.move(old, root / "src" / kind / "scala" / packageName)
@@ -161,9 +168,9 @@ object InitProject {
     //    and add `.madrileno-mcp/` (the shadow clone the MCP server keeps for serving docs/source).
     val gitignore = root / ".gitignore"
     if (os.exists(gitignore)) {
-      val current   = os.read(gitignore)
-      val needsRef  = !current.linesIterator.exists(_.trim == "!.madrileno-ref")
-      val needsMcp  = !current.linesIterator.exists(_.trim == ".madrileno-mcp/")
+      val current  = os.read(gitignore)
+      val needsRef = !current.linesIterator.exists(_.trim == "!.madrileno-ref")
+      val needsMcp = !current.linesIterator.exists(_.trim == ".madrileno-mcp/")
       if (needsRef || needsMcp) {
         val addRef = if (needsRef) "!.madrileno-ref\n" else ""
         val addMcp = if (needsMcp) "\n# MCP server shadow clone\n.madrileno-mcp/\n" else ""
@@ -173,8 +180,8 @@ object InitProject {
 
     // 6. Delete the docs unless --keep-docs. The MCP server serves them on demand from
     //    the pinned ref, so most projects don't need to carry them locally.
-    val docsRoot     = root / "docs"
-    val docsDeleted  = !keepDocs.value && os.exists(docsRoot)
+    val docsRoot    = root / "docs"
+    val docsDeleted = !keepDocs.value && os.exists(docsRoot)
     if (docsDeleted) {
       os.remove.all(docsRoot)
     }
@@ -188,7 +195,7 @@ object InitProject {
     val upstreamWeb =
       if (upstreamRepo.startsWith("https://github.com/")) upstreamRepo.stripSuffix(".git")
       else MadrilenoUpstream.stripSuffix(".git")
-    val docLinkTarget = """\]\(docs/([^)]+)\)""".r
+    val docLinkTarget               = """\]\(docs/([^)]+)\)""".r
     val linkRewrites: List[os.Path] =
       if (docsDeleted) {
         val docLinkBase = s"$upstreamWeb/blob/$sha/docs"
@@ -211,7 +218,10 @@ object InitProject {
     println(s"Project: $name")
     println(s"Package: $packageName")
     println(s"Deleted: ${deleted.size} auction-related paths")
-    if (templateCiFiles.nonEmpty) println(s"Deleted: ${templateCiFiles.size} template-internal CI files (link-check + script-tests + site-dispatch workflows, check-links.scala)")
+    if (templateCiFiles.nonEmpty)
+      println(
+        s"Deleted: ${templateCiFiles.size} template-internal CI files (link-check + script-tests + site-dispatch + workspace workflows, check-links.scala)"
+      )
     if (licenseDeleted) println("Deleted: LICENSE (the template's Apache-2.0 — generated projects may relicense freely)")
     if (docsDeleted) println("Deleted: docs/ (pass --keep-docs to retain a local copy; the MCP server serves them from the pinned ref)")
     println(s"Updated: $totalUpdated files")
@@ -224,7 +234,7 @@ object InitProject {
     // make another unused (cascading). One-time cost on init; bundling it here means the user
     // gets a green `sbt testFull` on the very next command.
     println("Running scalafix to clean up auction-leftover imports (this takes a minute on first run)...")
-    val scalafix = os.proc("sbt", "scalafixAll", "scalafixAll").call(cwd = root, check = false, stdout = os.Inherit, stderr = os.Inherit)
+    val scalafix = os.proc("sbt", "scalafixAll; scalafixAll").call(cwd = root, check = false, stdout = os.Inherit, stderr = os.Inherit)
     if (scalafix.exitCode != 0) {
       println()
       println("⚠ scalafix didn't complete cleanly. The rename + auction deletion still applied; you can re-run scalafix manually:")
@@ -242,5 +252,17 @@ object InitProject {
     println(s"  ./scripts/mcp-server.scala &           # optional — start the docs/source MCP for Claude (see $mcpDocLink)")
   }
 
-  def main(args: Array[String]): Unit = ParserForMethods(this).runOrExit(args)
+  private def guarded(body: => Unit): Unit =
+    try body
+    catch {
+      case e: IllegalArgumentException =>
+        System.err.println(s"error: ${e.getMessage.stripPrefix("requirement failed: ")}")
+        sys.exit(2)
+    }
+
+  def main(args: Array[String]): Unit =
+    ParserForMethods(this).runEither(args.toIndexedSeq).left.foreach { usage =>
+      System.err.println(usage)
+      sys.exit(2)
+    }
 }

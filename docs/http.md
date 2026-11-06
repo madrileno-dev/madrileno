@@ -129,7 +129,7 @@ Methods and request headers are allowed wildcard — what a typical SPA wants; l
 
 ## OpenAPI and Swagger UI
 
-baklava generates the OpenAPI spec by observing stir routes during the test suite. Each `RouterSpec` is a baklava DSL spec that describes the routes' inputs, outputs, and example bodies; running `sbt testFull` produces:
+baklava generates the OpenAPI spec by observing stir routes during the test suite. Each `RouterSpec` is a baklava DSL spec that describes the routes' inputs, outputs, and example bodies; running the test suite produces:
 
 - `target/baklava/openapi/openapi.yml` — the OpenAPI spec
 - `target/baklava/swagger-ui/` — a static Swagger UI bundle pointing at the spec
@@ -142,7 +142,7 @@ In dev (`app.environment = "dev"` in config), the app serves the same artifacts 
 - `/swagger` — the Swagger UI
 - `/docs` — alias
 
-If the dev URLs return empty, run `sbt testFull` once to regenerate; the artifacts are checked into `target/`, not committed. (Use `testFull`, not `test` — under sbt 2 the cached incremental `test` can regenerate an empty spec; see [dev-workflow.md](dev-workflow.md).)
+If the dev URLs return empty, run `sbt testFull` once to generate the artifacts; they live in `target/`, not in git. From then on every test run keeps them current — `test` and `testOnly` replace the entries of the suites that ran and keep the rest (see [dev-workflow.md](dev-workflow.md)).
 
 The contract is only as complete as the specs: an error code that a router can answer with but no spec case produces never reaches the OpenAPI spec or the generated clients, which switch exhaustively on the declared codes. `sbt Test/verifyErrorCodes` (part of `verifyAll` and CI, run after `testFull`) compares every `error(<status>, "<code>", …)` call in `src/main` with the `result:<code>` types in the generated spec and fails on any code the specs never exercise. When you add an `error(...)` branch, add a spec case that reaches it.
 

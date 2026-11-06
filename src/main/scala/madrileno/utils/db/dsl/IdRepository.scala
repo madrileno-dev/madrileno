@@ -66,7 +66,7 @@ trait IdRepository[A, Id](val getId: A => Id) extends BaseRepository[A] {
       )
       .void
 
-  def updateById(id: Id, transform: A => A)(using session: Session[IO]): IO[Unit] =
+  def updateById(id: Id, transform: A => A)(using session: Session[IO]): IO[Boolean] =
     session
       .option(sql"SELECT ${table.*} FROM ${table.n} WHERE $baseFilter AND ${table.id.n} = ${table.id.c} FOR UPDATE".query(table.c))(id)
       .flatMap {
@@ -76,8 +76,8 @@ trait IdRepository[A, Id](val getId: A => Id) extends BaseRepository[A] {
             .execute(sql"UPDATE ${table.n} SET (${table.*}) = (${table.c}) WHERE $baseFilter AND ${table.id.n} = ${table.id.c}".command)(
               (toBeUpdated, getId(toBeUpdated))
             )
-            .void
-        case None => IO.unit
+            .as(true)
+        case None => IO.pure(false)
       }
 
   def deleteById(id: Id)(using session: Session[IO]): IO[Unit] =

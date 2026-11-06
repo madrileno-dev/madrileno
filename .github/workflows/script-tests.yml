@@ -7,28 +7,55 @@ on:
     branches: [ "main" ]
     paths:
       - "scripts/**"
+      - "src/main/**"
       - ".github/workflows/script-tests.yml"
   push:
     branches: [ "main" ]
     paths:
       - "scripts/**"
+      - "src/main/**"
 
 jobs:
   compile-scripts:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: VirtusLab/scala-cli-setup@d320e01a605bf27128a5657575382668f83ef34e # v1
-      - name: Compile every scripts/*.scala
+      - name: Check the scripts' formatting
+        run: scala-cli fmt --check scripts
+      - name: Compile every scripts/*.scala and run it with --help
         run: |
           set -e
           for f in scripts/*.scala; do
-            echo "==> compiling $f"
-            scala-cli compile "$f"
+            echo "==> $f --help"
+            scala-cli run "$f" -- --help
           done
+
+  test-architecture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: VirtusLab/scala-cli-setup@d320e01a605bf27128a5657575382668f83ef34e # v1
+      - name: Unit-test the architecture map and require a clean map of the template
+        run: |
+          set -e
+          scala-cli test scripts/architecture.scala
+          ./scripts/architecture.scala --strict --out /tmp/architecture.html
+
+  test-app-launcher:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: VirtusLab/scala-cli-setup@d320e01a605bf27128a5657575382668f83ef34e # v1
+      - name: Unit-test the app launcher
+        run: scala-cli test scripts/app.scala
 
   run-doctor:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: VirtusLab/scala-cli-setup@d320e01a605bf27128a5657575382668f83ef34e # v1
@@ -48,6 +75,7 @@ jobs:
 
   test-init-project:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 21
@@ -76,13 +104,16 @@ jobs:
           test ! -f .github/workflows/link-check.yml || { echo "link-check workflow not deleted"; exit 1; }
           test ! -f .github/workflows/script-tests.yml || { echo "script-tests workflow not deleted"; exit 1; }
           test ! -f .github/workflows/site-dispatch.yml || { echo "site-dispatch workflow not deleted"; exit 1; }
+          test ! -f .github/workflows/workspace.yml || { echo "workspace workflow not deleted"; exit 1; }
           test ! -f scripts/check-links.scala || { echo "check-links.scala not deleted"; exit 1; }
           test ! -f LICENSE || { echo "LICENSE not deleted"; exit 1; }
           ! grep -q '^## License' README.md || { echo "README License section not stripped"; exit 1; }
-          sbt "scalafixAll; scalafixAll; coverage; compile; testFull; coverageReport; shutdown"
+          ./scripts/architecture.scala --strict --out /tmp/architecture.html
+          sbt "coverage; compile; testFull; coverageReport; shutdown"
 
   test-scaffold-module:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 21

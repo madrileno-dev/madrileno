@@ -3,7 +3,7 @@ package madrileno.auction.services
 import cats.effect.std.UUIDGen
 import cats.effect.{Clock, IO}
 import cats.syntax.all.*
-import fs2.Stream
+import fs2.{Chunk, Stream}
 import io.circe.{Codec, Decoder, Encoder}
 import madrileno.auction.domain.*
 import madrileno.auction.repositories.{AuctionImageRepository, AuctionRepository}
@@ -57,7 +57,7 @@ class AuctionImageService(
     // has EXIF ⇒ re-encode: bakes in the orientation scrimage applied on decode, strips camera/GPS metadata
     canonical <- (if (info.hasExif) Imaging.convert(bytes, info.format) else IO.pure(bytes)).seal
     _         <- (if (info.hasExif)
-            objectStore.put(image.storageKey, contentTypeFor(info.format), Stream.chunk(fs2.Chunk.byteVector(canonical))).void
+            objectStore.put(image.storageKey, contentTypeFor(info.format), Stream.chunk(Chunk.byteVector(canonical))).void
           else IO.unit).seal
     canonicalInfo <- Imaging
                        .info(canonical)
@@ -92,7 +92,7 @@ class AuctionImageService(
               .valueOrF[Unit](logger.warn(s"generateVariant: rendered output for ($imageId, $spec) is not recognizable"))
     variantId <- IdGenerator.generateId(AuctionImageVariantId).seal
     variantKey = StorageKey(s"auctions/${image.auctionId}/images/$imageId/variants/$spec")
-    _   <- objectStore.put(variantKey, contentTypeFor(spec.format), Stream.chunk(fs2.Chunk.byteVector(rendered))).void.seal
+    _   <- objectStore.put(variantKey, contentTypeFor(spec.format), Stream.chunk(Chunk.byteVector(rendered))).void.seal
     now <- Clock[IO].realTimeInstant.seal
     variant = AuctionImageVariant(
                 id = variantId,
@@ -119,7 +119,7 @@ class AuctionImageService(
     case VariantSpec.Medium => Imaging.resize(bytes, maxDimension = 1024, spec.format)
   }
 
-  private def variantTaskInstance(imageId: AuctionImageId, spec: VariantSpec): madrileno.utils.task.Task[GenerateVariantPayload] =
+  private def variantTaskInstance(imageId: AuctionImageId, spec: VariantSpec): Task[GenerateVariantPayload] =
     generateVariantTask.instance(s"variant-$imageId-$spec", GenerateVariantPayload(imageId, spec))
 
   private def contentTypeFor(format: ImageFormat): `Content-Type` = format match {

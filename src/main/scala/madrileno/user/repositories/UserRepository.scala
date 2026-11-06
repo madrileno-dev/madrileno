@@ -84,7 +84,7 @@ class UserRepository {
     id: UserId,
     f: User => User,
     now: Instant
-  ): DB[Unit] =
+  ): DB[Boolean] =
     repository.updateById(id, userRow => userRow.update(f(userRow.toUser), now))
 
   def softDelete(id: UserId, now: Instant): DB[Unit] =

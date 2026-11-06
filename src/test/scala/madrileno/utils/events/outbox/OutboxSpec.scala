@@ -5,6 +5,7 @@ import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.{Clock, IO}
 import io.circe.Json
 import io.circe.syntax.*
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.support.{TestData, TestGivens, TestTransactor}
 import madrileno.utils.db.transactor.DBInTransaction
 import madrileno.utils.events.EventCodec
@@ -36,7 +37,7 @@ class OutboxSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestT
   private given Clock[IO]   = TestGivens.fixedClock(fixedInstant)
   private given UUIDGen[IO] = TestGivens.deterministicUUIDs()
 
-  private given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  private given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
   private lazy val repository         = new OutboxRepository
   private lazy val deliveryRepository = new OutboxDeliveryRepository

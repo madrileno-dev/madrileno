@@ -2,6 +2,8 @@ package madrileno.utils.task
 
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.{Clock, IO, Ref}
+import io.opentelemetry.api.OpenTelemetry
+import io.opentelemetry.sdk.trace.data.SpanData
 import madrileno.support.{RecordingTracer, TestTransactor}
 import madrileno.utils.observability.TelemetryContext
 import org.scalatest.matchers.should.Matchers
@@ -13,7 +15,7 @@ import scala.concurrent.duration.*
 
 class SchedulerIntegrationSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
-  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
   private val config = SchedulerConfig(pollingInterval = 100.millis, retryBaseDelay = 200.millis, maxRetries = Some(2))
 
@@ -127,7 +129,7 @@ class SchedulerIntegrationSpec extends AsyncWordSpec with AsyncIOSpec with Match
     }
 
     "wrap each stale-execution sweep in a scheduler.sweep root span carrying the revived count" in {
-      def firstSweep(recorder: RecordingTracer, remaining: FiniteDuration): IO[List[io.opentelemetry.sdk.trace.data.SpanData]] =
+      def firstSweep(recorder: RecordingTracer, remaining: FiniteDuration): IO[List[SpanData]] =
         recorder.spansNamed("scheduler.sweep").flatMap { spans =>
           if (spans.nonEmpty) IO.pure(spans)
           else if (remaining <= Duration.Zero) IO.raiseError(new RuntimeException("Timed out waiting for scheduler.sweep span"))

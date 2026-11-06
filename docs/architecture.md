@@ -25,7 +25,7 @@ Reading order if you're tracing a request: Module first (where the route is defi
 
 What's important about `Main`:
 
-- It's the only place that picks concrete `Runtime` implementations. Production wires `ObjectStoreRuntime.s3(...)`; tests wire `TestObjectStoreRuntime.inMemory`. The rest of the application doesn't know which.
+- It's the only place that picks concrete `Runtime` implementations. Production wires `ObjectStoreRuntime.fromConfig(...)`, which picks disk or S3 from `storage.backend`; tests wire `TestObjectStoreRuntime.inMemory`. The rest of the application doesn't know which.
 - Every external resource is acquired as a `Resource[IO, _]`. When the server shuts down, everything closes in reverse order automatically — the database pool, the HTTP client, OpenTelemetry exporters.
 - It uses macwire (`wire[…]`) for nothing. Wiring lives in `ApplicationLoader` instead, where it can be type-checked by the compiler against the module hierarchy.
 

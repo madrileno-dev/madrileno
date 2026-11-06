@@ -94,6 +94,7 @@ class UserAuthRepository {
   def updateMetadata(userAuthId: UserAuthId, metadata: Metadata): DB[Unit] = {
     repository
       .updateById(userAuthId, (row: UserAuthRow) => row.copy(metadata = metadata))
+      .void
   }
 
   def softDelete(userAuthId: UserAuthId, now: Instant): DB[Unit] =

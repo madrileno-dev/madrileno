@@ -3,6 +3,7 @@ package madrileno.utils.mailer
 import cats.effect.IO
 import cats.effect.std.UUIDGen
 import cats.effect.testing.scalatest.AsyncIOSpec
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.support.TestTransactor
 import madrileno.utils.observability.TelemetryContext
 import madrileno.utils.task.*
@@ -17,7 +18,7 @@ import scala.concurrent.duration.*
 
 class MailSerializationSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
-  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
   private val capturedMail = new AtomicReference[SerializedMail]()
 

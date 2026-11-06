@@ -32,6 +32,7 @@ object Main extends IOApp.Simple with LoggingSupport {
     (for {
       config    <- Resource.eval(IO.delay(ConfigSource.default))
       appConfig <- Resource.eval(IO.delay(config.at("app").loadOrThrow[AppConfig]))
+      _         <- Resource.eval(StartupSecurityCheck.enforce(appConfig.environment, config))
       otel      <- OtelJava.autoConfigured[IO]()
       given TracerProvider[IO] = otel.tracerProvider
       given Tracer[IO] <- Resource.eval(summon[TracerProvider[IO]].get(appConfig.name))
@@ -50,7 +51,8 @@ object Main extends IOApp.Simple with LoggingSupport {
       trustedProxies <- Resource.eval(IO.delay(RateLimiterRuntime.parseTrustedProxies(config.at("rate-limit.trusted-proxies").loadOrThrow[String])))
       rateLimiterRuntime = RateLimiterRuntime.scaffeine(trustedProxies = trustedProxies)
       storageConfig          <- Resource.eval(IO.delay(config.at("storage").loadOrThrow[StorageConfig]))
-      objectStoreRuntime     <- ObjectStoreRuntime.s3(storageConfig)
+      _                      <- Resource.eval(logger.info(s"Object storage: ${storageConfig.summary}"))
+      objectStoreRuntime     <- ObjectStoreRuntime.fromConfig(storageConfig)
       given Supervisor[IO]   <- Supervisor[IO]
       given SecureRandom[IO] <- Resource.eval(SecureRandom.javaSecuritySecureRandom[IO])
       eventBusRuntime       = EventBusRuntime.postgres(transactor)

@@ -6,6 +6,7 @@ import cats.effect.unsafe.implicits.global
 import cats.effect.{Clock, IO}
 import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.dimafeng.testcontainers.scalatest.TestContainersForAll
+import io.opentelemetry.api.OpenTelemetry
 import madrileno.auction.gateways.VivinoGateway
 import madrileno.auth.domain.{AuthContext, Provider, VerifiedExternalToken}
 import madrileno.auth.services.{AuthVerifiers, DevAuthVerifier, JwtService}
@@ -18,7 +19,6 @@ import madrileno.utils.mailer.MailerConfig
 import madrileno.utils.observability.TelemetryContext
 import madrileno.utils.resilience.CircuitBreakerRuntime
 import madrileno.utils.task.{Scheduler, SchedulerConfig}
-import org.flywaydb.core.Flyway
 import org.scalatest.Suite
 import org.typelevel.otel4s.metrics.{Meter, MeterProvider}
 import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
@@ -31,17 +31,13 @@ trait TestApplicationLoader extends TestContainersForAll with TestMailpit { self
 
   override type Containers = PostgreSQLContainer
 
-  override def startContainers(): PostgreSQLContainer = {
-    val container = PostgreSQLContainer.Def().start()
-    Flyway.configure().dataSource(container.jdbcUrl, container.username, container.password).load().migrate()
-    container
-  }
+  override def startContainers(): PostgreSQLContainer = TestPostgres.start()
 
   given TracerProvider[IO] = TracerProvider.noop[IO]
   given MeterProvider[IO]  = MeterProvider.noop[IO]
   given Tracer[IO]         = Tracer.noop[IO]
   given Meter[IO]          = Meter.noop[IO]
-  given TelemetryContext   = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], io.opentelemetry.api.OpenTelemetry.noop())
+  given TelemetryContext   = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
   // Finalizer discarded — supervised fibers live for the spec's JVM lifetime, same rationale as the pool below.
   given Supervisor[IO]   = Supervisor[IO].allocated.unsafeRunSync()._1
   given SecureRandom[IO] = TestGivens.secureRandom

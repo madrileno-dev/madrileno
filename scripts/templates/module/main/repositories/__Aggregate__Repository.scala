@@ -42,9 +42,7 @@ private[repositories] object __Aggregate__RowTable
     (id, name, createdAt, updatedAt, deletedAt)
 }
 
-private[repositories] final case class __Aggregate__RowFilter(
-  id: SqlPredicate[__Aggregate__Id] = p.any,
-  deletedAt: SqlPredicate[Instant] = p.any)
+private[repositories] final case class __Aggregate__RowFilter(id: SqlPredicate[__Aggregate__Id] = p.any, deletedAt: SqlPredicate[Instant] = p.any)
     extends SqlFilter {
   override def filterFragment: AppliedFragment =
     SqlFilterDerivation.filterFragment(this, (__Aggregate__RowTable.id, __Aggregate__RowTable.deletedAt))
@@ -57,8 +55,7 @@ class __Aggregate__Repository {
   def find(id: __Aggregate__Id): DB[Option[__Aggregate__]] =
     repository.findById(id).map(_.map(_.to__Aggregate__))
 
-  def update[E](id: __Aggregate__Id, f: __Aggregate__ => Either[E, __Aggregate__])
-    : DBInTransaction[Option[Either[E, __Aggregate__]]] =
+  def update[E](id: __Aggregate__Id, f: __Aggregate__ => Either[E, __Aggregate__]): DBInTransaction[Option[Either[E, __Aggregate__]]] =
     repository.findById(id, Lock.ForUpdate).map(_.map(_.to__Aggregate__)).flatMap {
       case None        => IO.pure(None)
       case Some(value) =>
@@ -71,9 +68,12 @@ class __Aggregate__Repository {
   def softDelete(id: __Aggregate__Id, now: Instant): DB[Unit] =
     repository.softDeleteById(id, now)
 
-  private val repository
-    : IdRepository[__Aggregate__Row, __Aggregate__Id] & SoftDeleteRepository[__Aggregate__Row, __Aggregate__Id] & FilteringRepository[__Aggregate__Row, __Aggregate__RowFilter] =
-    new IdRepository[__Aggregate__Row, __Aggregate__Id](_.id) with SoftDeleteRepository[__Aggregate__Row, __Aggregate__Id]
+  private val repository: IdRepository[__Aggregate__Row, __Aggregate__Id] & SoftDeleteRepository[
+    __Aggregate__Row,
+    __Aggregate__Id
+  ] & FilteringRepository[__Aggregate__Row, __Aggregate__RowFilter] =
+    new IdRepository[__Aggregate__Row, __Aggregate__Id](_.id)
+      with SoftDeleteRepository[__Aggregate__Row, __Aggregate__Id]
       with FilteringRepository[__Aggregate__Row, __Aggregate__RowFilter] {
       override val table: __Aggregate__RowTable.type = __Aggregate__RowTable
     }

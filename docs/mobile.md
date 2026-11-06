@@ -6,7 +6,7 @@ Like the frontend, it is a **sibling repo, not a subdirectory**, and the backend
 
 ## The contract loop
 
-The same loop as the frontend — see [`frontend.md`](frontend.md#the-contract-loop). `sbt testFull` writes the client view of the oRPC contract package to `target/baklava/views/client/orpc/src/`; the app's `pnpm run sync-contracts` vendors it into `src/contracts/` (committed, so the app builds without a backend checkout), and `pnpm run typecheck` fails at the call site that read a renamed field. The web and mobile apps share the same generated types, so one backend change surfaces in both at once.
+The same loop as the frontend — see [`frontend.md`](frontend.md#the-contract-loop). Every test run (`sbt test`, or `testOnly` for a single spec) writes the client view of the oRPC contract package to `target/baklava/views/client/orpc/src/`; the app's `pnpm run sync-contracts` vendors it into `src/contracts/` (committed, so the app builds without a backend checkout), and `pnpm run typecheck` fails at the call site that read a renamed field. The web and mobile apps share the same generated types, so one backend change surfaces in both at once.
 
 ## What the mobile app is
 
@@ -31,6 +31,8 @@ Clone it next to this repo and follow its README. The backend needs no changes:
 - **On the Android emulator** the app's default API base URL is `http://10.0.2.2:9000` — the emulator's alias for the host — so it reaches a locally running backend with no config. A physical device uses your machine's LAN IP.
 - **CORS doesn't apply**: a native app isn't a browser, so `CORS_ALLOWED_ORIGINS` (see [`configuration.md`](configuration.md)) is irrelevant to it.
 - **Cleartext HTTP** is allowed only for non-production builds pointed at an `http://` API; production builds need an `https://` backend.
+
+To work on both from the directory above them, run `./scripts/workspace.scala generate` here; see [`workspace.md`](workspace.md).
 
 ## Starting a real project
 

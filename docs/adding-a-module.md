@@ -46,7 +46,7 @@ sbt --client scalafixAll                                     # lint
 
 Migration timing is split:
 - **In tests**, `TestTransactor` runs Flyway against each suite's Testcontainers Postgres at container start — drop the SQL file in `src/main/resources/db/migration/` and it's picked up automatically.
-- **When running the app**, the app does **not** auto-migrate. Run `sbt --client "runMain madrileno.main.MigrateMain"` against your dev DB after adding a migration (and after `docker compose down -v`). See [dev-workflow.md](dev-workflow.md).
+- **When running the app**, the app does **not** auto-migrate. `./scripts/app.scala start` and `restart` apply pending migrations first; `./scripts/app.scala migrate` (or `sbt --client "runMain madrileno.main.MigrateMain"`) applies them on their own. See [dev-workflow.md](dev-workflow.md).
 
 ## The order matters
 
@@ -1014,7 +1014,7 @@ class ProductRouterSpec extends BaseRouteSpec with TestApplicationLoader {
 }
 ```
 
-Baklava specs **are** the OpenAPI generator. Every `onRequest(...).respondsWith[T](status, ...)` writes one path + status to `target/baklava/openapi/openapi.yml`. When you run `sbt testFull`, the file is regenerated from whatever specs passed. (Use `testFull`, not `test`: under sbt 2 the cached incremental `test` can skip the router specs on a warm cache and regenerate an empty spec — see [dev-workflow.md](dev-workflow.md).)
+Baklava specs **are** the OpenAPI generator. Every `onRequest(...).respondsWith[T](status, ...)` writes one path + status to `target/baklava/openapi/openapi.yml`. Every test run regenerates the file: `testOnly *ProductRouterSpec` replaces that suite's entries and keeps every other suite's, `test` does the same for whatever suites ran, `testFull` rebuilds everything. (If the file is missing, run `testFull` once — see [dev-workflow.md](dev-workflow.md).)
 
 Keep router specs as "endpoint × status code" smoke tests. If you find yourself writing detailed domain-behavior cases here, push them down to the service spec — Baklava's class-construction binding (see pitfalls) makes heavy parameterization painful.
 

@@ -25,10 +25,7 @@ object ConsoleApplication {
     val config    = ConfigSource.default
     val appConfig = config.at("app").loadOrThrow[AppConfig]
 
-    require(
-      appConfig.environment == Environment.Dev,
-      s"ConsoleApplication refuses to boot with app.environment=${appConfig.environment}. Set APP_ENVIRONMENT=dev."
-    )
+    StartupSecurityCheck.requireDev(appConfig.environment, "ConsoleApplication")
 
     import org.typelevel.otel4s.metrics.Meter.Implicits.noop as meterNoop
     import org.typelevel.otel4s.trace.Tracer.Implicits.noop as tracerNoop
@@ -43,7 +40,7 @@ object ConsoleApplication {
     val program: Resource[IO, ApplicationLoader] = for {
       httpClient             <- HttpClientFs2Backend.resource[IO]()
       transactor             <- PgTransactor.resource(pgConfig)
-      objectStoreRuntime     <- ObjectStoreRuntime.s3(storageConfig)
+      objectStoreRuntime     <- ObjectStoreRuntime.fromConfig(storageConfig)
       given Supervisor[IO]   <- Supervisor[IO]
       given SecureRandom[IO] <- Resource.eval(SecureRandom.javaSecuritySecureRandom[IO])
       application = {

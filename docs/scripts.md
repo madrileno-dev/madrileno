@@ -2,6 +2,12 @@
 
 scala-cli scripts under `scripts/` for project lifecycle tasks. Each is self-contained — its `//> using` directives declare deps, scala-cli does the rest. Run them either as executables (`./scripts/X.scala …`) or via scala-cli (`scala-cli run scripts/X.scala -- …`).
 
+Every script follows the same conventions:
+
+- Run it from the project root. `--help` prints what it does and its options.
+- It exits `0` on success, and `1` when it ran and found problems or the command it ran failed: broken links, failed `doctor` checks, warnings under `architecture.scala --strict`.
+- It exits `2` on bad arguments, or when it can't run here: not the project root, or a missing prerequisite such as the dev console's cached classpath. The error is one line on stderr.
+
 ## `init-project.scala`
 
 Use this once, right after cloning the template, to turn it into your project. Renames `madrileno` everywhere, swaps the Scala package, drops the auction showcase domain, removes the template's Apache-2.0 `LICENSE` (generated projects may relicense freely — see the README's License section), pins the upstream sha for the MCP server, and (by default) deletes the local `docs/` tree since the MCP serves them from the pinned ref.
@@ -20,7 +26,7 @@ What it does, in order:
 2. **Deletes the auction demo** — `src/{main,test}/scala/madrileno/auction/` and any Flyway migration whose filename mentions `auction` or `bid`.
 3. **Deletes `LICENSE` and the README's License section** — both describe the template, not your project. The README section explicitly grants projects generated via this script the right to relicense with no attribution required, so add whatever license fits yours.
 4. **Rewrites file contents** under every text file outside `.git`, `target`, IDE caches, `node_modules`, and `scripts/`:
-   - Drops blocks bracketed by `// scripts:auction-block-start` / `// scripts:auction-block-end` — auction-coupled fragments in test support that can't be deleted as whole files (today: two in `TestData.scala`, one in `TestApplicationLoader.scala`, one in `SchedulerAdminRouterSpec.scala`). The markers must occupy their own line — inline mentions in prose are ignored.
+   - Drops blocks bracketed by `// scripts:auction-block-start` / `// scripts:auction-block-end` — auction-coupled fragments in test support that can't be deleted as whole files (today: two in `TestData.scala`, one in `TestApplicationLoader.scala`, one in `SchedulerAdminRouterSpec.scala`, one in `OutboxWiringSpec.scala`). The markers must occupy their own line — inline mentions in prose are ignored.
    - Drops `import madrileno.auction.*` lines and `with AuctionModule` lines from the loaders' `extends` chains.
    - Renames `madrileno.<X>` package references to `<package>.<X>`.
    - Renames standalone `madrileno` to `<project-name>` (HOCON `app.name`, `OTEL_SERVICE_NAME`, `PG_DATABASE`, `MAILER_FROM_ADDRESS`, README/doc references, etc.).
@@ -136,7 +142,7 @@ The wrapper depends on a cached classpath at `target/console-classpath`, written
 - Deps change in `build.sbt`: same — next `sbt compile` resolves new deps and rewrites the cache.
 - Daily dev: nothing extra needed; the file stays valid as long as compile is current.
 
-If the cache is missing, the wrapper prints `run \`sbt compile\` first` and exits non-zero.
+If the cache is missing, the wrapper prints `run \`sbt compile\` first` and exits 2.
 
 Boot time: `./scripts/dev-console.scala` returns a REPL prompt in ~5s (scala-cli compile + JVM warmup). The actual `ConsoleApplication.boot()` (DB pool, HTTP client, scheduler, S3 backend, event bus) only runs on first `app` reference and adds ~3-5s to that first call.
 
@@ -162,19 +168,22 @@ Output on a healthy box:
 ✓ docker available (Docker version 25.0.2, build 29cf629)
 ✓ docker compose services up
     postgres       Up About a minute (healthy)
-    mailpit        Up About a minute (healthy)
-    silo           Up About a minute (healthy)
-    openobserve    Up About a minute (healthy)
+    mailpit        NOT RUNNING (full profile, optional)
+    silo           NOT RUNNING (full profile, optional)
+    openobserve    NOT RUNNING (full profile, optional)
 ✓ postgres reachable (localhost:55432)
-✓ mailpit reachable (http://localhost:58025/api/v1/info → 200)
-✓ silo reachable (http://localhost:59000/minio/health/live → 200)
-✓ openobserve reachable (http://localhost:55080/healthz → 200)
+- mailpit reachable (skipped: mailpit not started; part of the full profile: docker compose --profile full up -d)
+- silo reachable (skipped: silo not started; part of the full profile: docker compose --profile full up -d)
+- openobserve reachable (skipped: openobserve not started; part of the full profile: docker compose --profile full up -d)
 ✓ app responding (http://localhost:9000/v1/health-check → 200)
+- workspace root up to date (skipped: the parent directory is not a generated workspace)
 
-All 8 checks passed. Happy hacking.
+All 5 checks passed (4 skipped). Happy hacking.
 ```
 
-On failure, each failed check prints a one-line `Hint:` pointing at the command that fixes it (`cp .env.sample .env`, `docker compose up -d`, `sbt --client reStart`, etc.). Failures don't cascade — every independent check runs so you see the full picture in one shot, not iteratively.
+With `docker compose --profile full up -d` the three skipped lines become real HTTP checks.
+
+On failure, each failed check prints a one-line `Hint:` pointing at the command that fixes it (`cp .env.sample .env`, `docker compose up -d`, `./scripts/app.scala start`, etc.). Failures don't cascade — every independent check runs so you see the full picture in one shot, not iteratively.
 
 The checks:
 
@@ -182,10 +191,11 @@ The checks:
 | - | ---- | ----- |
 | 1 | `.env` present | Hints `cp .env.sample .env`. |
 | 2 | `docker` CLI available | Skips compose-services check on failure. |
-| 3 | docker-compose services running | Reports each of postgres / mailpit / silo / openobserve and its status. |
+| 3 | docker-compose services running | Fails only when postgres is down. Lists mailpit / silo / openobserve too, marked optional: they belong to the `full` profile. |
 | 4 | Postgres TCP socket open on `PG_PORT` | Reads `.env` for the port (falls back to `.env.sample` if `.env` is missing). |
-| 5–7 | Mailpit / Silo / OpenObserve HTTP health endpoints | `GET /api/v1/info`, `/minio/health/live`, `/healthz` respectively. |
-| 8 | App responding | `GET http://localhost:$PORT/v1/health-check`. Hints `sbt --client reStart` on failure, or `~reStart` in an sbt shell to rebuild on save. |
+| 5–7 | Mailpit / Silo / OpenObserve HTTP health endpoints | `GET /api/v1/info`, `/minio/health/live`, `/healthz` respectively. Skipped, not failed, when the service isn't started: the Postgres-only stack is complete. |
+| 8 | App responding | `GET http://localhost:$PORT/v1/health-check`. Hints `./scripts/app.scala start` on failure, or `~reStart` in an sbt shell to rebuild on save. |
+| 9 | Workspace root up to date | Runs `workspace.scala check` on the parent directory when it holds a generated `AGENTS.md`; skipped otherwise. Hints `./scripts/workspace.scala generate`. See [workspace.md](workspace.md). |
 
 ### What it doesn't do
 
@@ -194,16 +204,204 @@ The checks:
 - Doesn't check OS-level prereqs (sbt installed, JDK version, etc.). Those would have failed earlier (you couldn't have run this script). If you want a full bootstrap check, that's a different scope.
 - Doesn't follow `S3_ENDPOINT` / `OTEL_EXPORTER_OTLP_*_ENDPOINT` from `.env`. The Silo / OpenObserve port checks use the host ports from `docker-compose.yml` (59000 / 55080). Doctor's scope is "is the local dev stack up", not "is whatever the app is configured to talk to up". If you've pointed the app at remote Silo / OpenObserve, the local doctor checks are still meaningful for the dev stack itself; if you've also customised the compose port mappings, doctor needs a matching tweak.
 
+## `mcp-server.scala`
+
+Serves the upstream Madrileño reference, at the commit pinned in `.madrileno-ref`, to an AI coding assistant over the Model Context Protocol on `localhost:8910`. See [mcp.md](mcp.md) for the tools it offers and how to wire it into Claude.
+
+## `architecture.scala`
+
+Draws a map of the project's architecture from its source:
+- modules, which are the traits named `*Module` outside `main/` (a sealed one is a type, not a module), with what each one consumes and provides and the routes, tasks, outbox subscriptions, mail previews and lifecycles it contributes
+- the classes each module wires, such as its services, repositories, routers and gateways
+- references between modules, from imports, exports and fully qualified names
+- event-bus topics and outbox events, with their publishers and subscribers. A payload type matches whether it's written qualified, like `Events.Order`, or by its name alone.
+- tables, with the module that owns each one, the modules that use it and, in the JSON and a diff, its columns. A `Table` object can also extend a class that extends `Table`.
+- migrations in version order, with the tables each one creates, alters, drops, indexes or writes to, leaving out the temporary tables it creates
+- scheduled tasks: one-time, recurring with their cron or interval, and custom, with the code that schedules them
+- warnings where the code drifts from the template's conventions
+
+It reads source only: no compile, no running app, no database. It works on a branch that doesn't compile and on any checkout you point it at.
+
+```bash
+./scripts/architecture.scala                          # the working tree → target/architecture/architecture.html
+./scripts/architecture.scala --diff main              # what changed since main → target/architecture/architecture-diff.html
+./scripts/architecture.scala --diff main --mermaid    # the same diff as Mermaid, for a PR description
+./scripts/architecture.scala --mermaid                # the whole map as Mermaid
+./scripts/architecture.scala --project ../other-app   # another checkout
+./scripts/architecture.scala --out /tmp/map.html      # write the HTML elsewhere
+./scripts/architecture.scala --json                   # print the model as JSON
+```
+
+`--out` names the HTML file, so it can't be combined with `--mermaid` or `--json`, which print to the terminal.
+
+In the JSON, module ids, a module's `files` and `changedFiles`, a component's `file`, `changedOutside` and the `definedIn` of topics and events are paths below the project's package directory, and migrations are paths below `src/main/resources/db/migration`. Every `loc.path` is a path from the project directory.
+
+`--diff <ref>` compares the merge-base of `<ref>` and `HEAD` (what a GitHub pull request compares against) with the working tree, uncommitted and untracked files included. The base revision is read from a temporary copy; the working tree, index and branches are left alone. Modules and files are matched by their path below the project's package, so a diff across `init-project`'s rename still lines up. Tables are matched by their SQL name, topics and events by their name, tasks by their module and name, and migrations by their file. It needs the history back to the merge-base, so in CI check out with full history, such as `fetch-depth: 0` for `actions/checkout`.
+
+The HTML is one file. It has:
+- the metrics
+- a module diagram at three levels of detail: modules only, with the classes they wire, or with tables and events too. Zoom buttons scale it, and it starts fitted to the page. At the first two levels, an event between modules is a dotted arrow from the module that publishes it to each module that subscribes, labelled with the event; with tables and events, the event is a box of its own instead. An event published and consumed inside one module gets no arrow. Modules under `utils/`, the platform the template ships, stay off the diagram and the module list unless a diff changes them or a dependency on them, together with the tables and events only they touch; the header counts the hidden ones, and the events, tables and warnings sections still list them.
+- a list of the modules. Clicking a module there or in the diagram shows its details and focuses the diagram on it. The focused diagram has the module and the modules it depends on or that depend on it. With tables and events shown, it also has the modules on the other side of its tables and events. Clicking the focused module again, or **Show all modules**, goes back to the diagram shown before.
+- the events, tasks and tables views. A task's name is the string it's given, also through a `val` holding a string, either `TaskName` declared in the same file or `Names.TaskName` declared in `object Names`; a name the code computes, like the outbox's per-consumer delivery tasks, is shown as the expression that computes it. A helper that builds a task from a name it's given as a parameter isn't a task. "Scheduled from" lists the classes that call `instance(…)` on the task, matched by the name of the `val` or `def` that holds it. When two modules hold a task in a `val` or `def` of the same name, a call goes to the one in its own module, and to neither when that doesn't settle it. Recurring tasks have none, since the scheduler registers them at startup.
+- the migrations
+- in a diff, the files whose code changed in `main/` and in platform packages without a module, which no module box shows
+- the warnings
+
+The diagram is drawn by Mermaid, which the page loads from jsDelivr: a pinned version, checked against an integrity hash. Without network access the page says so in place of the diagram, and the rest of it still works.
+
+In a diff, added, removed and changed items are marked. A module whose code changed while its architecture didn't, say a method body rather than a dependency, gets a dotted outline and lists the changed files in its details. So does a wired class whose file changed while its dependencies didn't, also inside a module that changed for another reason. An outbox event or bus topic whose payload type's file changed while its publishers and subscribers didn't gets it too, since its consumers depend on that payload; it is marked in the events table and listed under the Mermaid diagram. So is a table whose columns changed, meaning a `column` added, removed or given another codec, or that an added, changed or removed migration creates, alters, drops, indexes or writes to, with `insert`, `update`, `delete`, `truncate`, `merge` or `copy … from`, though not in the dollar-quoted body of a function or procedure it creates, which creating doesn't run. Comments and formatting don't count in Scala. In a migration any edit but to its line breaks counts, since Flyway's checksum covers everything else, and a database that applied the old version then fails Flyway's validation. Such a module joins the changes diagram without pulling in its neighbours, while such a table, topic or event brings in the modules on its arrows. **Changed only** hides the rest and draws just the changes and their direct neighbours at the chosen level of detail. With tables and events, it has the boxes of the Mermaid output, plus any changed classes that the Mermaid output leaves out past 30 boxes.
+
+Without `--diff`, the Mermaid output is the whole map with the current metrics, warnings and unclassified items. It draws the classes each module wires inside it while that stays within 30 boxes. With `--diff`, it starts with the [blast radius](#blast-radius) and shows only the changed modules, tables and events, plus their direct neighbours. Added, removed and changed wired classes are drawn inside their modules; past 30 boxes they're left out. Past 80 boxes, 300 arrows or 50,000 characters of diagram text, which is more than GitHub renders, the output is a list of what was added, removed and changed instead of a diagram. What changed in a changed module is listed under the diagram, since its box alone doesn't say: its members, its references, the classes it wires and their constructor parameters, the tables, topics, events and tasks it now owns or no longer owns, and whether `ApplicationLoader` mixes it in. Writing a type qualified or by its name alone isn't a change. Tables, topics and events that only code outside the modules owns and uses aren't drawn; when they're added, removed or changed, they're listed under the diagram instead. A task added, removed or changed, inside a module or not, counts as an architecture change too. Modules whose code changed without an architecture change are listed under the diagram with their files, together with the changed files in `main/` and in the platform packages, and the tables whose columns or migrations changed. Then come the added, removed and changed migrations, the added, removed and changed tasks, such as a new cron job, with a changed task's old kind or schedule and its new or dropped callers, the new warnings and the new unclassified items. When code is all that changed, the output says there are no architecture changes and still lists all of this. Past 60,000 characters in all, near what GitHub accepts in a description, the output shrinks in steps until it fits: the new warnings and unclassified items are cut to their first 100 each, then the lists of changes give way to a pointer to the HTML, then the warnings and unclassified items are cut to 10 each, and last the diagram gives way to the list of what was added, removed and changed, with up to 100 warnings and unclassified items each, then 10.
+
+Arrows between modules are labelled with the kind of dependency:
+- **`wires`** lists the cake members one module takes from the other, such as `wires userRepository`.
+- **`imports`** lists the other module's packages it imports types from: `domain`, or `module` for its root package. An event type names its package too, such as `imports services`, and so does a wired type on an arrow that doesn't wire it, which happens in a diff when only the import is new.
+- **`uses`** names types from the other module's `services`, `repositories`, `routers` or `gateways` that wiring doesn't explain, such as `uses PriceCalculator` for a helper object taken from another module's `services`. In a diff, a type newly used next to ones the arrow already uses gets an arrow of its own, like a newly wired member.
+
+Several things count as explained:
+- a wired member's type, its supertypes, and the types in their public method signatures and public fields, meaning `val`s and `var`s in the body or the constructor and a case class's fields, such as a result type a wired service returns
+- a wildcard import of their package
+- event types, wherever they live, since events are how modules are meant to talk
+
+So `uses` marks a module reaching into another module's internals around the cake, which is worth a look in review. The arrow is thick when those internals include repositories. The template has none. In the details panel, each reference says whether wiring or an event explains it.
+
+### Metrics
+
+Six numbers summarise the architecture. For each one, lower is better. They move for different reasons:
+- **Propagation cost, largest cycle and stable-dependency violations** move only when the module structure or wiring changes.
+- **Size concentration** moves a little as code grows.
+- **Cake bypasses** move when an import reaches into another module's internals.
+- **Drift** moves with every new warning or unclassified item.
+
+The metrics:
+- **Propagation cost:** the share of other modules a change in one module can reach through dependencies. This is MacCormack, Rusnak and Baldwin's measure, without counting a module as reaching itself, so 0% means no ripple at all. Merging modules lowers it, because fewer modules leave fewer pairs to ripple between, so read it together with size concentration.
+- **Size concentration:** how much of the feature code sits in one module. It's the Herfindahl index of each feature module's share of the lines of code, counting only lines that hold code (comments and blank lines don't), with `utils/` left out: 100% when all the code is in one module, lower as it spreads out. Merging modules always raises it, so collapsing a project into a god module can't pass as an improvement.
+- **Largest cycle:** the number of modules in the biggest group that all depend on each other, or 0 when there are no cycles.
+- **Stable-dependency violations:** dependencies on a module that changes more easily than the one depending on it (Robert Martin's Stable Dependencies Principle). A module's instability is its outgoing dependencies divided by all its dependencies, in and out.
+- **Cake bypasses:** the number of `uses`, meaning types taken from another module's internals around the wiring.
+- **Drift:** warnings plus unclassified items.
+
+With `--diff`, the Mermaid output adds a table under the diagram with the base and branch values, each marked better, worse or the same. When nothing moved, it's a single line. The HTML page shows the same numbers in a metrics section, and the details panel gives each module's dependents, dependencies and instability.
+
+The metrics are also in the `--json` output, under `metrics`. To follow them over time, run the script at the commits you care about, for example in a temporary worktree:
+
+```bash
+git worktree add /tmp/arch-at abc1234
+./scripts/architecture.scala --project /tmp/arch-at --json | jq '.metrics.head'
+git worktree remove /tmp/arch-at
+```
+
+### Blast radius
+
+With `--diff`, the line under the heading of the Mermaid output, and the first card in the HTML page's metrics, says how far the change reaches and whether it's hard to undo, so a reviewer can decide how closely to read it:
+- **High:** the changed modules and the modules that depend on what changed make up at least half of the modules that existed before the change, or something is hard to undo.
+- **Medium:** another module depends on what changed, or two or more modules changed.
+- **Low:** at most one module changed, and no other module depends on what changed.
+
+What changed means the removed modules, the modules whose code changed or that `ApplicationLoader` started or stopped mixing in, the changed tables, topics and events, and the changed code outside the modules. A module whose code didn't change hasn't changed, even when its arrows do, say because platform code started importing a type it uses. A module depends on a changed module when it imports from it, even a type that platform code imports too and the map draws no arrow for, or takes wiring from it. Only direct dependents count: in an app whose modules form a cycle, following dependents of dependents would reach nearly every module from any change. A module depends on a table when it uses it, and on a topic or event when it publishes or subscribes to it. A table changes when its columns or its owner change or a migration touches it, and a topic or event when its owner or its type changes, meaning the type's definition, its companion object or the subtypes declared next to it; a module that starts or stops using one doesn't change it for the others. A module depends on changed code outside the modules when it imports a definition there that changed, or one that extends a changed definition there, such as a base trait mixing in shared directives: a class, trait, object, enum, type, method, value or given declared at the top level of a file. Moving a definition to another file of its package doesn't change it. With a wildcard import, that's the definitions the importing file names, and with a `given` import, the givens. Added modules are named but not counted, since no code depended on them before. Changed code that no module imports, such as the wiring in `main/`, is mentioned but not counted.
+
+Hard to undo:
+- an added migration, or a statement added to a repeatable (`R__`) one, that drops or renames a table, drops, renames or changes the type of a column, or updates, deletes, truncates or merges rows, in a table it doesn't create itself
+- an edited versioned migration, or a removed one, since a database may already have run it. A repeatable migration is meant to be edited: it runs again when it changes.
+- a changed payload type of an outbox event, meaning the type's definition, its companion object or the subtypes declared next to it, since the events already stored keep the old shape
+
+Adding tables, columns and indexes, and inserting rows, isn't, and neither is a statement in the dollar-quoted body of a function or procedure the migration creates, unlike one in a `do` block. The level measures how far a change reaches, not whether it's right: a one-line change to a calculation in a module nothing depends on is low. In the JSON, it's under `blastRadius`, with the changed, added and reached modules, the reasons, and the changed files whose changes no module imports.
+
+### Warnings
+
+- **Not mixed in:** a `*Module` trait that `ApplicationLoader` doesn't extend, either directly or through a trait that extends it, such as a trait outside the modules that groups them or another `*Module` trait.
+- **Unprovided member:** a module consumes a member that nothing provides, neither another module, nor `main/`, nor the platform packages.
+- **Module cycle:** modules that depend on each other through imports or wired members. Importing another module's event type to subscribe to it counts too, since it's a compile-time dependency, even though the arrow isn't labelled `uses`. A type that platform code under `utils/` itself imports from a module, such as `AuthContext`, counts as platform and creates no dependency. In a diff, a cycle is new only when its modules weren't all in one cycle before, so breaking part of a cycle doesn't raise a new warning.
+- **Subscriber without publisher:** something subscribes to a topic or outbox event that nothing publishes. Publishing an event nobody subscribes to yet is fine.
+- **Cross-module table use:** a module references another module's or the platform's `Table` object. Packages under `utils/` may use each other's tables, since the platform is built as one; a feature module using a `utils/` table still warns.
+- **Duplicate table:** `Table` objects in different modules declare the same table. The map shows the table once, owned by the module of the first declaration, with the users of every declaration.
+- **Duplicate topic:** two `topic` calls use the same name, so their buses share one channel. The map shows the topic once, as the first declaration, with the publishers and subscribers of every declaration.
+- **Duplicate event:** two `DomainEventDescriptor`s use the same event type, so the outbox can hand one type's payload to the other type's subscribers. The map shows the event once, as the first declaration, with the publishers and subscribers of every declaration.
+- **Duplicate task:** two tasks use the same name, which the scheduler needs to be unique. The map lists each of them under its own module. Names the map shows as the expression that computes them aren't compared.
+- **Migration table without `Table`:** a migration creates a table that no `Table` object declares, and no later migration drops or renames it. Migrations are read in version order.
+
+### Unclassified
+
+The map reads source, not compiled code, so some things can't be resolved:
+- a `publishTransactionally(event)` whose argument doesn't show its type
+- an outbox event published or subscribed to without a `DomainEventDescriptor`, or whose type name descriptors in several modules share. Of several, the map picks the one declared by the module the file imports the type from, or, without such an import, by the file's own module.
+- an `EventBus[T]` used where no topic has the type `T`, or where several topics do and the bus could be any of them. Of several, the map picks the one topic declared by the module the file imports `T` from, by name or with a wildcard, or, without such an import, by the file's own module.
+- a `wire[X]` whose class isn't in the module, naming the module the class is in when the map finds it, and a `new X(…)` of another module's class
+- a topic or `Table` whose name isn't a string literal, including a name a `Table` subclass passes on in a way the map can't follow
+- an `OutboxSubscription` whose consumer, or a `DomainEventDescriptor` whose event type, isn't a string literal
+- a `given DomainEventDescriptor[…]` that isn't built by a `DomainEventDescriptor(…)` call
+- a task built from a descriptor that isn't a `TaskDescriptor(…)` call, such as one held in a `val`
+- a second `*Module` trait in a package that already has one, when they aren't both mixed into `ApplicationLoader`; only the mixed-in trait is mapped, or the first by name when neither is. When both are mixed in, they're mapped as one module.
+- a file whose package is outside the project's root package
+- a file that doesn't parse
+
+Instead of guessing, the map lists these under **Unclassified**, each with its location.
+
+`--strict` exits 1 when there are warnings or unclassified items. With `--diff`, only new ones count. A directory without `src/main/scala` or without a `*Module` trait is an error, so `--strict` can't pass on the wrong directory. The template's CI runs it on the template and on a freshly initialised project.
+
+### What it doesn't do
+
+- **Doesn't read the SQL in Scala code.** A repository's queries don't count as using a table; only references to its `Table` object do.
+- **Doesn't analyse tests.**
+- **Doesn't nest SQL block comments.** Postgres does, but the map ends a migration's block comment at its first `*/`, so in `/* a /* b */ create table c (…) */` the `create table` counts.
+- **Reads only the project's package directory.** A file elsewhere under `src/main/scala` isn't read.
+- **Doesn't parse syntax newer than scalameta's.** A file using experimental syntax scalameta doesn't support yet, such as `tracked` parameters, is listed as unparseable, and a module whose trait is in that file is left out of the map, so the modules that consume its members warn.
+- **Doesn't resolve types.** A wildcard import counts as a reference to the package, not to each symbol in it. A bus reached through another object, such as `deps.bus.publish(…)`, or inherited from a parent class is matched by its name, so it's found only when the buses that classes declare with that name all have one type, written qualified or not. A bus passed as a parameter or matched by a typed pattern is known by its type, and one typed by a type parameter, like `EventBus[E]` in a generic helper, isn't a use. Neither is a bus held in an untyped local `val`, like `val bus = deps.bus`.
+
+## `app.scala`
+
+Starts, stops and inspects the app as a process of its own, outside the sbt server. It is the path for scripts and coding assistants; a developer with an sbt shell open can keep using `~reStart`.
+
+```bash
+./scripts/app.scala start                # compile, run in the background, wait for /v1/health-check
+./scripts/app.scala migrate              # apply pending Flyway migrations without starting
+./scripts/app.scala restart              # after a code or .env change
+./scripts/app.scala status               # exit 0 when the app it started answers
+./scripts/app.scala logs --lines 100     # the end of the newest file in logs/
+./scripts/app.scala stop                 # SIGTERM, then SIGKILL after --grace seconds (default 35)
+```
+
+### How it works
+
+- `start` runs `sbt --client compile` (skip it with `--no-compile`) and `migrate` (skip it with `--no-migrate`), reads the runtime classpath that `compile` caches in `target/console-classpath`, finds `<package>.main.Main` among the compiled classes, and launches it on the script's own JDK with the JVM options `build.sbt` sets in `javaOptions` (copied in `scripts/app/Launch.scala`, so change both) and the variables from `.env` layered over the environment, the way `reStart` does. The process's console output goes to `target/app/app.out.log`; the application log is wherever logback writes it, `logs/` by default.
+- It then polls the health check once a second for `--timeout` seconds (default 60). Ready: exit 0 with the URL and pid. Died first: exit 1 with the last log lines. Still not answering at the deadline: the process is stopped and exit 1, so a failed `start` never leaves a half-started app behind.
+- The pid is kept in `target/app/app.pid`. `status`, `stop` and `restart` work from it; a stale file left by a process that is gone is removed and reported.
+- When the health check answers but the pid file names no live process, something else owns the port, usually a `~reStart` loop. `start` and `stop` then exit 1 and say so instead of touching it.
+- The health probe is a plain HTTP/1.0 request on a socket it closes at once. A pooled keep-alive connection would make the app's graceful shutdown wait out `HTTP_SHUTDOWN_TIMEOUT`, and `stop` would take 30 seconds instead of 3.
+- `migrate` runs `<package>.main.MigrateMain` in the foreground with the same classpath and environment.
+
+Exit codes: 0 ok, 1 the app is not in the asked-for state or failed to get there, 2 bad arguments, not the project root, or no `.env` for a command that needs one.
+
+### What it doesn't do
+
+- It doesn't watch sources. Rerun `restart` after a change, or use `~reStart` in an sbt shell.
+- It doesn't start the compose stack or create the database. `doctor.scala` tells you what is missing.
+- It doesn't manage the sbt server. `sbt --client shutdown` still stops that one, and no longer takes the app down with it.
+
+## `workspace.scala`
+
+Writes the instructions, skill links and MCP config an assistant needs when it starts in the directory above the backend and its apps, from the `.agents/workspace.md` each of them keeps. The full story is in [workspace.md](workspace.md).
+
+```bash
+./scripts/workspace.scala generate               # the root is the parent directory; --root to pick another
+./scripts/workspace.scala check                  # exit 1 when the root is out of date
+```
+
+Exit codes: 0 written or up to date, 1 `check` found the root out of date, 2 not run from a backend root, or a member file or root entry it cannot work with.
+
 ## Template-internal CI workflows
 
-The repo ships four GitHub Actions. `.github/workflows/scala.yml` is the project's own CI (format check, scalafix, compile, test) — kept on init like any other project file. The other three are **template-internal**: they validate template content and are deleted by `init-project.scala` (along with `scripts/check-links.scala`, which only the link-check workflow uses):
+The repo ships five GitHub Actions. `.github/workflows/scala.yml` is the project's own CI (format check, scalafix, compile, test) — kept on init like any other project file. The other four are **template-internal**: they validate template content and are deleted by `init-project.scala` (along with `scripts/check-links.scala`, which only the link-check workflow uses):
 
 - **`.github/workflows/link-check.yml`** — runs `scripts/check-links.scala` on PRs touching markdown. The script walks every `.md`, extracts `[text](target)` links, verifies internal targets exist (relative paths + `#anchor` heading slugs). Externals + `mailto:` / `tel:` are skipped. Code spans + fenced blocks are stripped first so Scala signatures inside code samples don't trip the regex.
-- **`.github/workflows/script-tests.yml`** — four jobs:
-  - `compile-scripts` — `scala-cli compile` every `scripts/*.scala`, catches dep/import drift in the scripts themselves
+- **`.github/workflows/script-tests.yml`** — runs on PRs touching `scripts/` or `src/main/`, since the init, scaffold and architecture checks depend on the app's code too. Six jobs:
+  - `compile-scripts` — checks that everything under `scripts/` is formatted with the project's scalafmt config, then compiles every `scripts/*.scala` and runs it with `--help`, which catches dependency drift and a broken entry point. Two module templates are excluded in `.scalafmt.conf`, since a placeholder followed by `:` makes them unparseable as Scala
+  - `test-architecture` — runs the architecture map's unit tests, then `./scripts/architecture.scala --strict` on the template, which fails on any warning or unclassified item
+  - `test-app-launcher` — runs the launcher's unit tests, `scala-cli test scripts/app.scala`
   - `run-doctor` — smoke-runs `scripts/doctor.scala`, accepts exit `0` or `1` (CI has no dev stack so doctor's "checks failed" exit is expected; anything else is a real crash)
-  - `test-init-project` — `git clone`s the repo into a temp dir, runs `./scripts/init-project.scala wine-cellar`, asserts the rename / auction-drop / workflow-cleanup happened, then `sbt compile`s
+  - `test-init-project` — `git clone`s the repo into a temp dir, runs `./scripts/init-project.scala wine-cellar`, asserts the rename / auction-drop / workflow-cleanup happened, runs `./scripts/architecture.scala --strict` on the result, then `sbt compile`s
   - `test-scaffold-module` — same shape, runs `./scripts/scaffold-module.scala Wine wines`, asserts generated files exist + `WineModule` is wired into `ApplicationLoader`, then `sbt compile`s
+- **`.github/workflows/workspace.yml`** — on PRs touching `workspace.scala`, `scripts/workspace/` or `.agents/`, and nightly: runs the generator's unit tests, clones the web and mobile apps' `main` next to the checkout, runs `generate` and `check`, and fails unless both apps are in the generated table. Nightly, because a change in either app can break the workspace without a PR here.
 - **`.github/workflows/site-dispatch.yml`** — on a push to `main` touching `docs/**` or `README.md`, sends a `docs-updated` repository dispatch to `madrileno-dev/madrileno-dev.github.io` so the website rebuilds. Needs the `SITE_DISPATCH_TOKEN` secret (a fine-grained PAT scoped to the site repo, Contents read/write).
 
 All workflows verify template content (our docs, our scripts). A forked project that wants the same auto-checks can re-add a workflow themselves; `doctor.scala` and the other scripts stay on init as user-facing tools. `check-links.scala` goes — without our `docs/` tree it has nothing meaningful to walk.
@@ -213,5 +411,9 @@ All workflows verify template content (our docs, our scripts). A forked project 
 - `init-project.scala` — standalone, no companion files
 - `scaffold-module.scala` + `templates/module/` — generator + templates
 - `dev-console.scala` — wrapper. The REPL predef is embedded as a string inside the wrapper (top of the file), written to a temp file at launch and passed to scala-cli's REPL. One file, at the cost of no syntax highlighting on the predef section in most editors.
-- `doctor.scala` — standalone, no companion files
+- `doctor.scala` — standalone apart from `workspace/`, which it includes for the workspace check
+- `mcp-server.scala` — standalone, no companion files
+- `architecture.scala` + `architecture/` — entry point (CLI) + the extractor, diff and renderers it includes; `architecture/*.test.scala` are its unit tests (`scala-cli test scripts/architecture.scala`)
+- `app.scala` + `app/` — launcher. The decisions (`.env` parsing, what the pid file and the health check add up to, when to give up, what each command does in each state) are plain functions with munit tests: `scala-cli test scripts/app.scala`
+- `workspace.scala` + `workspace/` — entry point + reading the members, the `AGENTS.md` block, the MCP config merge and the plan of what to change at the root; munit tests: `scala-cli test scripts/workspace.scala`. `doctor.scala` includes `workspace/` for its check
 - `check-links.scala` — standalone; template-only, deleted on init

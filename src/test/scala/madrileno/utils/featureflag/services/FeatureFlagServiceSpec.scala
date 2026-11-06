@@ -2,6 +2,7 @@ package madrileno.utils.featureflag.services
 
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
+import io.circe.Json
 import io.opentelemetry.api.OpenTelemetry
 import madrileno.support.{TestCacheRuntime, TestTransactor}
 import madrileno.utils.events.bus.{EventBus, EventBusRuntime}
@@ -109,9 +110,9 @@ class FeatureFlagServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
     "return EvaluationErrorCode.TypeMismatch when calling evaluateJson on a non-Json flag" in {
       for {
         _      <- seedFlag("phase1-bool-as-json")
-        result <- service.evaluator(ctx).jsonDetail(FlagKey("phase1-bool-as-json"), default = io.circe.Json.Null)
+        result <- service.evaluator(ctx).jsonDetail(FlagKey("phase1-bool-as-json"), default = Json.Null)
       } yield {
-        result.value shouldBe io.circe.Json.Null
+        result.value shouldBe Json.Null
         result.reason shouldBe EvaluationReason.Error
         result.errorCode shouldBe Some(EvaluationErrorCode.TypeMismatch)
       }
@@ -120,12 +121,12 @@ class FeatureFlagServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
     "support int and json variant types" in {
       for {
         _ <- seedFlag("phase1-int", defaultValue = FlagVariant.IntVariant(42))
-        _ <- seedFlag("phase1-json", defaultValue = FlagVariant.JsonVariant(io.circe.Json.obj("k" -> io.circe.Json.fromString("v"))))
+        _ <- seedFlag("phase1-json", defaultValue = FlagVariant.JsonVariant(Json.obj("k" -> Json.fromString("v"))))
         i <- service.evaluator(ctx).intDetail(FlagKey("phase1-int"), default = 0)
-        j <- service.evaluator(ctx).jsonDetail(FlagKey("phase1-json"), default = io.circe.Json.Null)
+        j <- service.evaluator(ctx).jsonDetail(FlagKey("phase1-json"), default = Json.Null)
       } yield {
         i.value shouldBe 42
-        j.value shouldBe io.circe.Json.obj("k" -> io.circe.Json.fromString("v"))
+        j.value shouldBe Json.obj("k" -> Json.fromString("v"))
       }
     }
 
@@ -336,7 +337,7 @@ class FeatureFlagServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
         _     <- seedFlag("phase3-hidden")
         flags <- service.evaluateClientExposed(ctx)
       } yield {
-        flags.get(FlagKey("phase3-exposed")) shouldBe Some(io.circe.Json.True)
+        flags.get(FlagKey("phase3-exposed")) shouldBe Some(Json.True)
         flags.get(FlagKey("phase3-hidden")) shouldBe None
       }
     }
