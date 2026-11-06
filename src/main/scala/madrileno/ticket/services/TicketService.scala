@@ -8,7 +8,7 @@ import madrileno.ticket.domain.*
 import madrileno.ticket.repositories.{EventRepository, OrderRepository, TicketRepository}
 import madrileno.user.domain.UserId
 import madrileno.utils.crypto.IdGenerator
-import madrileno.utils.db.transactor.Transactor
+import madrileno.utils.db.transactor.{DBInTransaction, Transactor}
 import madrileno.utils.observability.{LoggingSupport, TelemetryContext}
 import madrileno.utils.task.{CronExpression, Schedule, Task}
 import skunk.exception.PostgresErrorException
@@ -177,7 +177,7 @@ class TicketService(
               result    <- event.holdSeats(orderId, ticketIds, command.customerId, command.seatIds, now, ticketConfig.holdDurationJava) match {
                           case Left(rejection)         => IO.pure(TicketService.toResult(rejection))
                           case Right((order, tickets)) =>
-                            orderRepository.save(order) *> tickets
+                            releaseExpiredHolds(tickets.map(_.seatId), now) *> orderRepository.save(order) *> tickets
                               .sortBy(_.seatId.unwrap)
                               .traverse_(ticketRepository.save(_))
                               .as(HoldSeatsResult.SeatsHeld(order, tickets))
@@ -188,9 +188,20 @@ class TicketService(
       .handleErrorWith(TicketService.seatTakenOrRethrow)
   }
 
-  // Runs once a minute (cron second 0, same idiom as close-expired-auctions). A Held row keeps its seat blocked in
-  // ticket_live_seat_uidx until it is actually cancelled, so an expired hold frees its seat only when this task
-  // runs: a seat becomes bookable again up to one task period (~1 minute) after heldUntil.
+  // A Held row keeps its seat blocked in ticket_live_seat_uidx until it is actually cancelled, so a hold that ran
+  // out would block its seat until the task below runs. To not answer SeatAlreadyTaken for a seat whose hold is
+  // already dead, the holds that expired on the requested seats are cancelled here, in the SAME transaction and
+  // before the new tickets are inserted (a rollback therefore restores them too). `update` re-reads each row under
+  // FOR UPDATE, so a hold paid or cancelled in the meantime comes back as Left/None and is ignored. The ids are
+  // processed in a canonical order so that concurrent holds lock the old tickets in the same order (no deadlock).
+  private def releaseExpiredHolds(seatIds: List[SeatId], now: Instant): DBInTransaction[Unit] =
+    ticketRepository
+      .listExpiredHoldsForSeats(seatIds, now)
+      .flatMap(_.sortBy(_.unwrap).traverse_(id => ticketRepository.update(id, _.cancel(now))))
+
+  // Runs once a minute (cron second 0, same idiom as close-expired-auctions). It is a safety net that cleans up
+  // every expired hold, including those on seats nobody asks for: holdSeats itself already cancels the expired
+  // holds on the seats it is asked to hold, so a requested seat never waits for this task.
   val cancelExpiredHoldsTask: Task[Unit] =
     Task.recurring("cancel-expired-ticket-holds", Schedule.Cron(CronExpression.unsafeParse("0 * * ? * *"))) { _ =>
       cancelExpiredHolds().void

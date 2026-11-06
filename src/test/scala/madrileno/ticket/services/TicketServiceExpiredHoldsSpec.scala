@@ -84,18 +84,15 @@ class TicketServiceExpiredHoldsSpec extends AsyncWordSpec with AsyncIOSpec with 
 
     "free the seat of a cancelled hold so it can be held again, and be idempotent" in {
       for {
-        first   <- seedCustomer()
-        second  <- seedCustomer()
-        event   <- seedEvent("B-1")
-        stale   <- hold(pastService, event, first, "B-1")
-        blocked <- service.holdSeats(HoldSeatsCommand(event.eventId, second.id, List(event.seat("B-1").id)))
-        run1    <- service.cancelExpiredHolds()
-        run2    <- service.cancelExpiredHolds()
-        again   <- service.holdSeats(HoldSeatsCommand(event.eventId, second.id, List(event.seat("B-1").id)))
-        status  <- statusOf(stale)
+        first  <- seedCustomer()
+        second <- seedCustomer()
+        event  <- seedEvent("B-1")
+        stale  <- hold(pastService, event, first, "B-1")
+        run1   <- service.cancelExpiredHolds()
+        run2   <- service.cancelExpiredHolds()
+        again  <- service.holdSeats(HoldSeatsCommand(event.eventId, second.id, List(event.seat("B-1").id)))
+        status <- statusOf(stale)
       } yield {
-        // Until the task runs, the expired Held row still blocks the seat.
-        blocked shouldBe HoldSeatsResult.SeatAlreadyTaken
         run1 shouldBe 1
         run2 shouldBe 0
         status shouldBe TicketStatus.Cancelled
@@ -105,6 +102,71 @@ class TicketServiceExpiredHoldsSpec extends AsyncWordSpec with AsyncIOSpec with 
 
     "do nothing when there are no expired holds" in {
       service.cancelExpiredHolds().asserting(_ shouldBe 0)
+    }
+  }
+
+  // holdSeats cancels the expired holds on the requested seats itself, without waiting for the task.
+  // These tests come after the ones that count the task's cancellations and leave no expired Held ticket behind.
+  "TicketService.holdSeats on seats with an expired hold" should {
+    "succeed at once on a seat whose previous Held ticket expired, and cancel the old ticket" in {
+      for {
+        first  <- seedCustomer()
+        second <- seedCustomer()
+        event  <- seedEvent("D-1")
+        stale  <- hold(pastService, event, first, "D-1")
+        fresh  <- hold(service, event, second, "D-1")
+        old    <- statusOf(stale)
+        now    <- statusOf(fresh)
+      } yield {
+        old shouldBe TicketStatus.Cancelled
+        now shouldBe TicketStatus.Held
+      }
+    }
+
+    "still answer SeatAlreadyTaken for a seat whose Held ticket has not expired" in {
+      for {
+        first   <- seedCustomer()
+        second  <- seedCustomer()
+        event   <- seedEvent("E-1")
+        current <- hold(service, event, first, "E-1")
+        result  <- service.holdSeats(HoldSeatsCommand(event.eventId, second.id, List(event.seat("E-1").id)))
+        status  <- statusOf(current)
+      } yield {
+        result shouldBe HoldSeatsResult.SeatAlreadyTaken
+        status shouldBe TicketStatus.Held
+      }
+    }
+
+    "still answer SeatAlreadyTaken for a Paid ticket, even one whose hold time is long past" in {
+      for {
+        first  <- seedCustomer()
+        second <- seedCustomer()
+        event  <- seedEvent("F-1")
+        paid   <- hold(pastService, event, first, "F-1")
+        _      <- pastService.payTicket(PayTicketCommand(paid.id, first.id, ChargeId("ch_expired_paid")))
+        result <- service.holdSeats(HoldSeatsCommand(event.eventId, second.id, List(event.seat("F-1").id)))
+        status <- statusOf(paid)
+      } yield {
+        result shouldBe HoldSeatsResult.SeatAlreadyTaken
+        status shouldBe TicketStatus.Paid
+      }
+    }
+
+    "keep the expired hold when the order fails on another seat (the cancellation rolls back)" in {
+      for {
+        first  <- seedCustomer()
+        second <- seedCustomer()
+        event  <- seedEvent("G-1", "G-2")
+        stale  <- hold(pastService, event, first, "G-1")
+        _      <- hold(service, event, first, "G-2")
+        result <- service.holdSeats(HoldSeatsCommand(event.eventId, second.id, List(event.seat("G-1").id, event.seat("G-2").id)))
+        status <- statusOf(stale)
+        // Clean up so that no expired Held ticket is left for other tests.
+        _ <- service.cancelExpiredHolds()
+      } yield {
+        result shouldBe HoldSeatsResult.SeatAlreadyTaken
+        status shouldBe TicketStatus.Held
+      }
     }
   }
 

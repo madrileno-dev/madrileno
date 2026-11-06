@@ -133,6 +133,26 @@ class TicketRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers 
       } yield expired should contain theSameElementsAs List(expiredEarlier.id, expiredExactly.id)
     }
 
+    "listExpiredHoldsForSeats returns only expired Held tickets on the given seats" in withRollback {
+      val checkAt = now.plus(holdDuration)
+      for {
+        (customer, seatA) <- seedCustomerAndSeat(SeatLabel("A-1"))
+        seatB             <- TicketSeed.seat(customer.id, SeatLabel("B-1"))
+        seatC             <- TicketSeed.seat(customer.id, SeatLabel("C-1"))
+        seatD             <- TicketSeed.seat(customer.id, SeatLabel("D-1"))
+        expiredOnA = hold(customer, seatA, at = now.minusSeconds(60))
+        expiredOnB = hold(customer, seatB, at = now.minusSeconds(60))
+        stillHeld  = hold(customer, seatC, at = now.plusSeconds(1))
+        paidTicket = paid(hold(customer, seatD, at = now.minusSeconds(60)), ChargeId("ch_for_seats"))
+        _     <- List(expiredOnA, expiredOnB, stillHeld, paidTicket).traverse_(t => repo.save(t))
+        found <- repo.listExpiredHoldsForSeats(List(seatA.seatId, seatC.seatId, seatD.seatId), checkAt)
+        none  <- repo.listExpiredHoldsForSeats(Nil, checkAt)
+      } yield {
+        found shouldBe List(expiredOnA.id)
+        none shouldBe Nil
+      }
+    }
+
     "allow a new hold on a seat whose previous ticket was cancelled" in withRollback {
       for {
         (customer, seat) <- seedCustomerAndSeat()

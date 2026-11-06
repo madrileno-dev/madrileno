@@ -67,11 +67,12 @@ private[repositories] object TicketRowTable extends Table[TicketRow]("ticket") w
 
 private[repositories] final case class TicketRowFilter(
   id: SqlPredicate[TicketId] = p.any,
+  seatId: SqlPredicate[SeatId] = p.any,
   status: SqlPredicate[TicketStatus] = p.any,
   heldUntil: SqlPredicate[Instant] = p.any)
     extends SqlFilter {
   override def filterFragment: AppliedFragment = fromPredicates(
-    (id -> TicketRowTable.id, status -> TicketRowTable.status, heldUntil -> TicketRowTable.heldUntil)
+    (id -> TicketRowTable.id, seatId -> TicketRowTable.seatId, status -> TicketRowTable.status, heldUntil -> TicketRowTable.heldUntil)
   )
 }
 
@@ -101,6 +102,13 @@ class TicketRepository {
   def listExpiredHolds(now: Instant): DB[List[TicketId]] =
     repository
       .findByFilter(TicketRowFilter(status = p.equal(TicketStatus.Held), heldUntil = p.lessThanOrEqual(now)))
+      .map(_.map(_.id))
+
+  // The expired Held tickets that still occupy any of `seatIds`: candidates to cancel before those seats are held
+  // again. Same inclusive bound as listExpiredHolds.
+  def listExpiredHoldsForSeats(seatIds: List[SeatId], now: Instant): DB[List[TicketId]] =
+    repository
+      .findByFilter(TicketRowFilter(seatId = p.in(seatIds), status = p.equal(TicketStatus.Held), heldUntil = p.lessThanOrEqual(now)))
       .map(_.map(_.id))
 
   private def findForUpdate(id: TicketId): DBInTransaction[Option[Ticket]] =
