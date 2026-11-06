@@ -13,5 +13,6 @@ final case class SchedulerConfig(
   retryBackoffRate: Double = 1.5,
   retryMaxDelay: Duration = 1.hour,
   maxRetries: Option[Int] = None,
+  overdueAfter: Duration = 5.minutes,
   schedulerName: Option[String] = None)
     derives ConfigReader
