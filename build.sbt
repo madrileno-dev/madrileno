@@ -61,6 +61,7 @@ libraryDependencies ++= {
     "org.typelevel"                   %% "log4cats-slf4j"                            % log4catsV,
     "org.typelevel"                   %% "otel4s-oteljava"                           % otel4sV,
     "io.opentelemetry"                 % "opentelemetry-exporter-otlp"               % otelV              % Runtime,
+    "io.opentelemetry"                 % "opentelemetry-exporter-prometheus"         % s"$otelV-alpha"    % Runtime,
     "io.opentelemetry"                 % "opentelemetry-sdk-extension-autoconfigure" % otelV              % Runtime,
     "io.opentelemetry.instrumentation" % "opentelemetry-logback-appender-1.0"        % otelLogbackV,
     "com.softwaremill.macwire"        %% "macros"                                    % macwireV           % "provided",
