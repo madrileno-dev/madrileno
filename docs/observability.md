@@ -188,7 +188,7 @@ Root level defaults to `DEBUG`, override with `LOG_LEVEL` (env). Per-logger over
 
 ### Runtime log level toggling — `/admin/loggers`
 
-Gated by the same admin Basic-Auth as `/admin/jobs`. Useful for cranking a logger to `DEBUG` during an incident without redeploying, then restoring afterwards.
+Gated by the same admin Basic-Auth as `/admin/jobs.html`. Useful for cranking a logger to `DEBUG` during an incident without redeploying, then restoring afterwards.
 
 ```bash
 # List all configured loggers (effective vs configured level for each)
