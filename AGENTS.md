@@ -13,6 +13,9 @@ stir, skunk on Postgres, cats-effect.
 * docs: "doc `<name>`" means `madrileno_doc("<name>")` on the madrileno MCP
   server (`madrileno_overview` lists them), or `docs/<name>.md` if this project
   kept its docs. Read the doc for the area you touch, not all of them
+* running it in production (health and readiness probes, backups and restore,
+  pool size, log format) is doc `deployment`; the database timeouts and what
+  answers 503 are in doc `database`
 * the router specs (Baklava) generate the API contract; the client view the
   frontend and mobile apps sync is `target/baklava/views/client/orpc/src`
 
