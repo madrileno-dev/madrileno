@@ -198,6 +198,10 @@ class TicketServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matchers wit
 
     // Inserting in request order would make [A,B] and [B,A] wait for each other (deadlock, 40P01). Repeated because the
     // interleaving is timing dependent; every round uses fresh seats.
+    // PROBABILISTIC: the two holds run in parallel and nothing forces them to interleave badly, so a missing canonical
+    // sort is only likely (not certain) to make some of the 20 rounds fail. The interleaving cannot be forced from here
+    // because the insert order is decided inside TicketService.holdSeats, which has no seam for a pause between the two
+    // inserts. A failure is always real; a pass is strong but not conclusive evidence.
     "never deadlock on holds of the same seats in opposite order" in {
       def round: IO[List[HoldSeatsResult]] =
         for {

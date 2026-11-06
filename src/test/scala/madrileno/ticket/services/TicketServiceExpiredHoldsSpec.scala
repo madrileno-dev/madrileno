@@ -16,11 +16,17 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
 import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.trace.Tracer
+import skunk.*
+import skunk.codec.all.*
+import skunk.implicits.*
 
 import java.time.Instant
 import scala.concurrent.duration.*
 
-// Every suite gets its own Postgres container, so the number of cancelled tickets can be asserted exactly.
+// Every suite gets its own Postgres container, but the tests share it and cancelExpiredHolds is global: it also
+// cancels the expired holds other tests left behind. Assertions are therefore made on the specific tickets each test
+// created, and the global count is compared with a before-the-run count of expired Held rows, never with a literal,
+// so the result does not depend on the order of the tests.
 // Time is controlled by the clock each service is built with: `pastService` places its holds in the past (their
 // heldUntil lies about 1h50m before now), `service` runs on the real clock and is the one whose task is under test.
 class TicketServiceExpiredHoldsSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
@@ -60,6 +66,13 @@ class TicketServiceExpiredHoldsSpec extends AsyncWordSpec with AsyncIOSpec with 
       case other                                 => IO.raiseError(new AssertionError(s"expected SeatsHeld, got $other"))
     }
 
+  // Held tickets whose hold has run out: exactly what cancelExpiredHolds is going to cancel.
+  private val countExpiredHeld: Query[Void, Long] =
+    sql"SELECT count(*) FROM ticket WHERE status = 'Held' AND held_until <= now()".query(int8)
+
+  private def expiredHeldCount(): IO[Long] =
+    withSession(summon[Session[IO]].unique(countExpiredHeld))
+
   private def statusOf(ticket: Ticket): IO[TicketStatus] =
     withSession(ticketRepo.find(ticket.id)).map(_.map(_.status).getOrElse(fail(s"ticket ${ticket.id} vanished")))
 
@@ -74,10 +87,13 @@ class TicketServiceExpiredHoldsSpec extends AsyncWordSpec with AsyncIOSpec with 
         cancelled <- hold(pastService, event, customer, "A-4")
         _         <- pastService.payTicket(PayTicketCommand(paid.id, customer.id, ChargeId("ch_expired_task")))
         _         <- transactor.inTransaction(ticketRepo.update(cancelled.id, _.cancel(Instant.now())))
+        before    <- expiredHeldCount()
         count     <- service.cancelExpiredHolds()
         statuses  <- List(expired, current, paid, cancelled).traverse(statusOf)
       } yield {
-        count shouldBe 1
+        // At least our own expired ticket, and exactly what was expired before the run (nothing live, Paid or Cancelled).
+        before should be >= 1L
+        count.toLong shouldBe before
         statuses shouldBe List(TicketStatus.Cancelled, TicketStatus.Held, TicketStatus.Paid, TicketStatus.Cancelled)
       }
     }
@@ -88,12 +104,15 @@ class TicketServiceExpiredHoldsSpec extends AsyncWordSpec with AsyncIOSpec with 
         second <- seedCustomer()
         event  <- seedEvent("B-1")
         stale  <- hold(pastService, event, first, "B-1")
+        before <- expiredHeldCount()
         run1   <- service.cancelExpiredHolds()
         run2   <- service.cancelExpiredHolds()
         again  <- service.holdSeats(HoldSeatsCommand(event.eventId, second.id, List(event.seat("B-1").id)))
         status <- statusOf(stale)
       } yield {
-        run1 shouldBe 1
+        before should be >= 1L
+        run1.toLong shouldBe before
+        // Idempotent: the first run left no expired Held ticket, whatever other tests created.
         run2 shouldBe 0
         status shouldBe TicketStatus.Cancelled
         again shouldBe a[HoldSeatsResult.SeatsHeld]
@@ -101,12 +120,18 @@ class TicketServiceExpiredHoldsSpec extends AsyncWordSpec with AsyncIOSpec with 
     }
 
     "do nothing when there are no expired holds" in {
-      service.cancelExpiredHolds().asserting(_ shouldBe 0)
+      for {
+        _      <- service.cancelExpiredHolds() // drain whatever other tests left behind
+        second <- service.cancelExpiredHolds()
+        left   <- expiredHeldCount()
+      } yield {
+        second shouldBe 0
+        left shouldBe 0L
+      }
     }
   }
 
   // holdSeats cancels the expired holds on the requested seats itself, without waiting for the task.
-  // These tests come after the ones that count the task's cancellations and leave no expired Held ticket behind.
   "TicketService.holdSeats on seats with an expired hold" should {
     "succeed at once on a seat whose previous Held ticket expired, and cancel the old ticket" in {
       for {
