@@ -6,12 +6,13 @@ import madrileno.utils.json.JsonProtocol.*
 
 import java.time.Instant
 
-// The seating plan is not part of the payload yet.
+// `sections` is the seating plan (with seat ids); it is empty for an event nobody has added a section to.
 final case class EventDto(
   id: EventId,
   name: EventName,
   startsAt: Instant,
-  status: EventStatus)
+  status: EventStatus,
+  sections: List[SectionDto])
     derives Encoder.AsObject,
       Decoder
 

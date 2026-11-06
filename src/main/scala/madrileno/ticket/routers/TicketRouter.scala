@@ -2,8 +2,19 @@ package madrileno.ticket.routers
 
 import madrileno.auth.domain.AuthContext
 import madrileno.ticket.domain.{Event, EventId, TicketId}
-import madrileno.ticket.routers.dto.{CreateEventRequest, EventDto, HoldSeatsRequest, OrderDto, PayTicketRequest, TicketDto}
+import madrileno.ticket.routers.dto.{
+  AddSectionRequest,
+  CreateEventRequest,
+  EventDto,
+  HoldSeatsRequest,
+  OrderDto,
+  PayTicketRequest,
+  SectionDto,
+  TicketDto
+}
 import madrileno.ticket.services.{
+  AddSectionCommand,
+  AddSectionResult,
   CancelTicketCommand,
   CancelTicketResult,
   CreateEventCommand,
@@ -66,6 +77,23 @@ class TicketRouter(ticketService: TicketService)(using TelemetryContext) extends
           ticketService.getEvent(eventId).map[ToResponseMarshallable] {
             case Some(event) => Ok -> EventDto(event)
             case None        => error(NotFound, "event-not-found", "Event not found")
+          }
+        }
+      } ~
+      (post & path("events" / JavaUUID.as[EventId] / "sections") & pathEndOrSingleSlash & entity(as[AddSectionRequest])) { (eventId, request) =>
+        complete {
+          ticketService.addSection(AddSectionCommand(eventId, request.name, request.price, request.seatLabels)).map[ToResponseMarshallable] {
+            case AddSectionResult.SectionAdded(_, section) => Created -> SectionDto(section)
+            case AddSectionResult.EventNotFound            => error(NotFound, "event-not-found", "Event not found")
+            // 409: could change (e.g. sales are not open); 410: a cancelled event will never sell again. Same as holding seats.
+            case AddSectionResult.EventNotOnSale      => error(Conflict, "event-not-on-sale", "Event is not on sale")
+            case AddSectionResult.EventCancelled      => error(Gone, "event-cancelled", "Event has been cancelled")
+            case AddSectionResult.NoSeats             => error(UnprocessableContent, "no-seats-in-section", "A section needs at least one seat")
+            case AddSectionResult.DuplicateSeatLabels =>
+              error(UnprocessableContent, "duplicate-seat-labels", "Each seat label may be used only once in a section")
+            case AddSectionResult.PriceMustBePositive =>
+              error(UnprocessableContent, "price-must-be-positive", "Section price must be greater than zero")
+            case AddSectionResult.SectionNameTaken => error(Conflict, "section-name-taken", "The event already has a section with this name")
           }
         }
       } ~

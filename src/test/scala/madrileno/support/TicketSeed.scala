@@ -2,7 +2,7 @@ package madrileno.support
 
 import cats.effect.IO
 import cats.syntax.all.*
-import madrileno.ticket.domain.{EventId, EventSeat, EventSection, EventStatus, Money, OrderId, SeatId, SeatLabel, SectionId}
+import madrileno.ticket.domain.{EventId, EventSeat, EventSection, EventStatus, Money, OrderId, SeatId, SeatLabel, SectionId, SectionName}
 import madrileno.user.domain.UserId
 import madrileno.utils.db.transactor.DB
 import skunk.*
@@ -31,7 +31,7 @@ final case class SeededEvent(
   sections: List[EventSection]) {
   def allSeats: List[EventSeat]           = sections.flatMap(_.seats)
   def seat(label: String): EventSeat      = allSeats.find(_.label == SeatLabel(label)).getOrElse(sys.error(s"no seeded seat $label"))
-  def section(name: String): EventSection = sections.find(_.name == name).getOrElse(sys.error(s"no seeded section $name"))
+  def section(name: String): EventSection = sections.find(_.name.unwrap == name).getOrElse(sys.error(s"no seeded section $name"))
 }
 
 // Events and their seating plan have no write path in the application (read-only EventRepository), and orders are
@@ -65,7 +65,7 @@ object TicketSeed {
                                val seatId = TestData.randomUuid()
                                session.execute(insertSeat)((seatId, sectionId, label.unwrap)).as(EventSeat(SeatId(seatId), label))
                              }
-                  } yield EventSection(SectionId(sectionId), spec.name, spec.price, seats)
+                  } yield EventSection(SectionId(sectionId), SectionName(spec.name), spec.price, seats)
                 }
     } yield SeededEvent(EventId(eventId), startsAt, seeded)
   }

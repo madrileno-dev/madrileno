@@ -18,11 +18,15 @@ enum HoldRejection {
   case NoSeatsSelected, TooManySeats, DuplicateSeats, EventNotOnSale, EventCancelled, SeatNotInEvent
 }
 
+enum AddSectionRejection {
+  case EventCancelled, EventNotOnSale, NoSeats, DuplicateSeatLabels, PriceMustBePositive, SectionNameTaken
+}
+
 final case class EventSeat(id: SeatId, label: SeatLabel)
 
 final case class EventSection(
   id: SectionId,
-  name: String,
+  name: SectionName,
   price: Money,
   seats: List[EventSeat])
 
@@ -62,11 +66,45 @@ final case class Event(
       (Order(orderId, id, customerId, now), tickets)
     }
 
-  // A started event is no longer on sale. Boundary: sales stop exactly at startsAt.
+  // Adds a section with one seat per label. Guard order: event state first (same rule as holdSeats, so a seating plan
+  // cannot change once sales are over), then the shape of the input (no seats, duplicate labels), then the price,
+  // then the name against the existing sections. Ids are passed in because the domain does not generate them;
+  // `seatIdFor` must be defined for every label in `seatLabels`.
+  // The name check is only race-free because the caller serialises additions per event (the event row is locked);
+  // the unique constraint event_section_event_id_name_key is the backstop and must never fire.
+  def addSection(
+    sectionId: SectionId,
+    seatIdFor: SeatLabel => SeatId,
+    name: SectionName,
+    price: Money,
+    seatLabels: List[SeatLabel],
+    now: Instant
+  ): Either[AddSectionRejection, (Event, EventSection)] =
+    for {
+      _ <- ensureOnSale(now, AddSectionRejection.EventCancelled, AddSectionRejection.EventNotOnSale)
+      _ <- Either.cond(seatLabels.nonEmpty, (), AddSectionRejection.NoSeats)
+      _ <- Either.cond(seatLabels.distinct.size == seatLabels.size, (), AddSectionRejection.DuplicateSeatLabels)
+      // Money itself accepts 0 but event_section.price_minor requires > 0 (CHECK): free tickets are unsupported, and
+      // this is where the rule is enforced for the domain.
+      _ <- Either.cond(price.amountMinor > 0, (), AddSectionRejection.PriceMustBePositive)
+      _ <- Either.cond(!sections.exists(_.name == name), (), AddSectionRejection.SectionNameTaken)
+    } yield {
+      val section = EventSection(sectionId, name, price, seatLabels.map(label => EventSeat(seatIdFor(label), label)))
+      (copy(sections = sections :+ section), section)
+    }
+
   private def ensureOnSale(now: Instant): Either[HoldRejection, Unit] =
+    ensureOnSale(now, HoldRejection.EventCancelled, HoldRejection.EventNotOnSale)
+
+  // A started event is no longer on sale. Boundary: sales stop exactly at startsAt.
+  private def ensureOnSale[R](
+    now: Instant,
+    whenCancelled: R,
+    whenNotOnSale: R
+  ): Either[R, Unit] =
     status match {
-      case EventStatus.Cancelled => Left(HoldRejection.EventCancelled)
-      case EventStatus.OnSale    => Either.cond(now.isBefore(startsAt), (), HoldRejection.EventNotOnSale)
+      case EventStatus.Cancelled => Left(whenCancelled)
+      case EventStatus.OnSale    => Either.cond(now.isBefore(startsAt), (), whenNotOnSale)
     }
 
   private def seatsById: Map[SeatId, (EventSeat, EventSection)] =

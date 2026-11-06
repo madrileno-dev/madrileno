@@ -31,7 +31,7 @@ class EventRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers w
         found <- eventRepo.findWithSeats(seeded.eventId)
       } yield {
         // Sections and seats come back sorted by name / label.
-        found.map(_.sections.map(_.name)) shouldBe Some(List("Parter", "VIP"))
+        found.map(_.sections.map(_.name)) shouldBe Some(List(SectionName("Parter"), SectionName("VIP")))
         found.map(_.sections.flatMap(_.seats.map(_.label))) shouldBe Some(List(SeatLabel("P-1"), SeatLabel("V-1"), SeatLabel("V-2")))
         found.map(_.sections.map(_.price)) shouldBe Some(List(parter, vip))
         found.map(e => (e.id, e.name, e.startsAt, e.status)) shouldBe Some((seeded.eventId, EventName("Test event"), startsAt, EventStatus.OnSale))
@@ -45,7 +45,7 @@ class EventRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers w
         found  <- eventRepo.findWithSeats(seeded.eventId)
       } yield {
         val bySection = found.toList.flatMap(_.sections).map(s => s.name -> s.seats.map(_.label)).toMap
-        bySection shouldBe Map("VIP" -> List(SeatLabel("V-1")), "Parter" -> List(SeatLabel("P-1")))
+        bySection shouldBe Map(SectionName("VIP") -> List(SeatLabel("V-1")), SectionName("Parter") -> List(SeatLabel("P-1")))
       }
     }
 
@@ -65,6 +65,58 @@ class EventRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Matchers w
 
     "return None for an unknown event" in withRollback {
       eventRepo.findWithSeats(TestData.randomEventId()).map(_ shouldBe None)
+    }
+  }
+
+  "EventRepository.addSection" should {
+    def seatIds(labels: List[SeatLabel]): Map[SeatLabel, SeatId] = labels.map(_ -> TestData.randomSeatId()).toMap
+
+    "persist the section and its seats so that findWithSeats returns them" in withRollback {
+      val labels    = List(SeatLabel("B-2"), SeatLabel("B-1"))
+      val ids       = seatIds(labels)
+      val sectionId = TestData.randomSectionId()
+      for {
+        seeded <- TicketSeed.event(List(SectionSpec("VIP", vip, List(SeatLabel("V-1")))))
+        added  <- eventRepo.addSection(
+                   seeded.eventId,
+                   _.addSection(sectionId, ids, SectionName("Balcony"), parter, labels, now.minusSeconds(86400 * 365 * 5))
+                 )
+        found <- eventRepo.findWithSeats(seeded.eventId)
+      } yield {
+        val (updated, section) = added.getOrElse(fail("event not found")).getOrElse(fail("rejected"))
+        section.seats.map(_.id) shouldBe labels.map(ids)
+        // Sections come back sorted by name, seats by label.
+        found.map(_.sections.map(_.name)) shouldBe Some(List(SectionName("Balcony"), SectionName("VIP")))
+        found.flatMap(_.sections.headOption) shouldBe Some(
+          EventSection(
+            sectionId,
+            SectionName("Balcony"),
+            parter,
+            List(EventSeat(ids(SeatLabel("B-1")), SeatLabel("B-1")), EventSeat(ids(SeatLabel("B-2")), SeatLabel("B-2")))
+          )
+        )
+        updated.sections.map(_.id).toSet shouldBe found.map(_.sections.map(_.id).toSet).getOrElse(Set.empty)
+      }
+    }
+
+    "write nothing when the domain rejects the section" in withRollback {
+      for {
+        seeded <- TicketSeed.event(List(SectionSpec("VIP", vip, List(SeatLabel("V-1")))))
+        labels = List(SeatLabel("V-9"))
+        result <- eventRepo.addSection(
+                    seeded.eventId,
+                    _.addSection(TestData.randomSectionId(), seatIds(labels), SectionName("VIP"), parter, labels, now.minusSeconds(86400 * 365 * 5))
+                  )
+        found <- eventRepo.findWithSeats(seeded.eventId)
+      } yield {
+        result shouldBe Some(Left(AddSectionRejection.SectionNameTaken))
+        found.map(_.sections.map(_.name)) shouldBe Some(List(SectionName("VIP")))
+        found.map(_.sections.flatMap(_.seats.map(_.label))) shouldBe Some(List(SeatLabel("V-1")))
+      }
+    }
+
+    "return None for an unknown event" in withRollback {
+      eventRepo.addSection(TestData.randomEventId(), _ => Left(AddSectionRejection.NoSeats)).map(_ shouldBe None)
     }
   }
 

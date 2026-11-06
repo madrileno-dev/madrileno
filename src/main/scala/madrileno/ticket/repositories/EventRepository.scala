@@ -3,14 +3,14 @@ package madrileno.ticket.repositories
 import cats.effect.IO
 import madrileno.ticket.domain.*
 import madrileno.utils.db.dsl.*
-import madrileno.utils.db.transactor.DB
+import madrileno.utils.db.transactor.{DB, DBInTransaction}
 import skunk.*
 import skunk.codec.all.*
 
 import java.time.Instant
 
-// Events are only ever inserted (`save`), there is no update path yet. Sections and seats are read-only for this module
-// (no seating plan management yet): do not use SectionRowTable/SeatRowTable for writes.
+// Events are only ever inserted (`save`), there is no update path for the event row. Sections and seats are written
+// only through `addSection`.
 private[repositories] final case class EventRow(
   id: EventId,
   name: EventName,
@@ -40,7 +40,7 @@ private[repositories] object EventRowTable extends Table[EventRow]("event") with
 private[repositories] final case class SectionRow(
   id: SectionId,
   eventId: EventId,
-  name: String,
+  name: SectionName,
   priceMinor: Long,
   currency: Currency) {
 
@@ -49,10 +49,13 @@ private[repositories] final case class SectionRow(
     Money.from(priceMinor, currency).fold(error => throw new IllegalStateException(s"Corrupt price in section $id: $error"), identity)
 }
 
-private[repositories] object SectionRowTable extends Table[SectionRow]("event_section") with ForeignIdTable[EventId] {
-  val id: Column[SectionId]               = column("id", uuid.as[SectionId])
+private[repositories] object SectionRowTable
+    extends Table[SectionRow]("event_section")
+    with IdTable[SectionRow, SectionId]
+    with ForeignIdTable[EventId] {
+  override val id: Column[SectionId]      = column("id", uuid.as[SectionId])
   val eventId: Column[EventId]            = column("event_id", uuid.as[EventId])
-  val name: Column[String]                = column("name", text)
+  val name: Column[SectionName]           = column("name", text.as[SectionName])
   val priceMinor: Column[Long]            = column("price_minor", int8)
   val currency: Column[Currency]          = column("currency", text.asEnum[Currency])
   override val foreignId: Column[EventId] = eventId
@@ -60,13 +63,18 @@ private[repositories] object SectionRowTable extends Table[SectionRow]("event_se
   def mapping: (List[Column[?]], Codec[SectionRow]) = (id, eventId, name, priceMinor, currency)
 }
 
+private[repositories] object SectionRow {
+  def apply(section: EventSection, eventId: EventId): SectionRow =
+    SectionRow(section.id, eventId, section.name, section.price.amountMinor, section.price.currency)
+}
+
 private[repositories] final case class SeatRow(
   id: SeatId,
   sectionId: SectionId,
   label: SeatLabel)
 
-private[repositories] object SeatRowTable extends Table[SeatRow]("event_seat") with ForeignIdTable[SectionId] {
-  val id: Column[SeatId]                    = column("id", uuid.as[SeatId])
+private[repositories] object SeatRowTable extends Table[SeatRow]("event_seat") with IdTable[SeatRow, SeatId] with ForeignIdTable[SectionId] {
+  override val id: Column[SeatId]           = column("id", uuid.as[SeatId])
   val sectionId: Column[SectionId]          = column("section_id", uuid.as[SectionId])
   val label: Column[SeatLabel]              = column("label", text.as[SeatLabel])
   override val foreignId: Column[SectionId] = sectionId
@@ -76,13 +84,38 @@ private[repositories] object SeatRowTable extends Table[SeatRow]("event_seat") w
 
 class EventRepository {
 
-  // Inserts a NEW event. Its sections and seats are not written (they have no write path yet).
+  // Inserts a NEW event. Its sections and seats are not written here, see `addSection`.
   def save(event: Event): DB[Unit] =
     eventRepository.create(EventRow(event)).void
 
   // Reads only the event row: `sections` is always empty. Use findWithSeats when the seating plan is needed.
   def find(id: EventId): DB[Option[Event]] =
     eventRepository.findById(id).map(_.map(toEvent(_, Nil)))
+
+  // The only write path of the seating plan, same shape as TicketRepository.update. The event row is locked FOR UPDATE
+  // first, which serialises concurrent additions to the same event: the section-name check in `f` (the domain) then
+  // sees every section committed before ours and is race-free. The plan is loaded only after the lock is held.
+  // On Left nothing is written; None when the event does not exist.
+  // A unique violation on event_section_event_id_name_key / event_seat_section_id_label_key can therefore only be a bug
+  // (the domain rejects duplicates, the lock removes the race): those constraints are a backstop and are deliberately
+  // not translated into a result.
+  def addSection[E](id: EventId, f: Event => Either[E, (Event, EventSection)]): DBInTransaction[Option[Either[E, (Event, EventSection)]]] =
+    eventRepository.findById(id, Lock.ForUpdate).flatMap {
+      case None    => IO.pure(None)
+      case Some(_) =>
+        findWithSeats(id).flatMap {
+          case None        => IO.pure(None)
+          case Some(event) =>
+            f(event) match {
+              case Left(rejection)           => IO.pure(Some(Left(rejection)))
+              case Right((updated, section)) =>
+                for {
+                  _ <- sectionRepository.create(SectionRow(section, id))
+                  _ <- seatRepository.createAll(section.seats.map(seat => SeatRow(seat.id, section.id, seat.label)))
+                } yield Some(Right((updated, section)))
+            }
+        }
+    }
 
   // Three plain queries (event, its sections, their seats) assembled in Scala, instead of one wide join.
   // Sections and seats are sorted by name/label so the result does not depend on the physical row order.
@@ -95,7 +128,7 @@ class EventRepository {
           seatRows    <- seatRepository.findByForeignIds(sectionRows.map(_.id))
         } yield {
           val seatsBySection = seatRows.groupBy(_.sectionId)
-          val sections       = sectionRows.sortBy(_.name).map { section =>
+          val sections       = sectionRows.sortBy(_.name.unwrap).map { section =>
             val seats = seatsBySection.getOrElse(section.id, Nil).sortBy(_.label.unwrap).map(seat => EventSeat(seat.id, seat.label))
             EventSection(section.id, section.name, section.price, seats)
           }
@@ -111,13 +144,13 @@ class EventRepository {
       override val table: EventRowTable.type = EventRowTable
     }
 
-  private val sectionRepository: ForeignIdRepository[SectionRow, EventId] =
-    new ForeignIdRepository[SectionRow, EventId] {
+  private val sectionRepository: IdRepository[SectionRow, SectionId] & ForeignIdRepository[SectionRow, EventId] =
+    new IdRepository[SectionRow, SectionId](_.id) with ForeignIdRepository[SectionRow, EventId] {
       override val table: SectionRowTable.type = SectionRowTable
     }
 
-  private val seatRepository: ForeignIdRepository[SeatRow, SectionId] =
-    new ForeignIdRepository[SeatRow, SectionId] {
+  private val seatRepository: IdRepository[SeatRow, SeatId] & ForeignIdRepository[SeatRow, SectionId] =
+    new IdRepository[SeatRow, SeatId](_.id) with ForeignIdRepository[SeatRow, SectionId] {
       override val table: SeatRowTable.type = SeatRowTable
     }
 }

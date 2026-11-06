@@ -48,6 +48,23 @@ enum CreateEventResult {
   case EventInThePast
 }
 
+final case class AddSectionCommand(
+  eventId: EventId,
+  name: SectionName,
+  price: Money,
+  seatLabels: List[SeatLabel])
+
+enum AddSectionResult {
+  case SectionAdded(event: Event, section: EventSection)
+  case EventNotFound
+  case EventCancelled
+  case EventNotOnSale
+  case NoSeats
+  case DuplicateSeatLabels
+  case PriceMustBePositive
+  case SectionNameTaken
+}
+
 final case class HoldSeatsCommand(
   eventId: EventId,
   customerId: UserId,
@@ -106,6 +123,16 @@ object TicketService {
       case other                                                                          => IO.raiseError(other)
     }
 
+  private[services] def toResult(rejection: AddSectionRejection): AddSectionResult =
+    rejection match {
+      case AddSectionRejection.EventCancelled      => AddSectionResult.EventCancelled
+      case AddSectionRejection.EventNotOnSale      => AddSectionResult.EventNotOnSale
+      case AddSectionRejection.NoSeats             => AddSectionResult.NoSeats
+      case AddSectionRejection.DuplicateSeatLabels => AddSectionResult.DuplicateSeatLabels
+      case AddSectionRejection.PriceMustBePositive => AddSectionResult.PriceMustBePositive
+      case AddSectionRejection.SectionNameTaken    => AddSectionResult.SectionNameTaken
+    }
+
   private[services] def toResult(rejection: HoldRejection): HoldSeatsResult =
     rejection match {
       case HoldRejection.NoSeatsSelected => HoldSeatsResult.NoSeatsSelected
@@ -160,9 +187,29 @@ class TicketService(
                 }
     } yield result
 
-  // Reads only the event itself, without its seating plan.
+  // The event together with its seating plan, so that clients can learn the seat ids.
   def getEvent(id: EventId): IO[Option[Event]] =
-    transactor.inSession(eventRepository.find(id))
+    transactor.inSession(eventRepository.findWithSeats(id))
+
+  // Any authenticated user may add a section to any event: there are no organizer roles yet (the same conscious
+  // simplification as in createEvent). Everything runs in one transaction; the repository locks the event row, which
+  // serialises concurrent additions, so the section-name check of the domain cannot race.
+  def addSection(command: AddSectionCommand): IO[AddSectionResult] =
+    for {
+      now       <- Clock[IO].realTimeInstant
+      sectionId <- IdGenerator.generateId(SectionId)
+      // One id per distinct label; duplicates are rejected by the domain before any id is used.
+      seatIds <- command.seatLabels.distinct.traverse(label => IdGenerator.generateId(SeatId).map(label -> _)).map(_.toMap)
+      result  <- transactor.inTransaction {
+                  eventRepository
+                    .addSection(command.eventId, _.addSection(sectionId, seatIds, command.name, command.price, command.seatLabels, now))
+                    .map {
+                      case None                          => AddSectionResult.EventNotFound
+                      case Some(Left(rejection))         => TicketService.toResult(rejection)
+                      case Some(Right((event, section))) => AddSectionResult.SectionAdded(event, section)
+                    }
+                }
+    } yield result
 
   def payTicket(command: PayTicketCommand): IO[PayTicketResult] = {
     transactor

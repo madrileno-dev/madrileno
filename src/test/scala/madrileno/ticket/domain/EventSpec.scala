@@ -24,15 +24,15 @@ class EventSpec extends AnyWordSpec with Matchers {
   private val vip2        = EventSeat(SeatId(uuid(12)), SeatLabel("V-2"))
   private val parter1     = EventSeat(SeatId(uuid(13)), SeatLabel("P-1"))
   private val foreignSeat = SeatId(uuid(99))
-  private val vipSection  = EventSection(SectionId(uuid(21)), "VIP", vipPrice, List(vip1, vip2))
-  private val parterSect  = EventSection(SectionId(uuid(22)), "Parter", parterPrice, List(parter1))
+  private val vipSection  = EventSection(SectionId(uuid(21)), SectionName("VIP"), vipPrice, List(vip1, vip2))
+  private val parterSect  = EventSection(SectionId(uuid(22)), SectionName("Parter"), parterPrice, List(parter1))
   private val startsAt    = now.plus(Duration.ofDays(1))
 
   private val event = Event(EventId(uuid(3)), EventName("Concert"), startsAt, EventStatus.OnSale, now, now, List(vipSection, parterSect))
 
   // An event with more seats than one order may hold.
   private val bigSeats = (1 to Event.MaxSeatsPerOrder + 2).toList.map(n => EventSeat(SeatId(uuid(100 + n)), SeatLabel(s"B-$n")))
-  private val bigEvent = event.copy(sections = List(EventSection(SectionId(uuid(23)), "Big", parterPrice, bigSeats)))
+  private val bigEvent = event.copy(sections = List(EventSection(SectionId(uuid(23)), SectionName("Big"), parterPrice, bigSeats)))
 
   // Deterministic ticket ids derived from the seat id, so assertions can name them.
   private def ticketIdFor(seatId: SeatId): TicketId = TicketId(UUID.nameUUIDFromBytes(seatId.unwrap.toString.getBytes))
@@ -137,6 +137,95 @@ class EventSpec extends AnyWordSpec with Matchers {
 
     "check duplicates before membership" in {
       hold(seatIds = List(foreignSeat, foreignSeat)) shouldBe Left(HoldRejection.DuplicateSeats)
+    }
+  }
+
+  "Event.addSection" should {
+    val newSectionId = SectionId(uuid(40))
+    val balcony      = SectionName("Balcony")
+    val balconyPrice = money(5_000L)
+    val labels       = List(SeatLabel("B-2"), SeatLabel("B-1"))
+    // Deterministic seat ids derived from the label, so assertions can name them.
+    def seatIdFor(label: SeatLabel): SeatId = SeatId(UUID.nameUUIDFromBytes(label.unwrap.getBytes))
+
+    def add(
+      on: Event = event,
+      name: SectionName = balcony,
+      price: Money = balconyPrice,
+      seatLabels: List[SeatLabel] = labels,
+      at: Instant = now
+    ): Either[AddSectionRejection, (Event, EventSection)] =
+      on.addSection(newSectionId, seatIdFor, name, price, seatLabels, at)
+
+    "add the section with one seat per label, in the given order, and return the updated event" in {
+      val expected = EventSection(
+        newSectionId,
+        balcony,
+        balconyPrice,
+        List(EventSeat(seatIdFor(SeatLabel("B-2")), SeatLabel("B-2")), EventSeat(seatIdFor(SeatLabel("B-1")), SeatLabel("B-1")))
+      )
+      add() shouldBe Right((event.copy(sections = event.sections :+ expected), expected))
+    }
+
+    "allow the first section of an event without sections" in {
+      add(on = event.copy(sections = Nil)).map(_._1.sections.map(_.name)) shouldBe Right(List(balcony))
+    }
+
+    "reject EventCancelled for a cancelled event" in {
+      add(on = event.copy(status = EventStatus.Cancelled)) shouldBe Left(AddSectionRejection.EventCancelled)
+    }
+
+    "reject EventNotOnSale once the event has started, exactly at startsAt (boundary)" in {
+      add(at = startsAt) shouldBe Left(AddSectionRejection.EventNotOnSale)
+      add(at = startsAt.plusSeconds(1)) shouldBe Left(AddSectionRejection.EventNotOnSale)
+    }
+
+    "accept one instant before startsAt" in {
+      add(at = startsAt.minusNanos(1)).isRight shouldBe true
+    }
+
+    "reject NoSeats for an empty label list" in {
+      add(seatLabels = Nil) shouldBe Left(AddSectionRejection.NoSeats)
+    }
+
+    "reject DuplicateSeatLabels when a label repeats" in {
+      add(seatLabels = List(SeatLabel("B-1"), SeatLabel("B-1"))) shouldBe Left(AddSectionRejection.DuplicateSeatLabels)
+    }
+
+    "reject PriceMustBePositive for a zero price" in {
+      add(price = money(0L)) shouldBe Left(AddSectionRejection.PriceMustBePositive)
+    }
+
+    "reject SectionNameTaken when a section with the name exists (exact comparison)" in {
+      add(name = SectionName("VIP")) shouldBe Left(AddSectionRejection.SectionNameTaken)
+      add(name = SectionName("vip")).isRight shouldBe true
+    }
+
+    "allow the same seat label in a different section" in {
+      add(seatLabels = List(vip1.label)).isRight shouldBe true
+    }
+
+    "check the event state before everything else" in {
+      val cancelled = event.copy(status = EventStatus.Cancelled)
+      add(on = cancelled, name = SectionName("VIP"), price = money(0L), seatLabels = Nil) shouldBe Left(AddSectionRejection.EventCancelled)
+      add(name = SectionName("VIP"), price = money(0L), seatLabels = Nil, at = startsAt) shouldBe Left(AddSectionRejection.EventNotOnSale)
+    }
+
+    "report a cancelled event even when it has also started" in {
+      add(on = event.copy(status = EventStatus.Cancelled), at = startsAt) shouldBe Left(AddSectionRejection.EventCancelled)
+    }
+
+    "check NoSeats before duplicates, the price and the name" in {
+      add(seatLabels = Nil, price = money(0L), name = SectionName("VIP")) shouldBe Left(AddSectionRejection.NoSeats)
+    }
+
+    "check duplicate labels before the price and the name" in {
+      add(seatLabels = List(SeatLabel("B-1"), SeatLabel("B-1")), price = money(0L), name = SectionName("VIP")) shouldBe
+        Left(AddSectionRejection.DuplicateSeatLabels)
+    }
+
+    "check the price before the name" in {
+      add(price = money(0L), name = SectionName("VIP")) shouldBe Left(AddSectionRejection.PriceMustBePositive)
     }
   }
 

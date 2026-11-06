@@ -4,8 +4,33 @@ import cats.effect.IO
 import io.circe.syntax.EncoderOps
 import madrileno.auth.domain.AuthContext
 import madrileno.support.{BaseRouteSpec, SectionSpec, SeededEvent, TestApplicationLoader, TestData, TicketSeed}
-import madrileno.ticket.domain.{ChargeId, EventId, EventName, EventSeat, EventStatus, Order, SeatId, SeatLabel, Ticket, TicketId, TicketStatus}
-import madrileno.ticket.routers.dto.{CreateEventRequest, EventDto, HoldSeatsRequest, OrderDto, PayTicketRequest, TicketDto}
+import madrileno.ticket.domain.{
+  ChargeId,
+  Currency,
+  EventId,
+  EventName,
+  EventSeat,
+  EventSection,
+  EventStatus,
+  Order,
+  SeatId,
+  SeatLabel,
+  SectionName,
+  Ticket,
+  TicketId,
+  TicketStatus
+}
+import madrileno.ticket.routers.dto.{
+  AddSectionRequest,
+  CreateEventRequest,
+  EventDto,
+  HoldSeatsRequest,
+  MoneyDto,
+  OrderDto,
+  PayTicketRequest,
+  SectionDto,
+  TicketDto
+}
 import madrileno.user.domain.User
 import madrileno.utils.http.Error
 import madrileno.utils.json.JsonProtocol.*
@@ -480,6 +505,7 @@ class TicketRouterSpec extends BaseRouteSpec with TestApplicationLoader {
           response.body.name shouldBe EventName("Concert")
           response.body.startsAt shouldBe farFuture
           response.body.status shouldBe EventStatus.OnSale
+          response.body.sections shouldBe Nil
           val stored = application.transactor.inSession(application.eventRepository.find(response.body.id)).unsafeRunSync()
           stored.map(_.startsAt) shouldBe Some(farFuture)
         },
@@ -510,11 +536,156 @@ class TicketRouterSpec extends BaseRouteSpec with TestApplicationLoader {
     )
   )
 
+  private def sectionRequest(
+    name: String = "Balcony",
+    amount: Long = 5_000L,
+    labels: List[String] = List("B-1", "B-2")
+  ): AddSectionRequest =
+    AddSectionRequest(SectionName(name), TestData.ticketPrice(amount), labels.map(SeatLabel(_)))
+
+  private def sectionsOf(eventId: EventId): List[EventSection] =
+    application.transactor.inSession(application.eventRepository.findWithSeats(eventId)).unsafeRunSync().toList.flatMap(_.sections)
+
+  path("/v1/events/{eventId}/sections")(
+    supports(
+      POST,
+      description = "Add a section to an event",
+      summary = "Adds a priced section with one seat per label. Any authenticated user may do so (no organizer roles yet)",
+      securitySchemes = Seq(bearerScheme),
+      pathParameters = p[EventId]("eventId"),
+      tags = Seq("Tickets")
+    )(
+      withSetup(seedSale())
+        .request(sale =>
+          onRequest(body = sectionRequest(name = " Balcony "), security = bearer.apply(validJwt(stranger)), pathParameters = sale.event.eventId)
+        )
+        .respondsWith[SectionDto](Created, description = "Section added")
+        .assert { case (ctx, sale) =>
+          val response = ctx.performRequest(allRoutes)
+          response.body.name shouldBe SectionName("Balcony")
+          response.body.price shouldBe MoneyDto(5_000L, Currency.PLN)
+          response.body.seats.map(_.label) shouldBe List(SeatLabel("B-1"), SeatLabel("B-2"))
+          // The returned seat ids are the persisted ones.
+          val stored = sectionsOf(sale.event.eventId).find(_.id == response.body.id).getOrElse(fail("section not stored"))
+          stored.seats.map(_.id).toSet shouldBe response.body.seats.map(_.id).toSet
+        },
+      onRequest(body = sectionRequest(), security = bearer.apply(validJwt(stranger)), pathParameters = TestData.randomEventId())
+        .respondsWith[Error[Unit]](NotFound, description = "Event not found")
+        .assert { ctx =>
+          ctx.performRequest(allRoutes).body.title shouldBe Some("Event not found")
+        },
+      withSetup(seedSale(startsAt = Instant.now().minusSeconds(60)))
+        .request(sale => onRequest(body = sectionRequest(), security = bearer.apply(validJwt(stranger)), pathParameters = sale.event.eventId))
+        .respondsWith[Error[Unit]](Conflict, description = "Event is not on sale")
+        .assert { case (ctx, sale) =>
+          ctx.performRequest(allRoutes).body.title shouldBe Some("Event is not on sale")
+          sectionsOf(sale.event.eventId).map(_.name) shouldBe List(SectionName("Parter"))
+        },
+      withSetup(seedSale(status = EventStatus.Cancelled))
+        .request(sale => onRequest(body = sectionRequest(), security = bearer.apply(validJwt(stranger)), pathParameters = sale.event.eventId))
+        .respondsWith[Error[Unit]](Gone, description = "Event has been cancelled")
+        .assert { case (ctx, _) =>
+          ctx.performRequest(allRoutes).body.title shouldBe Some("Event has been cancelled")
+        },
+      withSetup(seedSale())
+        .request(sale =>
+          onRequest(body = sectionRequest(labels = Nil), security = bearer.apply(validJwt(stranger)), pathParameters = sale.event.eventId)
+        )
+        .respondsWith[Error[Unit]](UnprocessableContent, description = "No seats in the section")
+        .assert { case (ctx, _) =>
+          ctx.performRequest(allRoutes).body.title shouldBe Some("A section needs at least one seat")
+        },
+      withSetup(seedSale())
+        .request(sale =>
+          onRequest(
+            body = sectionRequest(labels = List("B-1", "B-1")),
+            security = bearer.apply(validJwt(stranger)),
+            pathParameters = sale.event.eventId
+          )
+        )
+        .respondsWith[Error[Unit]](UnprocessableContent, description = "Duplicate seat labels")
+        .assert { case (ctx, _) =>
+          ctx.performRequest(allRoutes).body.title shouldBe Some("Each seat label may be used only once in a section")
+        },
+      // Zero decodes as a valid Money (only negative amounts fail decoding) and is rejected by the domain.
+      withSetup(seedSale())
+        .request(sale =>
+          onRequest(body = sectionRequest(amount = 0L), security = bearer.apply(validJwt(stranger)), pathParameters = sale.event.eventId)
+        )
+        .respondsWith[Error[Unit]](UnprocessableContent, description = "Price must be positive")
+        .assert { case (ctx, _) =>
+          ctx.performRequest(allRoutes).body.title shouldBe Some("Section price must be greater than zero")
+        },
+      // The seeded event already has a section called "Parter".
+      withSetup(seedSale())
+        .request(sale =>
+          onRequest(body = sectionRequest(name = "Parter"), security = bearer.apply(validJwt(stranger)), pathParameters = sale.event.eventId)
+        )
+        .respondsWith[Error[Unit]](Conflict, description = "Section name already taken")
+        .assert { case (ctx, sale) =>
+          ctx.performRequest(allRoutes).body.title shouldBe Some("The event already has a section with this name")
+          sectionsOf(sale.event.eventId).map(_.name) shouldBe List(SectionName("Parter"))
+        },
+      // A negative amount fails Money.from while the body is decoded: 400, before the handler runs.
+      withSetup(seedSale())
+        .request(sale =>
+          onRequest(
+            body = RawSectionRequest("Balcony", RawPrice(-1L, "PLN"), List("B-1")),
+            security = bearer.apply(validJwt(stranger)),
+            pathParameters = sale.event.eventId
+          )
+        )
+        .respondsWith[Error[Unit]](BadRequest, description = "Negative price")
+        .assert { case (ctx, _) =>
+          ctx.performRequest(allRoutes)
+        },
+      withSetup(seedSale())
+        .request(sale =>
+          onRequest(
+            body = RawSectionRequest("   ", RawPrice(5_000L, "PLN"), List("B-1")),
+            security = bearer.apply(validJwt(stranger)),
+            pathParameters = sale.event.eventId
+          )
+        )
+        .respondsWith[Error[Unit]](BadRequest, description = "Blank section name")
+        .assert { case (ctx, _) =>
+          ctx.performRequest(allRoutes)
+        },
+      withSetup(seedSale())
+        .request(sale =>
+          onRequest(
+            body = RawSectionRequest("Balcony", RawPrice(5_000L, "PLN"), List(" ")),
+            security = bearer.apply(validJwt(stranger)),
+            pathParameters = sale.event.eventId
+          )
+        )
+        .respondsWith[Error[Unit]](BadRequest, description = "Blank seat label")
+        .assert { case (ctx, _) =>
+          ctx.performRequest(allRoutes)
+        },
+      withSetup(seedSale())
+        .request(sale =>
+          onRequest(
+            body = RawSectionRequest("Balcony", RawPrice(5_000L, "GBP"), List("B-1")),
+            security = bearer.apply(validJwt(stranger)),
+            pathParameters = sale.event.eventId
+          )
+        )
+        .respondsWith[Error[Unit]](BadRequest, description = "Unknown currency")
+        .assert { case (ctx, _) =>
+          ctx.performRequest(allRoutes)
+        },
+      onRequest(body = sectionRequest(), pathParameters = TestData.randomEventId())
+        .respondsWith[Error[Unit]](Unauthorized, description = "Missing credentials")
+        .assert(_.performRequest(allRoutes))
+    )
+  )
+
   path("/v1/events/{eventId}")(
     supports(
       GET,
       description = "Get an event by id",
-      summary = "Returns the event itself, without its seating plan",
+      summary = "Returns the event with its seating plan (sections and seat ids)",
       securitySchemes = Seq(bearerScheme),
       pathParameters = p[EventId]("eventId"),
       tags = Seq("Tickets")
@@ -526,6 +697,15 @@ class TicketRouterSpec extends BaseRouteSpec with TestApplicationLoader {
           val response = ctx.performRequest(allRoutes)
           response.body.id shouldBe sale.event.eventId
           response.body.status shouldBe EventStatus.OnSale
+          response.body.sections.map(s => (s.name, s.price)) shouldBe List((SectionName("Parter"), MoneyDto(seatPrice.amountMinor, Currency.PLN)))
+          response.body.sections.flatMap(_.seats).map(s => (s.id, s.label)).toSet shouldBe sale.event.allSeats.map(s => (s.id, s.label)).toSet
+        },
+      // An event nobody added a section to has an empty seating plan.
+      withSetup(application.transactor.inSession(TicketSeed.event(Nil)).unsafeRunSync())
+        .request(event => onRequest(security = bearer.apply(validJwt(stranger)), pathParameters = event.eventId))
+        .respondsWith[EventDto](Ok, description = "Event without sections")
+        .assert { case (ctx, _) =>
+          ctx.performRequest(allRoutes).body.sections shouldBe Nil
         },
       onRequest(security = bearer.apply(validJwt(stranger)), pathParameters = TestData.randomEventId())
         .respondsWith[Error[Unit]](NotFound, description = "Event not found")
@@ -546,6 +726,14 @@ class TicketRouterSpec extends BaseRouteSpec with TestApplicationLoader {
 
   // Same wire shape as PayTicketRequest, but with a plain String so a test can send a value ChargeId rejects.
   private final case class BlankChargeRequest(chargeId: String) derives Encoder.AsObject
+
+  // Plain values, so a test can send a negative amount, a blank name or an unknown currency.
+  private final case class RawPrice(amountMinor: Long, currency: String) derives Encoder.AsObject
+  private final case class RawSectionRequest(
+    name: String,
+    price: RawPrice,
+    seatLabels: List[String])
+      derives Encoder.AsObject
 
   // Plain strings, so a test can send a blank name, a malformed date or a date with an offset.
   private final case class RawEventRequest(name: String, startsAt: String) derives Encoder.AsObject
