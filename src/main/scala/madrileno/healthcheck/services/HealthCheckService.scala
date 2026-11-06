@@ -19,7 +19,14 @@ class HealthCheckService(appConfig: AppConfig, postgresProbe: PostgresProbe) {
           case Some((startedAt, shared)) if now - startedAt < HealthCheckService.readinessReusedFor =>
             (Some((startedAt, shared)), poll(shared.get))
           case _ =>
-            (Some((now, mine)), postgresProbe.check(within = 1.second).flatMap(result => mine.complete(result.status)).start *> poll(mine.get))
+            (
+              Some((now, mine)),
+              postgresProbe
+                .check(within = 1.second)
+                .flatMap(result => mine.complete(result.status))
+                .guarantee(mine.complete(DepStatus.Down).void)
+                .start *> poll(mine.get)
+            )
         }.flatten
       }
     }
