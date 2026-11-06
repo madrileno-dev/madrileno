@@ -64,6 +64,25 @@ class JobsReportSpec extends AnyWordSpec with Matchers {
       built.status shouldBe JobsStatus.Unhealthy
     }
 
+    "list a failing one-time row without calling the jobs unhealthy, since it retries on its own and may fail for good" in {
+      val built = report(row("nightly-cleanup"), row("send-mail", instance = "m-1", consecutiveFailures = Some(1)))
+      built.failing.map(job => job.task -> job.health) shouldBe List("send-mail/m-1" -> JobHealth.Failing)
+      built.status shouldBe JobsStatus.Healthy
+    }
+
+    "call a failing row Overdue once nothing has picked up its retry for overdue-after, and list it in both" in {
+      val built =
+        report(row("nightly-cleanup"), row("send-mail", instance = "m-1", nextExecution = now.minusSeconds(11 * 60), consecutiveFailures = Some(2)))
+      built.overdue.map(job => job.task -> job.health) shouldBe List("send-mail/m-1" -> JobHealth.Overdue)
+      built.failing.map(_.task) shouldBe List("send-mail/m-1")
+      built.status shouldBe JobsStatus.Unhealthy
+    }
+
+    "call a picked row with no heartbeat Stalled, as the scheduler's revive does" in {
+      val built = report(row("nightly-cleanup", picked = true, lastHeartbeat = None))
+      built.running.map(_.health) shouldBe List(JobHealth.Stalled)
+    }
+
     "call a row waiting past overdue-after Overdue, which means nothing is picking rows up" in {
       val built = report(row("send-mail", instance = "m-1", nextExecution = now.minusSeconds(11 * 60)))
       built.overdue.map(job => job.task -> job.health) shouldBe List("send-mail/m-1" -> JobHealth.Overdue)

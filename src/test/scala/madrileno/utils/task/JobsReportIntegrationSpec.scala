@@ -67,7 +67,9 @@ class JobsReportIntegrationSpec extends AsyncWordSpec with AsyncIOSpec with Matc
         running <- scheduler.run(oneTimeTasks = List(hanging)).surround {
                      eventually(report(observed, oneTime = List(hanging)))(_.running.exists(_.task == "hanging-import/i-1"))
                    }
-        stalled <- eventually(report(observed, oneTime = List(hanging)))(_.running.exists(_.health == JobHealth.Stalled))
+        stalled <- eventually(report(observed, oneTime = List(hanging)))(
+                     _.running.exists(job => job.task == "hanging-import/i-1" && job.health == JobHealth.Stalled)
+                   )
       } yield {
         running.running.find(_.task == "hanging-import/i-1").map(_.health) shouldBe Some(JobHealth.Healthy)
         stalled.status shouldBe JobsStatus.Unhealthy

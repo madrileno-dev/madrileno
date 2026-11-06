@@ -75,9 +75,9 @@ object JobsReport {
     }
 
     def health(row: TaskRow): JobHealth =
-      if (row.picked && row.lastHeartbeat.exists(olderThan(_, config.heartbeatInterval * config.missedHeartbeatLimit.toDouble))) JobHealth.Stalled
-      else if (row.consecutiveFailures.exists(_ > 0)) JobHealth.Failing
+      if (row.picked && row.lastHeartbeat.forall(olderThan(_, config.heartbeatInterval * config.missedHeartbeatLimit.toDouble))) JobHealth.Stalled
       else if (!row.picked && olderThan(row.nextExecution, config.overdueAfter)) JobHealth.Overdue
+      else if (row.consecutiveFailures.exists(_ > 0)) JobHealth.Failing
       else JobHealth.Healthy
 
     def queued(row: TaskRow): QueuedJob = {
@@ -116,8 +116,7 @@ object JobsReport {
     val overdue  = rows.map(queued).filter(_.health == JobHealth.Overdue).sortBy(_.nextRun)
     val orphaned = rows.filterNot(row => knownNames.contains(row.taskName)).map(queued)
 
-    val unhealthy =
-      recurring.exists(_.health != JobHealth.Healthy) || running.exists(_.health == JobHealth.Stalled) || failing.nonEmpty || overdue.nonEmpty
+    val unhealthy = recurring.exists(_.health != JobHealth.Healthy) || running.exists(_.health == JobHealth.Stalled) || overdue.nonEmpty
 
     JobsReport(
       status = if (unhealthy) JobsStatus.Unhealthy else JobsStatus.Healthy,
