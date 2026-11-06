@@ -94,6 +94,29 @@ The cleanup migration (step 3) is the one that burns the bridge: once the old co
 
 What the template doesn't do is undo a migration. If one fails partway, Flyway records it as failed and `bin/migrate-main` refuses to run until it's repaired (`bin/migrate-main info` shows which one). Fix forward: correct the migration, clear the failed row from `flyway_schema_history` (Flyway's `repair`; `MigrateMain` doesn't expose it, so add a subcommand or do it by hand), and run it again. Undo scripts are a Flyway Teams feature and aren't wired here.
 
+## Backups
+
+The state to back up is the Postgres database, plus the object storage bucket if the app stores files (the S3 bucket behind `S3_BUCKET`, or the `uploads` directory with `OBJECT_STORAGE=disk`). A database dump alone restores rows that point at files it doesn't contain. Managed Postgres (RDS, Cloud SQL, …) and S3 have their own snapshots and point-in-time recovery; use those where you have them, and the commands below where you run Postgres yourself or want a portable copy.
+
+```bash
+# libpq reads PGPASSWORD, not the app's PG_PASSWORD.
+export PGPASSWORD="$PG_PASSWORD"
+DUMP=madrileno-$(date +%Y%m%d-%H%M%S).dump
+
+# Dump: custom format, compressed, restorable selectively with pg_restore.
+# pg_dump creates the file before it connects, so write elsewhere and keep only a finished dump.
+pg_dump --format=custom -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DATABASE" -f "$DUMP.partial" && mv "$DUMP.partial" "$DUMP"
+
+# Restore into a new, empty database, then check its schema matches this image's migrations.
+createdb -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" madrileno_restored
+pg_restore --no-owner --exit-on-error -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d madrileno_restored "$DUMP"
+PG_DATABASE=madrileno_restored bin/migrate-main validate
+```
+
+Run the restore as the role the app connects with: `--no-owner` makes the restoring role own every table. If that role can't create databases (common on managed Postgres), have an admin run `createdb -O "$PG_USER" madrileno_restored` instead; on Postgres 16+ an admin that isn't a superuser (the RDS and Cloud SQL master user) first needs `GRANT "$PG_USER" TO <admin>`. The app image has no `pg_dump` and the `postgres` image has no `bin/migrate-main`: run the first three commands where the Postgres client tools are, and `validate` from the app image (`docker run --entrypoint bin/migrate-main <image> validate`). Drop `madrileno_restored` before rehearsing again, or `createdb` and `pg_restore` fail on the copy that's already there.
+
+Against the dev stack, run the same tools inside the compose container: `docker compose exec -T postgres pg_dump --format=custom -U postgres -d madrileno > madrileno.dump.partial && mv madrileno.dump.partial madrileno.dump`, and restore with `docker compose exec postgres createdb -U postgres madrileno_restored` followed by `docker compose exec -T postgres pg_restore --no-owner --exit-on-error -U postgres -d madrileno_restored < madrileno.dump`. Use client tools of the server's major version or newer (the compose file runs `postgres:18`). Restore into a fresh database rather than over the live one, and check the copy before switching the app to it: `validate` fails if the dump is from an older schema than the image expects, in which case run `bin/migrate-main` against it first. It does not fail for a dump newer than the image (Flyway ignores migrations it doesn't know), so restore with the image that took the dump, or a newer one. A backup you have never restored is a guess; rehearse the restore.
+
 ## Graceful shutdown
 
 On `SIGTERM` the app drains in-flight requests before exiting — rolling deploys don't cut active connections. This is mostly emergent behavior from cats-effect's resource composition; you don't need to do anything to get it.
