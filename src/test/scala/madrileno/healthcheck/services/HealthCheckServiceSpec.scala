@@ -17,40 +17,69 @@ import org.typelevel.otel4s.metrics.Meter
 import org.typelevel.otel4s.trace.Tracer
 import skunk.data.{Identifier, Notification}
 
+import java.net.ConnectException
 import scala.concurrent.duration.*
 
 class HealthCheckServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
   given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
-  private def counting(opened: Ref[IO, Int]): Transactor = new Transactor {
-    def inTransaction[A](f: DBInTransaction[A]): IO[A]         = transactor.inTransaction(f)
-    def inSession[A](f: DB[A]): IO[A]                          = transactor.inSession(f)
-    override def inNewConnection[A](f: DB[A]): IO[A]           = opened.update(_ + 1) *> transactor.inNewConnection(f)
-    def notify(channel: Identifier, payload: String): IO[Unit] = transactor.notify(channel, payload)
+  private def observed(opened: Ref[IO, Int], reachable: Ref[IO, Boolean]): Transactor = new Transactor {
+    def inTransaction[A](f: DBInTransaction[A]): IO[A] = transactor.inTransaction(f)
+    def inSession[A](f: DB[A]): IO[A]                  = transactor.inSession(f)
+    override def inNewConnection[A](f: DB[A]): IO[A]   =
+      opened.update(_ + 1) *> reachable.get.ifM(transactor.inNewConnection(f), IO.raiseError(new ConnectException("Connection refused")))
+    def notify(channel: Identifier, payload: String): IO[Unit]                                      = transactor.notify(channel, payload)
     def listen(channel: Identifier, maxQueued: Int): Resource[IO, Stream[IO, Notification[String]]] = transactor.listen(channel, maxQueued)
   }
 
   private def service(db: Transactor): HealthCheckService =
     new HealthCheckService(AppConfig("madrileno", Environment.Dev, "test"), new PostgresProbe(new HealthCheckRepository, db, Clock[IO]))
 
+  private def becomes(service: HealthCheckService, status: DepStatus): IO[Unit] =
+    (IO.sleep(50.millis) *> service.readiness()).iterateUntil(_ == status).timeout(HealthCheckService.readinessInterval * 3).void
+
   "readiness" should {
-    "open one connection for any number of concurrent requests, and again only once the shared answer is older than its reuse window" in {
-      Ref[IO].of(0).flatMap { opened =>
-        val readiness = service(counting(opened))
-        for {
-          burst  <- List.fill(200)(readiness.readiness()).parSequence
-          inside <- opened.get
-          _      <- IO.sleep(HealthCheckService.readinessReusedFor + 100.millis)
-          later  <- readiness.readiness()
-          after  <- opened.get
-        } yield {
-          burst.distinct shouldBe List(DepStatus.Up)
-          inside shouldBe 1
-          later shouldBe DepStatus.Up
-          after shouldBe 2
+    "report Down until the first check has finished" in {
+      service(transactor).readiness().map(_ shouldBe DepStatus.Down)
+    }
+
+    "serve the last check's result without opening a connection per request" in {
+      (Ref[IO].of(0), Ref[IO].of(true)).flatMapN { (opened, reachable) =>
+        val readiness = service(observed(opened, reachable))
+        readiness.readinessLifecycle.surround {
+          for {
+            _      <- becomes(readiness, DepStatus.Up)
+            before <- opened.get
+            burst  <- List.fill(200)(readiness.readiness()).parSequence
+            after  <- opened.get
+          } yield {
+            burst.distinct shouldBe List(DepStatus.Up)
+            (after - before) should be <= 1
+          }
         }
       }
+    }
+
+    "turn Down on its own when Postgres stops answering, and Up again when it answers" in {
+      (Ref[IO].of(0), Ref[IO].of(true)).flatMapN { (opened, reachable) =>
+        val readiness = service(observed(opened, reachable))
+        readiness.readinessLifecycle
+          .surround {
+            becomes(readiness, DepStatus.Up) *> reachable.set(false) *> becomes(readiness, DepStatus.Down) *>
+              reachable.set(true) *> becomes(readiness, DepStatus.Up)
+          }
+          .as(succeed)
+      }
+    }
+
+    "report Down once its last Up is too old to trust, as when the checks stopped" in {
+      val readiness = service(transactor)
+      for {
+        _     <- readiness.readinessLifecycle.surround(becomes(readiness, DepStatus.Up))
+        _     <- IO.sleep(HealthCheckService.readinessValidFor)
+        stale <- readiness.readiness()
+      } yield stale shouldBe DepStatus.Down
     }
   }
 }

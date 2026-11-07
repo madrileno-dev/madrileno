@@ -4,7 +4,7 @@ import cats.effect.{Deferred, IO, Resource}
 import cats.syntax.all.*
 import io.circe.Json
 import madrileno.auth.domain.AuthContext
-import madrileno.healthcheck.services.HealthCheckService
+import madrileno.healthcheck.services.{HealthCheckService, PostgresProbe}
 import madrileno.support.{BaseRouteSpec, TestApplicationLoader, TestData}
 import madrileno.utils.db.transactor.PgConfig
 import org.http4s.circe.CirceEntityCodec.*
@@ -42,11 +42,22 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
     )
   }
 
+  private def readinessBecomes(status: Status): IO[Response[IO]] =
+    (IO.sleep(100.millis) *> get("/v1/health-check/readiness").map(_._2))
+      .iterateUntil(_.status == status)
+      .timeout(HealthCheckService.readinessValidFor * 2)
+
+  private def withLifecycles[A](test: IO[A]): A =
+    application.lifecycles.sequence_.surround(readinessBecomes(Status.Ok) *> test).unsafeRunSync()
+
   describe("While every pooled connection is busy") {
     it("readiness stays 200, since Postgres still answers, while an API call that can't get a connection answers 503 database-unavailable") {
-      val (readiness, liveness, api) = everyConnectionBusy
-        .surround((get("/v1/health-check/readiness"), get("/v1/health-check"), get("/v1/users/me", signedIn)).tupled)
-        .unsafeRunSync()
+      val (readiness, liveness, api) = withLifecycles(
+        everyConnectionBusy.surround(
+          IO.sleep(HealthCheckService.readinessInterval * 2) *>
+            (get("/v1/health-check/readiness"), get("/v1/health-check"), get("/v1/users/me", signedIn)).tupled
+        )
+      )
       readiness._2.status shouldBe Status.Ok
       readiness._1 should be < 1.second
       liveness._2.status shouldBe Status.Ok
@@ -57,18 +68,21 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
   }
 
   describe("While Postgres does not respond at all") {
-    it("readiness answers 503 within its timeout and liveness stays 200") {
-      val (readiness, liveness) = postgresPaused
-        .surround(IO.sleep(HealthCheckService.readinessReusedFor) *> (get("/v1/health-check/readiness"), get("/v1/health-check")).tupled)
-        .unsafeRunSync()
+    it(
+      "readiness turns 503 within a few seconds and answers at once while it does, liveness stays 200, and readiness recovers once Postgres responds again"
+    ) {
+      val (down, readiness, liveness, recovered) = withLifecycles(for {
+        (down, readiness, liveness) <-
+          postgresPaused.surround(
+            (readinessBecomes(Status.ServiceUnavailable).timed.map(_._1), get("/v1/health-check/readiness"), get("/v1/health-check")).tupled
+          )
+        recovered <- readinessBecomes(Status.Ok).timeout(30.seconds)
+      } yield (down, readiness, liveness, recovered))
+      down should be < HealthCheckService.readinessInterval + PostgresProbe.timeout + 2.seconds
       readiness._2.status shouldBe Status.ServiceUnavailable
-      readiness._1 should be < 3.seconds
+      readiness._1 should be < 1.second
       liveness._2.status shouldBe Status.Ok
-    }
-
-    it("readiness recovers once Postgres responds again") {
-      val recovered = (IO.sleep(300.millis) *> get("/v1/health-check/readiness").map(_._2.status)).iterateUntil(_ == Status.Ok).timeout(30.seconds)
-      recovered.unsafeRunSync() shouldBe Status.Ok
+      recovered.status shouldBe Status.Ok
     }
   }
 }

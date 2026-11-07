@@ -95,7 +95,7 @@ object PgTransactor {
   private def giveUp[A](waiting: Fiber[IO, Throwable, (A, IO[Unit])], tracer: Tracer[IO]): IO[Unit] =
     waiting.cancel *> waiting.join.flatMap(_.fold(IO.unit, _ => IO.unit, _.flatMap { case (_, release) => tracer.noopScope(release) }))
 
-  private val newConnectionReadTimeout = 10.seconds
+  private val newConnectionReadTimeout = 2.seconds
 
   private def builder(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Session.Builder[IO] =
     Session

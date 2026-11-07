@@ -7,7 +7,6 @@ import madrileno.utils.mailer.{MailSenderKind, MailerConfig}
 import madrileno.utils.observability.{LoggingSupport, TelemetryContext}
 
 import java.net.{InetSocketAddress, Socket}
-import scala.concurrent.duration.*
 
 class AdminHealthCheckService(
   postgresProbe: PostgresProbe,
@@ -17,11 +16,16 @@ class AdminHealthCheckService(
     extends LoggingSupport {
 
   def check(): IO[AdminHealthCheckDto] = {
-    (postgresProbe.check(within = 5.seconds), smtpCheck).parTupled.map { case (pg, smtp) =>
+    (postgresCheck, smtpCheck).parTupled.map { case (pg, smtp) =>
       val overall = if (List(pg, smtp).forall(dep => dep.status != DepStatus.Down)) DepStatus.Up else DepStatus.Down
       AdminHealthCheckDto(overall, pg, smtp)
     }
   }
+
+  private def postgresCheck: IO[DepCheck] =
+    postgresProbe.check.flatTap { pg =>
+      logger.error(s"Postgres health check failed: ${pg.error.getOrElse("no reason given")}").whenA(pg.status == DepStatus.Down)
+    }
 
   private val smtpConnectTimeoutMs = 2000
 

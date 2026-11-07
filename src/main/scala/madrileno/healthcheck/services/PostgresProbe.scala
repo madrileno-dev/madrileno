@@ -4,28 +4,26 @@ import cats.effect.{Clock, IO}
 import madrileno.healthcheck.repositories.HealthCheckRepository
 import madrileno.healthcheck.routers.dto.{DepCheck, DepStatus}
 import madrileno.utils.db.transactor.Transactor
-import madrileno.utils.observability.{LoggingSupport, TelemetryContext}
 
 import java.util.concurrent.TimeoutException
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration.*
 
 class PostgresProbe(
   healthCheckRepository: HealthCheckRepository,
   transactor: Transactor,
-  clock: Clock[IO]
-)(using TelemetryContext)
-    extends LoggingSupport {
+  clock: Clock[IO]) {
 
-  def check(within: FiniteDuration): IO[DepCheck] =
-    IO.uncancelable { poll =>
-      clock.timed(transactor.inNewConnection(healthCheckRepository.version())).start.flatMap { probe =>
-        poll(
-          probe.joinWithNever.timeoutTo(within, probe.cancel.start *> IO.raiseError(new TimeoutException(s"Postgres did not answer within $within")))
-        )
-          .onCancel(probe.cancel.start.void)
-      }
-    }.map { case (rtt, _) => DepCheck(DepStatus.Up, Some(rtt.toMillis), None) }
-      .handleErrorWith { t =>
-        logger.error(t)("Postgres health check failed").as(DepCheck(DepStatus.Down, None, Some(t.getMessage)))
-      }
+  def check: IO[DepCheck] =
+    clock
+      .timed(
+        transactor
+          .inNewConnection(healthCheckRepository.version())
+          .timeoutTo(PostgresProbe.timeout, IO.raiseError(new TimeoutException(s"no answer within ${PostgresProbe.timeout}")))
+      )
+      .map { case (rtt, _) => DepCheck(DepStatus.Up, Some(rtt.toMillis), None) }
+      .handleError(t => DepCheck(DepStatus.Down, None, Some(Option(t.getMessage).getOrElse(t.getClass.getSimpleName))))
+}
+
+object PostgresProbe {
+  val timeout: FiniteDuration = 2.seconds
 }
