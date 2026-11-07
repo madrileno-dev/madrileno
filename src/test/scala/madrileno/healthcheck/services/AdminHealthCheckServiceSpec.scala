@@ -20,7 +20,7 @@ class AdminHealthCheckServiceSpec extends AsyncWordSpec with AsyncIOSpec with Ma
   given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
   private def closedPort: Int = {
-    val socket = new ServerSocket(0);
+    val socket = new ServerSocket(0)
     try socket.getLocalPort
     finally socket.close()
   }
