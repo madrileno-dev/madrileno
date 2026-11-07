@@ -50,20 +50,18 @@ class PgConfigSpec extends AnyWordSpec with Matchers {
       base.acquireTimeout shouldBe 5.seconds
       base.statementTimeout shouldBe 30.seconds
       base.idleInTransactionTimeout shouldBe 1.minute
-      base.operationTimeout shouldBe 1.minute
     }
 
     "read the pool size and the timeouts from the pg block" in {
       val config = ConfigSource
         .string(
-          """host = "h", user = "u", database = "d", max = 3, acquire-timeout = 250ms, statement-timeout = 2s, idle-in-transaction-timeout = Inf, operation-timeout = 10m"""
+          """host = "h", user = "u", database = "d", max = 3, acquire-timeout = 250ms, statement-timeout = 2s, idle-in-transaction-timeout = Inf"""
         )
         .loadOrThrow[PgConfig]
       config.max shouldBe 3
       config.acquireTimeout shouldBe 250.millis
       config.statementTimeout shouldBe 2.seconds
       config.idleInTransactionTimeout shouldBe Duration.Inf
-      config.operationTimeout shouldBe 10.minutes
     }
   }
 
@@ -85,25 +83,15 @@ class PgConfigSpec extends AnyWordSpec with Matchers {
       config.acquireTimeout shouldBe 5.seconds
       config.statementTimeout shouldBe 30.seconds
       config.idleInTransactionTimeout shouldBe 1.minute
-      config.operationTimeout shouldBe 1.minute
     }
 
     "take the pool size and the timeouts from the environment" in {
       val config =
-        load(
-          Map(
-            "PG_POOL_SIZE"                   -> "25",
-            "PG_ACQUIRE_TIMEOUT"             -> "2s",
-            "PG_STATEMENT_TIMEOUT"           -> "2m",
-            "PG_IDLE_IN_TRANSACTION_TIMEOUT" -> "Inf",
-            "PG_OPERATION_TIMEOUT"           -> "5m"
-          )
-        )
+        load(Map("PG_POOL_SIZE" -> "25", "PG_ACQUIRE_TIMEOUT" -> "2s", "PG_STATEMENT_TIMEOUT" -> "2m", "PG_IDLE_IN_TRANSACTION_TIMEOUT" -> "Inf"))
       config.max shouldBe 25
       config.acquireTimeout shouldBe 2.seconds
       config.statementTimeout shouldBe 2.minutes
       config.idleInTransactionTimeout shouldBe Duration.Inf
-      config.operationTimeout shouldBe 5.minutes
     }
   }
 }
