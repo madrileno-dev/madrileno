@@ -48,18 +48,22 @@ trait TestApplicationLoader extends TestContainersForAll with TestMailpit { self
 
   protected def rateLimiterRuntime: RateLimiterRuntime = TestRateLimiterRuntime.unbounded
 
+  protected def testPgConfig(config: PgConfig): PgConfig = config
+
   protected def testAuthVerifiers: AuthVerifiers =
     AuthVerifiers(
       Map(Provider.Firebase -> FakeAuthVerifier(firebaseToken), Provider("test-oidc") -> FakeAuthVerifier(oidcToken), Provider.Dev -> DevAuthVerifier)
     )
 
   lazy val application: ApplicationLoader = withContainers { container =>
-    val pgConfig = PgConfig(
-      host = container.host,
-      port = container.mappedPort(5432),
-      user = container.username,
-      database = container.databaseName,
-      password = Some(container.password)
+    val pgConfig = testPgConfig(
+      PgConfig(
+        host = container.host,
+        port = container.mappedPort(5432),
+        user = container.username,
+        database = container.databaseName,
+        password = Some(container.password)
+      )
     )
     // Finalizers discarded — pool and HTTP client lifetime is tied to the Testcontainers PG container.
     // Releasing in afterAll causes broken-pipe errors because ScalaTest's afterAll ordering
