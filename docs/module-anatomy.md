@@ -68,7 +68,7 @@ A `LifecycleProvider` contribution is a `Resource[IO, Unit]` — acquire at boot
 
 Acquisition starts a lifecycle; it does not wait for it to become *ready*. A `.background` contribution forks its fiber and returns immediately, so the server can bind before, say, an event-bus subscription has actually registered. Treat lifecycles as fail-open: the feature-flag invalidation tolerates a brief startup window where a peer update is missed and the cache falls back to its TTL. If a contribution genuinely must be ready before boot proceeds, encode that wait in the `Resource`'s acquire step rather than assuming acquisition implies readiness.
 
-A module mixes in only what it contributes. The auction module mixes in six providers; `HealthCheckModule` mixes in only `RouteProvider`.
+A module mixes in only what it contributes. The auction module mixes in six providers; `HealthCheckModule` mixes in only `RouteProvider` and `LifecycleProvider`, the latter for the readiness check's background loop.
 
 ## Dependencies
 

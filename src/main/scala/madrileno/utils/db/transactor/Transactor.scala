@@ -26,6 +26,8 @@ trait Transactor {
     */
   def inSession[A](f: DB[A]): IO[A]
 
+  def inNewConnection[A](f: DB[A]): IO[A] = inSession(f)
+
   def notify(channel: Identifier, payload: String): IO[Unit]
 
   def listen(channel: Identifier, maxQueued: Int): Resource[IO, Stream[IO, Notification[String]]]

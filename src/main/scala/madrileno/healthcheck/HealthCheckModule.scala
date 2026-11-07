@@ -1,27 +1,29 @@
 package madrileno.healthcheck
 
-import cats.effect.{Clock, IO}
+import cats.effect.{Clock, IO, Resource}
 import com.softwaremill.macwire.*
 import madrileno.healthcheck.repositories.HealthCheckRepository
 import madrileno.healthcheck.routers.{AdminHealthCheckRouter, HealthCheckRouter}
-import madrileno.healthcheck.services.{AdminHealthCheckService, HealthCheckService}
+import madrileno.healthcheck.services.{AdminHealthCheckService, HealthCheckService, PostgresProbe}
 import madrileno.main.AppConfig
 import madrileno.utils.db.transactor.Transactor
 import madrileno.utils.http.RouteProvider
+import madrileno.utils.lifecycle.LifecycleProvider
 import madrileno.utils.mailer.MailerConfig
 import madrileno.utils.observability.TelemetryContext
 import pl.iterators.stir.server.Route
 
-trait HealthCheckModule extends RouteProvider {
+trait HealthCheckModule extends RouteProvider with LifecycleProvider {
   lazy val appConfig: AppConfig
   val transactor: Transactor
   val clock: Clock[IO]
   protected def mailerConfig: MailerConfig
   given telemetryContext: TelemetryContext
 
+  private val healthCheckRepository   = wire[HealthCheckRepository]
+  private val postgresProbe           = wire[PostgresProbe]
   private val healthCheckService      = wire[HealthCheckService]
   private val healthCheckRouter       = wire[HealthCheckRouter]
-  private val healthCheckRepository   = wire[HealthCheckRepository]
   private val adminHealthCheckService = wire[AdminHealthCheckService]
   private val adminHealthCheckRouter  = wire[AdminHealthCheckRouter]
 
@@ -30,4 +32,8 @@ trait HealthCheckModule extends RouteProvider {
       healthCheckRouter.routes
 
   def adminRoute: Route = adminHealthCheckRouter.routes
+
+  override abstract def lifecycles: List[Resource[IO, Unit]] = {
+    super.lifecycles :+ healthCheckService.readinessLifecycle
+  }
 }
