@@ -22,7 +22,10 @@ class HealthCheckService(appConfig: AppConfig, postgresProbe: PostgresProbe)(usi
     }
 
   val readinessLifecycle: Resource[IO, Unit] =
-    (postgresProbe.check.flatMap(record) *> IO.sleep(HealthCheckService.readinessInterval)).foreverM.background.void
+    (checkReadiness *> IO.sleep(HealthCheckService.readinessInterval)).foreverM.background.void
+
+  private def checkReadiness: IO[Unit] =
+    summon[TelemetryContext].tracer.noopScope(postgresProbe.check).flatMap(record)
 
   private def record(check: DepCheck): IO[Unit] =
     IO.monotonic.flatMap { now =>
