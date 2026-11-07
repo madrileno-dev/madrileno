@@ -47,7 +47,7 @@ class SchedulerTracingSpec extends AsyncWordSpec with AsyncIOSpec with Matchers 
         recorder <- RecordingTracer.create
         spans    <- tracedTransactor(recorder.tracerProvider).use { tx =>
                    Scheduler(tx, config)(using Clock[IO], recorder.context).run().use { _ =>
-                     IO.sleep(600.millis) *> recorder.spans
+                     awaitSpan(recorder, "scheduler.sweep") *> IO.sleep(300.millis) *> recorder.spans
                    }
                  }
       } yield {

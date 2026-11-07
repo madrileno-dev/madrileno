@@ -1,6 +1,7 @@
 package madrileno.utils.http
 
 import io.circe.DecodingFailure
+import madrileno.utils.db.transactor.DatabaseUnavailable
 import madrileno.utils.observability.{LoggingSupport, TelemetryContext}
 import org.http4s.headers.{Allow, `WWW-Authenticate`}
 import org.http4s.otel4s.middleware.instances.all.*
@@ -67,27 +68,39 @@ trait Handlers extends LoggingSupport with BaseRouter {
           (),
           loggingDirective
         )
+      case e @ DatabaseUnavailable() =>
+        serverError(
+          e,
+          ServiceUnavailable,
+          "error:database-unavailable",
+          "The database is not available right now",
+          "Database unavailable",
+          loggingDirective
+        )
       case e: Exception =>
-        loggingDirective & complete {
-          for {
-            spanContext <- tc.tracer.currentSpanContext
-            headers     <- tc.tracer.propagate(Headers.empty)
-            _           <- logger.error(e)(s"Internal error, trace-id: ${spanContext.map(_.traceIdHex).getOrElse("000")}\n${e.getMessage}")
-          } yield {
-            (
-              InternalServerError,
-              headers,
-              Error(
-                Some(new URI("error:internal-error")),
-                Some(InternalServerError),
-                Some("Internal error"),
-                None,
-                spanContext.map(c => new URI(s"trace-id:${c.traceIdHex}")),
-                ()
-              )
-            )
-          }
-        }
+        serverError(e, InternalServerError, "error:internal-error", "Internal error", "Internal error", loggingDirective)
+    }
+
+  private def serverError(
+    e: Throwable,
+    status: Status,
+    typeTag: String,
+    title: String,
+    logPrefix: String,
+    loggingDirective: Directive0
+  )(using
+    tc: TelemetryContext
+  ) =
+    loggingDirective & complete {
+      for {
+        spanContext <- tc.tracer.currentSpanContext
+        headers     <- tc.tracer.propagate(Headers.empty)
+        _           <- logger.error(e)(s"$logPrefix, trace-id: ${spanContext.map(_.traceIdHex).getOrElse("000")}\n${e.getMessage}")
+      } yield (
+        status,
+        headers,
+        Error(Some(new URI(typeTag)), Some(status), Some(title), None, spanContext.map(c => new URI(s"trace-id:${c.traceIdHex}")), ())
+      )
     }
 
   def rejectionHandler(loggingDirective: Directive0)(using TelemetryContext): RejectionHandler =

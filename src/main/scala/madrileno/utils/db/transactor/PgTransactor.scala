@@ -1,6 +1,7 @@
 package madrileno.utils.db.transactor
 
-import cats.effect.{IO, Resource}
+import cats.effect.std.Supervisor
+import cats.effect.{Fiber, IO, Outcome, Resource}
 import fs2.Stream
 import org.typelevel.otel4s.metrics.MeterProvider
 import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
@@ -8,15 +9,31 @@ import skunk.*
 import skunk.Session.Credentials
 import skunk.codec.all.text
 import skunk.data.{Identifier, Notification, Type}
+import skunk.exception.EofException
 import skunk.implicits.*
 
-class PgTransactor(sessions: Resource[IO, Session[IO]]) extends Transactor {
+import scala.concurrent.duration.{Duration, FiniteDuration}
+
+class PgTransactor(sessions: Resource[IO, Session[IO]], idleInTransactionTimeout: Duration = Duration.Inf) extends Transactor {
 
   override def inTransaction[A](f: DBInTransaction[A]): IO[A] =
     sessions.use { session =>
-      session.transaction.use { transaction =>
-        f(using session)(using transaction)
+      IO.monotonic.flatMap { started =>
+        session.transaction
+          .use { transaction =>
+            f(using session)(using transaction)
+          }
+          .handleErrorWith {
+            case eof: EofException => IO.monotonic.flatMap(now => IO.raiseError(endedWhileIdle(now - started, eof)))
+            case other             => IO.raiseError(other)
+          }
       }
+    }
+
+  private def endedWhileIdle(elapsed: FiniteDuration, eof: EofException): Throwable =
+    idleInTransactionTimeout match {
+      case timeout: FiniteDuration if elapsed >= timeout => new TransactionEndedWhileIdle(timeout, eof)
+      case _                                             => eof
     }
 
   override def inSession[A](f: DB[A]): IO[A] =
@@ -37,12 +54,35 @@ object PgTransactor {
 
   def resource(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, PgTransactor] =
     for {
-      tracer <- Resource.eval(TracerProvider[IO].get("madrileno.utils.db.transactor"))
-      pool   <- pooled(pgConfig)
-    } yield new PgTransactor(withQuietRecycling(pool, tracer))
+      tracer  <- Resource.eval(TracerProvider[IO].get("madrileno.utils.db.transactor"))
+      pool    <- pooled(pgConfig)
+      giveUps <- Supervisor[IO](await = true)
+    } yield new PgTransactor(bounded(pool, pgConfig.acquireTimeout, tracer, giveUps), pgConfig.idleInTransactionTimeout)
 
-  private def withQuietRecycling(sessions: Resource[IO, Session[IO]], tracer: Tracer[IO]): Resource[IO, Session[IO]] =
-    Resource.make(sessions.allocated) { case (_, release) => tracer.noopScope(release) }.map(_._1)
+  private[transactor] def bounded[A](
+    resource: Resource[IO, A],
+    acquireTimeout: Duration,
+    tracer: Tracer[IO],
+    giveUps: Supervisor[IO]
+  ): Resource[IO, A] =
+    Resource
+      .makeFull[IO, (A, IO[Unit])] { poll =>
+        resource.allocated.start.flatMap { waiting =>
+          val handedOver = acquireTimeout match {
+            case timeout: FiniteDuration =>
+              waiting.joinWithNever.timeoutTo(timeout, IO.raiseError(new DatabaseUnavailable(s"No database connection became free within $timeout")))
+            case _ => waiting.joinWithNever
+          }
+          poll(handedOver).guaranteeCase {
+            case Outcome.Succeeded(_) => IO.unit
+            case _                    => giveUps.supervise(giveUp(waiting, tracer)).void
+          }
+        }
+      } { case (_, release) => tracer.noopScope(release) }
+      .map(_._1)
+
+  private def giveUp[A](waiting: Fiber[IO, Throwable, (A, IO[Unit])], tracer: Tracer[IO]): IO[Unit] =
+    waiting.cancel *> waiting.join.flatMap(_.fold(IO.unit, _ => IO.unit, _.flatMap { case (_, release) => tracer.noopScope(release) }))
 
   private def pooled(pgConfig: PgConfig)(using TracerProvider[IO], MeterProvider[IO]): Resource[IO, Resource[IO, Session[IO]]] =
     Session
@@ -57,7 +97,7 @@ object PgTransactor {
         case PgConfigSSL.Trusted => SSL.Trusted
         case PgConfigSSL.System  => SSL.System
       })
-      .withConnectionParameters(pgConfig.parameters)
+      .withConnectionParameters(pgConfig.connectionParameters)
       .withCommandCacheSize(pgConfig.commandCache)
       .withQueryCacheSize(pgConfig.queryCache)
       .withParseCacheSize(pgConfig.parseCache)
