@@ -26,8 +26,6 @@ trait Transactor {
     */
   def inSession[A](f: DB[A]): IO[A]
 
-  /** Runs `f` on a connection of its own, opened for it and closed after, so it neither waits for nor takes a pooled one. Meant for health checks.
-    */
   def inNewConnection[A](f: DB[A]): IO[A] = inSession(f)
 
   def notify(channel: Identifier, payload: String): IO[Unit]
