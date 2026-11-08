@@ -1,6 +1,7 @@
 package madrileno.main
 
 import cats.effect.std.{SecureRandom, Supervisor}
+import cats.effect.unsafe.IORuntimeConfig
 import cats.effect.{Clock, IO, IOApp, Resource}
 import cats.syntax.all.*
 import io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender
@@ -9,6 +10,7 @@ import madrileno.utils.db.Migrations
 import madrileno.utils.db.transactor.{PgConfig, PgTransactor}
 import madrileno.utils.events.bus.EventBusRuntime
 import madrileno.utils.http.{Cors, CorsConfig, RateLimiterRuntime}
+import madrileno.utils.lifecycle.releasedWithin
 import madrileno.utils.observability.{LoggingSupport, TelemetryContext}
 import madrileno.utils.resilience.CircuitBreakerRuntime
 import madrileno.utils.storage.{ObjectStoreRuntime, StorageConfig}
@@ -27,7 +29,19 @@ import pl.iterators.stir.server.ToHttpRoutes
 import pureconfig.*
 import sttp.client4.httpclient.fs2.HttpClientFs2Backend
 
+import scala.concurrent.duration.*
+
 object Main extends IOApp.Simple with LoggingSupport {
+  private val releaseTimeout = 10.seconds
+  private val exitAfterDrain = 15.seconds
+  private val haltHeadroom   = 1.second
+
+  override protected lazy val runtimeConfig: IORuntimeConfig =
+    super.runtimeConfig.copy(shutdownHookTimeout = shutdownHookTimeout(ConfigSource.default))
+
+  private[main] def shutdownHookTimeout(config: ConfigSource): Duration =
+    config.at("http.shutdown-timeout").load[FiniteDuration].fold(_ => Duration.Inf, _ + exitAfterDrain - haltHeadroom)
+
   override def run: IO[Unit] =
     (for {
       config    <- Resource.eval(IO.delay(ConfigSource.default))
@@ -40,39 +54,12 @@ object Main extends IOApp.Simple with LoggingSupport {
       given Meter[IO] <- Resource.eval(summon[MeterProvider[IO]].get(appConfig.name))
       given TelemetryContext = TelemetryContext(Meter[IO], Tracer[IO], otel.underlying)
       _                      = OpenTelemetryAppender.install(otel.underlying)
-      httpClient <- HttpClientFs2Backend.resource[IO]()
-      pgConfig   <- Resource.eval(IO.delay(config.at("pg").loadOrThrow[PgConfig]))
-      transactor <- PgTransactor.resource(pgConfig)
-      _          <- Resource.eval(IO.whenA(appConfig.environment == Environment.Dev)(Migrations.warnIfPending(pgConfig)))
-      clock = Clock[IO]
-      schedulerConfig <- Resource.eval(IO.delay(config.at("scheduler").loadOrThrow[SchedulerConfig]))
-      scheduler    = Scheduler(transactor, schedulerConfig)
-      cacheRuntime = CacheRuntime.scaffeine
-      trustedProxies <- Resource.eval(IO.delay(RateLimiterRuntime.parseTrustedProxies(config.at("rate-limit.trusted-proxies").loadOrThrow[String])))
-      rateLimiterRuntime = RateLimiterRuntime.scaffeine(trustedProxies = trustedProxies)
-      storageConfig          <- Resource.eval(IO.delay(config.at("storage").loadOrThrow[StorageConfig]))
-      _                      <- Resource.eval(logger.info(s"Object storage: ${storageConfig.summary}"))
-      objectStoreRuntime     <- ObjectStoreRuntime.fromConfig(storageConfig)
-      given Supervisor[IO]   <- Supervisor[IO]
-      given SecureRandom[IO] <- Resource.eval(SecureRandom.javaSecuritySecureRandom[IO])
-      eventBusRuntime       = EventBusRuntime.postgres(transactor)
-      circuitBreakerRuntime = CircuitBreakerRuntime.default
-      application           =
-        ApplicationLoader(
-          config,
-          httpClient,
-          transactor,
-          clock,
-          scheduler.client,
-          cacheRuntime,
-          rateLimiterRuntime,
-          objectStoreRuntime,
-          eventBusRuntime,
-          circuitBreakerRuntime,
-          runtime
-        )
-      _ <- scheduler.run(recurringTasks = application.recurringTasks, oneTimeTasks = application.oneTimeTasks, customTasks = application.customTasks)
-      _ <- application.lifecycles.sequence_
+      application <- services(config, appConfig).releasedWithin(
+                       releaseTimeout,
+                       loggerWithoutTracing.warn(
+                         s"Shutdown gave up waiting $releaseTimeout for the scheduler, database pool and background work to stop; exiting anyway"
+                       )
+                     )
       metricsOps <- OtelMetrics.serverMetricsOps[IO]().toResource
       redactor        = new QueryRedactor.NeverRedact with PathRedactor.NeverRedact
       routeClassifier = new RouteClassifier {
@@ -111,9 +98,59 @@ object Main extends IOApp.Simple with LoggingSupport {
                corsPolicy.fold(httpApp)(_(httpApp))
              }
              .build
+      _ <-
+        Resource.onFinalize(
+          loggerWithoutTracing.info(
+            s"Shutting down: the process exits within ${application.httpConfig.shutdownTimeout + exitAfterDrain} whatever is still running (drain window ${application.httpConfig.shutdownTimeout}, then up to $releaseTimeout for the scheduler, database pool and background work)"
+          )
+        )
     } yield application)
       .use { _ =>
         IO.never
       }
       .onError { case e => loggerWithoutTracing.error(e)("Application stopped with an error") }
+
+  private def services(
+    config: ConfigObjectSource,
+    appConfig: AppConfig
+  )(using
+    TracerProvider[IO],
+    MeterProvider[IO],
+    TelemetryContext
+  ): Resource[IO, ApplicationLoader] =
+    for {
+      httpClient <- HttpClientFs2Backend.resource[IO]()
+      pgConfig   <- Resource.eval(IO.delay(config.at("pg").loadOrThrow[PgConfig]))
+      transactor <- PgTransactor.resource(pgConfig)
+      _          <- Resource.eval(IO.whenA(appConfig.environment == Environment.Dev)(Migrations.warnIfPending(pgConfig)))
+      clock = Clock[IO]
+      schedulerConfig <- Resource.eval(IO.delay(config.at("scheduler").loadOrThrow[SchedulerConfig]))
+      scheduler    = Scheduler(transactor, schedulerConfig)
+      cacheRuntime = CacheRuntime.scaffeine
+      trustedProxies <- Resource.eval(IO.delay(RateLimiterRuntime.parseTrustedProxies(config.at("rate-limit.trusted-proxies").loadOrThrow[String])))
+      rateLimiterRuntime = RateLimiterRuntime.scaffeine(trustedProxies = trustedProxies)
+      storageConfig          <- Resource.eval(IO.delay(config.at("storage").loadOrThrow[StorageConfig]))
+      _                      <- Resource.eval(logger.info(s"Object storage: ${storageConfig.summary}"))
+      objectStoreRuntime     <- ObjectStoreRuntime.fromConfig(storageConfig)
+      given Supervisor[IO]   <- Supervisor[IO]
+      given SecureRandom[IO] <- Resource.eval(SecureRandom.javaSecuritySecureRandom[IO])
+      eventBusRuntime       = EventBusRuntime.postgres(transactor)
+      circuitBreakerRuntime = CircuitBreakerRuntime.default
+      application           =
+        ApplicationLoader(
+          config,
+          httpClient,
+          transactor,
+          clock,
+          scheduler.client,
+          cacheRuntime,
+          rateLimiterRuntime,
+          objectStoreRuntime,
+          eventBusRuntime,
+          circuitBreakerRuntime,
+          runtime
+        )
+      _ <- scheduler.run(recurringTasks = application.recurringTasks, oneTimeTasks = application.oneTimeTasks, customTasks = application.customTasks)
+      _ <- application.lifecycles.sequence_
+    } yield application
 }

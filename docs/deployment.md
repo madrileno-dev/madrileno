@@ -123,23 +123,24 @@ On `SIGTERM` the app drains in-flight requests before exiting — rolling deploy
 
 What happens, in order:
 
-1. The JVM receives `SIGTERM`.
+1. The JVM receives `SIGTERM`, and the app logs `Shutting down: …` with the longest it will take to exit and the limits below.
 2. `IOApp.Simple` cancels the main fiber. The cancel propagates through the `Resource.use { IO.never }` in `Main.scala`.
-3. `Resource` finalizers run in reverse acquire order. So shutdown is **server → scheduler → object store → DB transactor → OTel SDK** — exactly the inverse of how they were started.
+3. `Resource` finalizers run in reverse acquire order. So shutdown is **server → lifecycles → scheduler → background fibers → object store → DB transactor → HTTP client → OTel SDK** — exactly the inverse of how they were started.
 4. The Ember HTTP server's release:
    - Stops accepting new connections (new requests get `Connection refused`).
    - Waits up to `http.shutdown-timeout` (default `30s`) for in-flight requests to complete.
    - Any request still in flight after the timeout is force-closed.
-5. The scheduler stops polling for new task rows. Tasks already executing run to their next checkpoint.
-6. The DB transactor closes the connection pool.
-7. The OpenTelemetry SDK's shutdown is called — this flushes pending exporter batches (traces, metrics, logs).
+   - Before the server's release returns, requests force-closed this way finish their own cleanup: an open transaction rolls back and its connection goes back to the pool. Against a slow database each of those steps is a round trip, so this can run past the drain window.
+5. The lifecycles stop, the scheduler stops polling and cancels the tasks it is running, the background fibers stop (among them the Postgres event bus's `LISTEN` loop), the object store closes, the DB transactor closes the connection pool, and the HTTP client closes. Together these get 10 seconds (`releaseTimeout` in `Main.scala`). Against a database that answers slowly they can take far longer: the `LISTEN` loop sends `UNLISTEN`, every connection handed back to the pool is reset, and Skunk closes every prepared statement each pooled connection has cached, one round trip at a time. If they aren't done in time, the app logs `Shutdown gave up waiting 10 seconds …` and moves on; whatever is still open goes away with the process, as with a `kill -9`.
+6. The OpenTelemetry SDK's shutdown is called — this flushes pending exporter batches (traces, metrics, logs).
+7. Whatever is still running then, the process exits within the drain window plus 15 seconds of `SIGTERM` (Cats Effect's `shutdownHookTimeout`, set from `http.shutdown-timeout` in `Main.scala`): requests that outlived the drain, the 10-second release and the flush all have to fit in that, and whatever doesn't is cut off without a further log line. So when force-closed requests take long to clean up, the step-5 warning may never appear; the `Shutting down: …` line from step 1 is the one to look for.
 
-Configure the drain window with `HTTP_SHUTDOWN_TIMEOUT` (HOCON `http.shutdown-timeout`). Pick something a little longer than your worst-case request — for an app that serves p99 = 5s requests, `30s` is plenty. For long-polling or streaming endpoints, raise it. Whatever sends the `SIGTERM` has a "give the process this long to exit" knob (`docker stop --time`, systemd `TimeoutStopSec`, k8s `terminationGracePeriodSeconds`); set it to at least the same value — otherwise it'll `SIGKILL` mid-drain.
+Configure the drain window with `HTTP_SHUTDOWN_TIMEOUT` (HOCON `http.shutdown-timeout`). Pick something a little longer than your worst-case request — for an app that serves p99 = 5s requests, `30s` is plenty. For long-polling or streaming endpoints, raise it. Whatever sends the `SIGTERM` has a "give the process this long to exit" knob (`docker stop --time`, systemd `TimeoutStopSec`, k8s `terminationGracePeriodSeconds`); set it to a little more than the drain window plus 15 seconds, the longest the process takes to exit — otherwise it'll `SIGKILL` mid-drain.
 
 What's NOT done out of the box:
 
-- **In-flight scheduler tasks** are hard-canceled with the rest of the resource graph (whatever cats-effect cancellation lets them complete). If you have long-running tasks that need to checkpoint, they should do so frequently rather than relying on a graceful interrupt.
-- **OTel exporter flush timeout** is whatever the SDK defaults to. If you're seeing dropped traces at shutdown, configure `OTEL_BSP_EXPORT_TIMEOUT` (env var) higher.
+- **In-flight scheduler tasks** are hard-canceled with the rest of the resource graph (whatever cats-effect cancellation lets them complete). They stay marked as picked until their last heartbeat is `heartbeat-interval` × `missed-heartbeat-limit` old (30 minutes by default) and the scheduler's next dead-execution check hands them out again. If you have long-running tasks that need to checkpoint, they should do so frequently rather than relying on a graceful interrupt.
+- **OTel flush** gets whatever is left of the drain window plus 15 seconds after the drain, the force-closed requests and the release; the SDK's own export timeout (`OTEL_BSP_EXPORT_TIMEOUT`, 30 s by default) is already longer, so raising it doesn't help. If you're seeing dropped traces at shutdown, look at what keeps the drain or the release slow.
 
 ## Health checks
 

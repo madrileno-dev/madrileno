@@ -24,7 +24,11 @@ object AppMain {
     finish(Launcher.start(system(requireEnv = true, timeout = timeout), compileFirst = !noCompile.value, migrateFirst = !noMigrate.value))
 
   @main(doc = "Stop the app this launcher started: SIGTERM, then SIGKILL after the grace period.")
-  def stop(@arg(doc = "seconds to wait for a clean exit (default 35, above the app's HTTP_SHUTDOWN_TIMEOUT)") grace: Int = 35): Unit =
+  def stop(
+    @arg(doc =
+      "seconds to wait for a clean exit (default 50, above the default HTTP_SHUTDOWN_TIMEOUT plus 15; raise it with a longer drain)"
+    ) grace: Int = 50
+  ): Unit =
     finish(Launcher.stop(system(requireEnv = false, grace = grace)))
 
   @main(doc = "Stop, then start.")
@@ -32,7 +36,7 @@ object AppMain {
     @arg(doc = "seconds to wait for the health check (default 60)") timeout: Int = 60,
     @arg(name = "no-compile", doc = "skip `sbt --client compile`") noCompile: Flag,
     @arg(name = "no-migrate", doc = "skip `migrate` before starting") noMigrate: Flag,
-    @arg(doc = "seconds to wait for a clean exit (default 35)") grace: Int = 35
+    @arg(doc = "seconds to wait for a clean exit (default 50)") grace: Int = 50
   ): Unit =
     finish(
       Launcher
@@ -66,7 +70,7 @@ object AppMain {
   private def system(
     requireEnv: Boolean,
     timeout: Int = 60,
-    grace: Int = 35
+    grace: Int = 50
   ): RealSystem = {
     if (!os.isFile(root / "build.sbt")) fail("run this from the project root (no build.sbt here)")
     val envFile = root / ".env"
