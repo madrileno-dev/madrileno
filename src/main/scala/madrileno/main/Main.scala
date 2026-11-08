@@ -33,11 +33,12 @@ import scala.concurrent.duration.*
 
 object Main extends IOApp.Simple with LoggingSupport {
   private val releaseTimeout = 10.seconds
-  private val flushTimeout   = 5.seconds
+  private val exitAfterDrain = 15.seconds
 
   override protected lazy val runtimeConfig: IORuntimeConfig =
-    super.runtimeConfig
-      .copy(shutdownHookTimeout = ConfigSource.default.at("http.shutdown-timeout").loadOrThrow[FiniteDuration] + releaseTimeout + flushTimeout)
+    super.runtimeConfig.copy(shutdownHookTimeout =
+      ConfigSource.default.at("http.shutdown-timeout").load[FiniteDuration].fold(_ => Duration.Inf, _ + exitAfterDrain - 1.second)
+    )
 
   override def run: IO[Unit] =
     (for {
@@ -95,6 +96,12 @@ object Main extends IOApp.Simple with LoggingSupport {
                corsPolicy.fold(httpApp)(_(httpApp))
              }
              .build
+      _ <-
+        Resource.onFinalize(
+          loggerWithoutTracing.info(
+            s"Shutting down: in-flight requests get up to ${application.httpConfig.shutdownTimeout}, the scheduler, database pool and background work up to $releaseTimeout, and the process exits ${application.httpConfig.shutdownTimeout + exitAfterDrain} after this at the latest"
+          )
+        )
     } yield application)
       .use { _ =>
         IO.never
