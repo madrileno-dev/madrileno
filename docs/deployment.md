@@ -123,7 +123,7 @@ On `SIGTERM` the app drains in-flight requests before exiting — rolling deploy
 
 What happens, in order:
 
-1. The JVM receives `SIGTERM`, and the app logs `Shutting down: …` with the limits below and the time by which it will have exited.
+1. The JVM receives `SIGTERM`, and the app logs `Shutting down: …` with the longest it will take to exit and the limits below.
 2. `IOApp.Simple` cancels the main fiber. The cancel propagates through the `Resource.use { IO.never }` in `Main.scala`.
 3. `Resource` finalizers run in reverse acquire order. So shutdown is **server → lifecycles → scheduler → background fibers → object store → DB transactor → HTTP client → OTel SDK** — exactly the inverse of how they were started.
 4. The Ember HTTP server's release:
@@ -139,7 +139,7 @@ Configure the drain window with `HTTP_SHUTDOWN_TIMEOUT` (HOCON `http.shutdown-ti
 
 What's NOT done out of the box:
 
-- **In-flight scheduler tasks** are hard-canceled with the rest of the resource graph (whatever cats-effect cancellation lets them complete). They stay marked as picked until the scheduler's dead-execution check hands them out again, after `heartbeat-interval` × `missed-heartbeat-limit` (30 minutes by default). If you have long-running tasks that need to checkpoint, they should do so frequently rather than relying on a graceful interrupt.
+- **In-flight scheduler tasks** are hard-canceled with the rest of the resource graph (whatever cats-effect cancellation lets them complete). They stay marked as picked until their last heartbeat is `heartbeat-interval` × `missed-heartbeat-limit` old (30 minutes by default) and the scheduler's next dead-execution check hands them out again. If you have long-running tasks that need to checkpoint, they should do so frequently rather than relying on a graceful interrupt.
 - **OTel flush** gets whatever is left of the drain window plus 15 seconds after the drain, the force-closed requests and the release; the SDK's own export timeout (`OTEL_BSP_EXPORT_TIMEOUT`, 30 s by default) is already longer, so raising it doesn't help. If you're seeing dropped traces at shutdown, look at what keeps the drain or the release slow.
 
 ## Health checks
