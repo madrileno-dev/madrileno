@@ -358,7 +358,7 @@ Starts, stops and inspects the app as a process of its own, outside the sbt serv
 ./scripts/app.scala restart              # after a code or .env change
 ./scripts/app.scala status               # exit 0 when the app it started answers
 ./scripts/app.scala logs --lines 100     # the end of the newest file in logs/
-./scripts/app.scala stop                 # SIGTERM, then SIGKILL after --grace seconds (default 35)
+./scripts/app.scala stop                 # SIGTERM, then SIGKILL after --grace seconds (default 50)
 ```
 
 ### How it works

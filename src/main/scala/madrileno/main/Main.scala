@@ -1,6 +1,7 @@
 package madrileno.main
 
 import cats.effect.std.{SecureRandom, Supervisor}
+import cats.effect.unsafe.IORuntimeConfig
 import cats.effect.{Clock, IO, IOApp, Resource}
 import cats.syntax.all.*
 import io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender
@@ -32,6 +33,11 @@ import scala.concurrent.duration.*
 
 object Main extends IOApp.Simple with LoggingSupport {
   private val releaseTimeout = 10.seconds
+  private val flushTimeout   = 5.seconds
+
+  override protected lazy val runtimeConfig: IORuntimeConfig =
+    super.runtimeConfig
+      .copy(shutdownHookTimeout = ConfigSource.default.at("http.shutdown-timeout").loadOrThrow[FiniteDuration] + releaseTimeout + flushTimeout)
 
   override def run: IO[Unit] =
     (for {
