@@ -125,16 +125,15 @@ What happens, in order:
 
 1. The JVM receives `SIGTERM`.
 2. `IOApp.Simple` cancels the main fiber. The cancel propagates through the `Resource.use { IO.never }` in `Main.scala`.
-3. `Resource` finalizers run in reverse acquire order. So shutdown is **server → scheduler → object store → DB transactor → OTel SDK** — exactly the inverse of how they were started.
+3. `Resource` finalizers run in reverse acquire order. So shutdown is **server → lifecycles → scheduler → object store → DB transactor → OTel SDK** — exactly the inverse of how they were started.
 4. The Ember HTTP server's release:
    - Stops accepting new connections (new requests get `Connection refused`).
    - Waits up to `http.shutdown-timeout` (default `30s`) for in-flight requests to complete.
    - Any request still in flight after the timeout is force-closed.
-5. The scheduler stops polling for new task rows. Tasks already executing run to their next checkpoint.
-6. The DB transactor closes the connection pool.
-7. The OpenTelemetry SDK's shutdown is called — this flushes pending exporter batches (traces, metrics, logs).
+5. The lifecycles stop, the scheduler stops polling for new task rows (tasks already executing run to their next checkpoint), and the DB transactor closes the connection pool. Together these get 10 seconds (`releaseTimeout` in `Main.scala`). Against a database that answers slowly they can take far longer: Skunk closes every prepared statement each pooled connection has cached, one round trip at a time, and a `LISTEN` connection sends `UNLISTEN` first. If they aren't done in time, the app logs `Shutdown gave up waiting 10 seconds …` and moves on; whatever is still open goes away with the process.
+6. The OpenTelemetry SDK's shutdown is called — this flushes pending exporter batches (traces, metrics, logs).
 
-Configure the drain window with `HTTP_SHUTDOWN_TIMEOUT` (HOCON `http.shutdown-timeout`). Pick something a little longer than your worst-case request — for an app that serves p99 = 5s requests, `30s` is plenty. For long-polling or streaming endpoints, raise it. Whatever sends the `SIGTERM` has a "give the process this long to exit" knob (`docker stop --time`, systemd `TimeoutStopSec`, k8s `terminationGracePeriodSeconds`); set it to at least the same value — otherwise it'll `SIGKILL` mid-drain.
+Configure the drain window with `HTTP_SHUTDOWN_TIMEOUT` (HOCON `http.shutdown-timeout`). Pick something a little longer than your worst-case request — for an app that serves p99 = 5s requests, `30s` is plenty. For long-polling or streaming endpoints, raise it. Whatever sends the `SIGTERM` has a "give the process this long to exit" knob (`docker stop --time`, systemd `TimeoutStopSec`, k8s `terminationGracePeriodSeconds`); set it to at least the drain window plus 10 seconds — otherwise it'll `SIGKILL` mid-drain.
 
 What's NOT done out of the box:
 
