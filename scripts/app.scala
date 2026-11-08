@@ -24,7 +24,11 @@ object AppMain {
     finish(Launcher.start(system(requireEnv = true, timeout = timeout), compileFirst = !noCompile.value, migrateFirst = !noMigrate.value))
 
   @main(doc = "Stop the app this launcher started: SIGTERM, then SIGKILL after the grace period.")
-  def stop(@arg(doc = "seconds to wait for a clean exit (default 50, above the default HTTP_SHUTDOWN_TIMEOUT plus 15; raise it with a longer drain)") grace: Int = 50): Unit =
+  def stop(
+    @arg(doc =
+      "seconds to wait for a clean exit (default 50, above the default HTTP_SHUTDOWN_TIMEOUT plus 15; raise it with a longer drain)"
+    ) grace: Int = 50
+  ): Unit =
     finish(Launcher.stop(system(requireEnv = false, grace = grace)))
 
   @main(doc = "Stop, then start.")
