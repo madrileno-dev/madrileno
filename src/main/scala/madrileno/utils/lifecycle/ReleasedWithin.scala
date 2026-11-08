@@ -6,5 +6,9 @@ import scala.concurrent.duration.FiniteDuration
 
 extension [A](resource: Resource[IO, A]) {
   def releasedWithin(limit: FiniteDuration, onGivingUp: IO[Unit]): Resource[IO, A] =
-    Resource.make(resource.allocated) { case (_, release) => release.start.flatMap(_.joinWithUnit.timeoutTo(limit, onGivingUp)) }.map(_._1)
+    Resource.applyFull { poll =>
+      poll(resource.allocatedCase).map { case (a, release) =>
+        (a, (exit: Resource.ExitCase) => release(exit).start.flatMap(_.joinWithUnit.timeoutTo(limit, onGivingUp)))
+      }
+    }
 }
