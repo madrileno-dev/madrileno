@@ -35,6 +35,10 @@ Something like this, pasted into a fresh assistant session with the MCP server r
 - **The change is auction/example content.** The showcase modules exist to demonstrate patterns. If you deleted them, only port changes that alter the *pattern* they demonstrate, and only if you use that pattern.
 - **You're weeks from a deadline.** The loop is resumable — the pin makes partial progress durable. Triage the cheap wins now, bump the pin, come back for the refactors.
 
+## Database migrations
+
+Upstream sometimes edits a migration file that has already shipped. Don't copy the edited file into your project: your databases have already applied the old version, so Flyway will either reject the edited file with a checksum mismatch or never run the change. Port the difference as a **new** migration (`V<next>__<description>.sql`) instead.
+
 ## Wrinkles
 
 - The package rewrite in `patch` output is textual (`madrileno.` → your package), same as `madrileno_source` — occasionally it touches a string literal or URL in a diff hunk. Harmless for review; don't apply patches mechanically anyway.

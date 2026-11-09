@@ -5,6 +5,7 @@
 !.env.sample
 !.jvmopts
 !.mcp.json
+!.madrileno-ref
 !.agents
 !.agents/**
 !.claude
