@@ -164,8 +164,9 @@ object InitProject {
     //    `sha` and `upstreamRepo` were resolved + validated at the top of `run`.
     os.write.over(root / ".madrileno-ref", s"repo=$upstreamRepo\nref=$sha\n")
 
-    // 5. .gitignore: whitelist `.madrileno-ref` (the template's `.*` rule would otherwise hide it),
-    //    and add `.madrileno-mcp/` (the shadow clone the MCP server keeps for serving docs/source).
+    // 5. .gitignore: make sure `.madrileno-ref` is whitelisted (the template's `.gitignore` already
+    //    does this; older or hand-edited ones may not, and the `.*` rule would hide it), and add
+    //    `.madrileno-mcp/` (the shadow clone the MCP server keeps for serving docs/source).
     val gitignore = root / ".gitignore"
     if (os.exists(gitignore)) {
       val current  = os.read(gitignore)
