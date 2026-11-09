@@ -64,7 +64,7 @@ trait AuctionModule extends … {
 }
 ```
 
-`maxQueued` is the per-subscriber buffer. Slow subscribers don't block publishers — they drop events instead, with backpressure semantics matching `fs2.Topic`. Pick a number large enough to absorb the spikiest realistic burst; defaults around 32–128 are usual.
+The topic name is the Postgres `LISTEN` / `NOTIFY` channel under the Postgres backend, so it follows Skunk's identifier rules: `[A-Za-z_][A-Za-z_0-9$]*`, no dots. `maxQueued` is the per-subscriber buffer. Slow subscribers don't block publishers — they drop events instead, with backpressure semantics matching `fs2.Topic`. Pick a number large enough to absorb the spikiest realistic burst; defaults around 32–128 are usual.
 
 ## Publishing
 
@@ -97,7 +97,7 @@ def wsRoutes(wsb: WebSocketBuilder2[IO]): Route =
   }
 ```
 
-Use `subscribeAwait` (a `Resource[IO, Stream[IO, E]]`) when you need to know the subscription is live before doing other work — it waits for the underlying LISTEN to be established. `subscribe` returns a `Stream` directly and is fine for the common case where the subscriber is happy to start with the next event.
+Use `subscribeAwait` (a `Resource[IO, Stream[IO, E]]`) when you need to know the subscription is live before doing other work — it waits for the underlying LISTEN to be established. `subscribe` returns a `Stream` directly and is fine for the common case where the subscriber is happy to start with the next event; it silently misses whatever is published while it registers, so a WebSocket handler, the entry point for its client, uses `subscribeAwait`. Delivery is live-only: no replay, nothing persisted.
 
 For the LISTEN backend, the runtime keeps a single Postgres LISTEN session per topic and fans events out to in-process subscribers via a memoized `fs2.Topic`. This means many WebSocket clients on the same JVM share one Postgres session, not one per client.
 
@@ -130,14 +130,20 @@ The bus is bad at:
 
 `TestApplicationLoader` wires `EventBusRuntime.local`, so route specs and service specs publish and subscribe against an in-memory `fs2.Topic` — fast, deterministic, no Postgres required.
 
-For a service spec that needs to assert "this operation publishes event X," construct the event bus directly:
+For a service spec that needs to assert "this operation publishes event X," construct the event bus directly and subscribe with `subscribeAwait`: the subscriber is registered when the `Resource` is acquired, so the operation can't publish before anyone listens, which plain `subscribe` + `start` allows. The `timeout` makes a regression that never publishes fail instead of hanging the suite:
 
 ```scala
 val bus     = EventBusRuntime.local.topic[AuctionEvent]("test", maxQueued = 8)
 val service = new AuctionService(…, eventBus = bus, …)
-val received = bus.subscribe.take(1).compile.toList.start.unsafeRunSync()
-// trigger the operation…
-received.join.unsafeRunSync().head shouldBe expected
+
+def withObservedEvent[A](action: IO[A]): IO[(AuctionEvent, A)] =
+  bus.subscribeAwait.use { stream =>
+    for {
+      observer <- stream.take(1).compile.lastOrError.start
+      result   <- action
+      event    <- observer.joinWithNever
+    } yield (event, result)
+  }.timeout(5.seconds)
 ```
 
 For an end-to-end test that exercises Postgres LISTEN/NOTIFY, use `EventBusRuntime.postgres(testTransactor)`. Slower, useful for ensuring serialization round-trips and channel naming work.

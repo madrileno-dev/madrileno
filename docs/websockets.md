@@ -133,6 +133,28 @@ handleWebSocketMessages(wsb, send, receive)
 
 `Pipe[IO, WebSocketFrame, Unit]` is fs2's "stream-in, stream-out" type. The `Unit` here means we drain inbound frames as side effects — typical for command-style WS APIs. If you want to acknowledge each command, return a `Pipe[IO, WebSocketFrame, WebSocketFrame]`.
 
+To answer each command on the same connection while the broadcast keeps flowing, allocate a per-connection reply queue and merge it into the send stream. Call `wsb.build` directly instead of `handleWebSocketMessages`, so the queue exists per connection:
+
+```scala
+def wsRoutes(auth: AuthContext, wsb: WebSocketBuilder2[IO]): Route =
+  (get & path("auctions" / "stream") & pathEndOrSingleSlash) {
+    complete {
+      for {
+        replies <- Queue.bounded[IO, WebSocketFrame](capacity = 64)
+        broadcast = Stream.resource(eventBus.subscribeAwait).flatMap(_.droppingBuffer(capacity = 256))
+        send      = broadcast.map(e => WebSocketFrame.Text(AuctionEventEnvelope(e).noSpaces)).merge(Stream.fromQueueUnterminated(replies))
+        receive: Pipe[IO, WebSocketFrame, Unit] = _.evalMap {
+          case WebSocketFrame.Text(json, _) => handleCommand(json, auth, replies)
+          case _                            => IO.unit
+        }
+        response <- wsb.build(send, receive)
+      } yield response
+    }
+  }
+```
+
+`droppingBuffer` goes on the broadcast only: replies (acks, validation errors) are few and belong to this client, so a flood of broadcast events must not drop them. `handleCommand` decodes the frame, calls the existing service method and offers a reply correlated by a client-sent request id; the service doesn't change. `evalMap` handles one command at a time per connection; `parEvalMap(n)` processes them concurrently.
+
 ## Connection lifecycle
 
 `Stream.resource(eventBus.subscribeAwait)` ties the bus subscription's lifetime to the WebSocket: when the client disconnects, http4s tears down the receive/send streams, the resource finalizer fires, the subscription unsubscribes. No cleanup code to write.

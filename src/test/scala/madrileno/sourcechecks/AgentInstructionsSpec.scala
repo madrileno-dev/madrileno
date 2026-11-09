@@ -34,8 +34,12 @@ class AgentInstructionsSpec extends AnyWordSpec with Matchers {
 
     "name only docs that exist" in {
       assume(Files.isDirectory(docsRoot), "docs/ is not in this project; the MCP server serves it")
-      val named = (skills.map(_.body) :+ Files.readString(agentsFile)).flatMap(docsNamed).toSet
-      named.filterNot(name => Files.exists(docsRoot.resolve(s"$name.md"))) shouldBe empty
+      namedDocs.filterNot(name => Files.exists(docsRoot.resolve(s"$name.md"))) shouldBe empty
+    }
+
+    "name only docs short enough to reach an agent whole" in {
+      assume(Files.isDirectory(docsRoot), "docs/ is not in this project; the MCP server serves it")
+      namedDocs.filter(name => Files.size(docsRoot.resolve(s"$name.md")) > 25_000) shouldBe empty
     }
 
     "be exactly the ones AGENTS.md lists" in {
@@ -47,6 +51,8 @@ class AgentInstructionsSpec extends AnyWordSpec with Matchers {
       Files.readSymbolicLink(claudeSkills) shouldBe Paths.get("../.agents/skills")
     }
   }
+
+  private def namedDocs: Set[String] = (skills.map(_.body) :+ Files.readString(agentsFile)).flatMap(docsNamed).toSet
 
   "The workspace description" should {
     "give the backend a role and a summary" in {

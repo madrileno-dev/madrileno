@@ -209,7 +209,7 @@ class AuctionRouterSpec extends BaseRouteSpec with TestApplicationLoader {
           |Connect with a WebSocket client to receive a JSON frame per event. Wire format:
           |`{"kind": "...", "data": {...}}` where `kind` is one of `AuctionCreated`, `BidPlaced`,
           |`AuctionCancelled`, `AuctionClosed` and `data` is the per-variant flat DTO. See
-          |`docs/adding-a-module.md` for the wire shapes.
+          |`docs/websockets.md` for the wire shapes.
           |
           |For a single auction's events, connect to `/v1/auctions/{auctionId}/stream` instead.
           |
