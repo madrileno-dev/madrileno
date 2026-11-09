@@ -88,7 +88,13 @@ private[repositories] object AuctionImageRowTable
 
 Three things to know:
 
-- **Codec adapters.** `uuid.as[AuctionImageId]` lifts skunk's `Codec[UUID]` to `Codec[AuctionImageId]` for the opaque type. `text.as[StorageKey]`, `int4.as[ImagePosition]`, etc. all do the same. Enum columns use `text.asEnum[FormatEnum]`. See `dsl.scala` for the full set of helpers.
+- **Codec adapters**, all available inside a `Table` object with skunk's `skunk.codec.all.*` imported:
+  - `uuid.as[AuctionImageId]`, `text.as[StorageKey]`, `int4.as[ImagePosition]`: a skunk codec lifted to an opaque type.
+  - `text.asEnum[Status]`: a Scala 3 enum stored as its case name (`TEXT` column, see `FeatureFlagRepository`).
+  - `timestamptz.asInstant`: `TIMESTAMPTZ` as `Instant`.
+  - `.opt`: a nullable column as `Option[A]`.
+  - `listOf(text.as[Tag])`: a Postgres array as `List[A]`.
+  - `text.asConvertedTo[URI]`: a type kebs has an `InstanceConverter` for (see `UserRepository`).
 - **`mapping`** is the heart of the table. It enumerates the columns in row order and produces the row codec via twiddle types. Adding a column is one line in the case class, one column declaration, and one tuple entry in `mapping`.
 - **Implementing the marker traits** (`IdTable`, `SoftDeleteTable`, `ForeignIdTable`) is what unlocks the corresponding repository.
 
@@ -98,14 +104,38 @@ Primary keys are `UUID` columns. The application mints them via `IdGenerator.gen
 
 ## The repository traits
 
-Each trait gives you a vocabulary of operations.
+Each trait gives you a vocabulary of operations. Every method takes `(using Session[IO])` and returns `IO`, so each is a `DB[A]`. Methods with a `lock` parameter default to `Lock.NoLock`; the others are `ForUpdate`, `ForNoKeyUpdate`, `ForShare` and `ForKeyShare`, and a lock only holds inside `inTransaction`.
 
-| Trait                                   | Adds                                                        |
-| --------------------------------------- | ----------------------------------------------------------- |
-| `IdRepository[A, Id]`                   | `create`, `createAll`, `upsert`, `findById`, `findByIds`, `getById`, `existsById`, `update`, `updateById`, `deleteById` |
-| `SoftDeleteRepository[A, Id]`           | extends `IdRepository`. Adds `softDeleteById`, `softDeleteByIds`, `softDeleteAll`, `restoreById`, `findByIdWithDeleted`, `existsByIdWithDeleted`, `purgeDeletedBefore`. Also overrides `baseFilter` so all `find*` ignore soft-deleted rows automatically. |
-| `ForeignIdRepository[A, Id]`            | `findByForeignId`, `findByForeignIds`, `countByForeignId`, `existsByForeignId`, `deleteByForeignId`. Pulls children of a parent by FK. |
-| `FilteringRepository[A, F <: SqlFilter]`| `findByFilter`, `findOneByFilter`, `getByFilter`, `existsByFilter`, `countByFilter`, `deleteByFilter`. Scoped queries with a typed `RowFilter`. Plus `findPageByFilter` (offset pagination) and `findCursorPageByFilter` (keyset/cursor) — see [http.md](http.md). |
+| Trait | Method | Returns | Notes |
+|---|---|---|---|
+| `BaseRepository[A]` (all of them) | `insertIfAbsent(a)` | `Boolean` | `ON CONFLICT DO NOTHING`; `false` when a row conflicted |
+| `IdRepository[A, Id](getId)` | `create(a)` | `A` | `INSERT … RETURNING` |
+| | `createAll(as)` | `List[A]` | one multi-row `INSERT`; `Nil` sends nothing |
+| | `upsert(a)` | `Unit` | `ON CONFLICT (id) DO UPDATE` every column |
+| | `findById(id, lock)` / `findByIds(ids, lock)` | `Option[A]` / `List[A]` | |
+| | `getById(id, lock)` | `A` | fails when the row is missing |
+| | `existsById(id)`, `all`, `count` | `Boolean`, `List[A]`, `Long` | |
+| | `update(a)` | `Unit` | whole row by id; silently does nothing if the row is missing or soft-deleted |
+| | `updateById(id, a => a)` | `Boolean` | `SELECT … FOR UPDATE`, then `UPDATE`; `false` when missing |
+| | `deleteById(id)`, `deleteByIds(ids)`, `delete(a)`, `deleteAll` | `Unit` | hard delete |
+| `SoftDeleteRepository[A, Id]` (extends `IdRepository`) | `softDeleteById(id, at)`, `softDeleteByIds(ids, at)`, `softDeleteAll(at)` | `Unit` | sets `deleted_at` |
+| | `restoreById(id)`, `restoreByIds(ids)` | `Unit` | |
+| | `findByIdWithDeleted`, `findByIdsWithDeleted`, `findWithDeleted` (fails when missing), `existsByIdWithDeleted`, `allWithDeleted`, `countWithDeleted` | | include soft-deleted rows |
+| | `purgeDeletedBefore(instant)` | `Unit` | hard-deletes rows soft-deleted before `instant` |
+| `ForeignIdRepository[A, Id]` | `findByForeignId(id, lock)`, `findByForeignIds(ids, lock)` | `List[A]` | children of a parent by FK |
+| | `countByForeignId(id)`, `existsByForeignId(id)` | `Long`, `Boolean` | |
+| | `deleteByForeignId(id)`, `deleteByForeignIds(ids)` | `Unit` | hard delete |
+| `FilteringRepository[A, F <: SqlFilter]` | `findByFilter(f, lock)` | `List[A]` | in the filter's order |
+| | `findOneByFilter(f, lock)` / `getByFilter(f, lock)` | `Option[A]` / `A` | first row in the filter's order |
+| | `existsByFilter(f)`, `countByFilter(f)`, `deleteByFilter(f)` | `Boolean`, `Long`, `Unit` | |
+| | `findPageByFilter(f, lock)` | `(List[A], Long)` | offset page plus total; `F` mixes in `PageableSqlFilter` |
+| | `findCursorPageByFilter(f, lock)` | `(List[A], Boolean)` | keyset page plus `hasMore`; `F` mixes in `KeysetSqlFilter` |
+| `SoftDeleteRepository & FilteringRepository` | `softDeleteByFilter(f, at)` | `Unit` | extension in `SoftDeleteFilteringRepository.scala` |
+| `AdvisoryLock` (object) | `transactionScoped(name, key)` | `Unit` | `pg_advisory_xact_lock`, released at commit or rollback |
+
+`SoftDeleteRepository` overrides `baseFilter` with `deleted_at IS NULL`. That hides soft-deleted rows from the id- and foreign-id-based reads and from `update` / `updateById`, but **not** from the `*ByFilter` methods, which use only the filter's own predicates. That's why a row filter defaults `deletedAt = p.isNull`.
+
+`updateById` reads `FOR UPDATE` and writes in two statements. Under `inSession` each statement autocommits and the lock is gone before the write, so call it inside `inTransaction`; the module pattern (`update[E]` in the scaffolded repository) does that and also carries the domain rejection.
 
 Compose them as needed. `AuctionImageRepository`'s underlying `repository` extends all four:
 
@@ -146,7 +176,22 @@ private[repositories] final case class AuctionImageRowFilter(
 }
 ```
 
-Predicate constructors live on `p`: `p.equal(x)`, `p.in(xs)`, `p.greaterThan(x)`, `p.between(x, y)`, `p.like("%foo%")`, `p.notNull`, `p.isNull`, `p.any` (no constraint). Every field defaults to `p.any` so callers fill in only what they want.
+Predicate constructors live on `p`, and each works on a nullable or a non-null column:
+
+| Predicate | SQL |
+|---|---|
+| `p.any` | no constraint (the default for every field) |
+| `p.equal(x)`, `p.notEqual(x)` | `=`, `!=` |
+| `p.in(xs)`, `p.notIn(xs)` | `IN`, `NOT IN`; an empty list matches nothing / everything |
+| `p.greaterThan(x)`, `p.greaterThanOrEqual(x)`, `p.lessThan(x)`, `p.lessThanOrEqual(x)` | `>`, `>=`, `<`, `<=` |
+| `p.between(x, y)`, `p.notBetween(x, y)` | `BETWEEN`, inclusive |
+| `p.like(pattern, caseSensitive = true)`, `p.notLike(…)` | `LIKE`, or `ILIKE` when `caseSensitive = false` |
+| `p.similarTo(pattern)`, `p.notSimilarTo(pattern)` | `SIMILAR TO` |
+| `p.isNull`, `p.isNotNull` | `IS NULL`, `IS NOT NULL` |
+| `p.isTrue`, `p.isFalse` | `IS TRUE`, `IS FALSE` |
+| `p.isDistinctFrom(x)`, `p.isNotDistinctFrom(x)` | null-safe `<>`, `=` |
+
+`SqlFilterDerivation.filterFragment(this, cols)` pairs the case class's fields with the columns in order and ANDs them. A filter with fields that aren't predicates (a `page`, a sort flag) writes `filterFragment` with `fromPredicates((pred -> col, …))` instead. With a single predicate, wrap the pair: `fromPredicates(Tuple1(key -> Table.key))`, because `(key -> Table.key)` alone is the pair, not a tuple of pairs, and doesn't compile. `orderByColumns(col -> true, …)` builds the `ORDER BY` (`true` for ascending).
 
 For a list endpoint that paginates, the row filter mixes in a sub-trait of `SqlFilter` instead of (or as well as) overriding `orderByFragment` by hand: `PageableSqlFilter[SortField]` for offset pagination (it derives `orderByFragment` + `offsetLimitFragment` from a `PageRequest` — you supply `pageRequest` / `sortColumnFor` / `tieBreakColumn`), or `KeysetSqlFilter[S, I]` for keyset/cursor (it ANDs `(sortColumn, pk) < (?, ?)` onto the filter and fetches `limit + 1` — you supply `keysetCursor` / `keysetColumns` / `baseFilterFragment`). [http.md](http.md) walks through both, with `GET /v1/auctions` as the offset worked example.
 
@@ -179,7 +224,7 @@ repository.updateById(id, _.copy(width = Some(w), analyzedAt = Some(now)))
 sql"UPDATE … SET … WHERE …".command
 ```
 
-For single-row updates, prefer `updateById(id, transform)`. It's atomic, takes the lock for you, and reads as a domain-level operation.
+For single-row updates, prefer `updateById(id, transform)` inside `inTransaction`: it takes the lock for you and reads as a domain-level operation.
 
 ## Hand-written SQL
 
@@ -191,7 +236,13 @@ sql"""SELECT ${AuctionRowTable.*("a")}, b.${BidRowTable.amount.n}
       JOIN ${BidRowTable.n} b ON ${BidRowTable.auctionId.n("b")} = a.${AuctionRowTable.id.n}"""
 ```
 
-A renamed column then changes in one place, and every table a query touches has a `Table` object a reader can find.
+A renamed column then changes in one place, and every table a query touches has a `Table` object a reader can find. `Table.*` lists the columns and `Table.c` is the row codec, so `sql"SELECT ${T.*} FROM ${T.n} WHERE …".query(T.c)` decodes straight into the row; `col.n` is a column's name and `col.c` its codec for parameters.
+
+Run a query with `session.execute` / `option` / `unique`, and a command with `session.execute(command)(args)`, taking the session with `summon[Session[IO]]` inside a `DB[A]`. A command returns skunk's `Completion`; the rows an `UPDATE` touched are in `Completion.Update(n)`:
+
+```scala
+session.execute(command)(args).map { case Completion.Update(n) => n; case _ => 0 }
+```
 
 `HandWrittenSqlSpec`, one of the [source checks](testing-guide.md#layer-5-source-checks), enforces this. It reads the names of the tables, views and materialized views the migrations create, and of their columns, from the migrated test database. It fails with `file:line` for each one written as text in a `sql"…"` string under `src/main/scala`. These don't count:
 
