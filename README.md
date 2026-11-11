@@ -21,13 +21,15 @@ You'll need four tools. Install each from its package manager or official instal
 - **scala-cli** — [scala-cli.virtuslab.org/install](https://scala-cli.virtuslab.org/install) — needed for the tools under `scripts/` (`app`, `scaffold-module`, `doctor`, `dev-console`, …). Versions before 1.18 print a warning about TASTY files from Scala 3.9 on every run; it is harmless.
 - **Docker** with `docker compose` — [docs.docker.com/engine/install](https://docs.docker.com/engine/install/)
 
-The three JVM tools also install together via [SDKMAN](https://sdkman.io/):
+The three JVM tools also install together via [SDKMAN](https://sdkman.io/), from the repo root:
 
 ```bash
-sdk install java 21-tem
+sdk env install        # the JDK pinned in .sdkmanrc, the same file CI reads
 sdk install sbt
 sdk install scalacli
 ```
+
+In a new shell, `sdk env` switches back to the pinned JDK.
 
 ### 1. Boot the dev stack
 

@@ -19,7 +19,7 @@ jobs:
   check-links:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: VirtusLab/scala-cli-setup@d320e01a605bf27128a5657575382668f83ef34e # v1
       - name: Validate markdown links
         run: ./scripts/check-links.scala
