@@ -4,6 +4,7 @@
 !.scalafix.conf
 !.env.sample
 !.jvmopts
+!.sdkmanrc
 !.mcp.json
 !.madrileno-ref
 !.agents
