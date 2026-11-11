@@ -170,7 +170,7 @@ mailer {
 
 `sender` picks the `MailSender`: `SmtpSender` for `smtp`, `LoggingSender` for `log`. The stock `.env` sets `MAILER_SENDER=log`, so the Postgres-only dev stack needs no SMTP server: each mail shows up in the log as one entry with recipients, subject and the text body (HTML-only mails are summarised by size). The scheduler path is the same either way, so retries, the `send-mail` task and the previews UI all behave as in production.
 
-With the `full` compose profile (`docker compose --profile full up -d`), Mailpit runs on `localhost:51025` (SMTP) with no auth and TLS off; set `MAILER_SENDER=smtp` and the default `.env` matches it.
+With the `full` compose profile (`docker compose --profile full up -d`), Mailpit runs on `localhost:51025` (SMTP) with no auth and TLS off; set `MAILER_SENDER=smtp` and the default `.env` matches it. The compose file publishes SMTP on `MAILER_PORT` from `.env`, so a changed port moves both sides.
 
 For production, leave `sender` at its `smtp` default and point at SES / SendGrid / your provider's SMTP relay. The mailer doesn't ship API-based delivery (e.g., SES native API) — if you need that, add a `MailSender` implementation and a `MailSenderKind` for it.
 

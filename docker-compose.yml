@@ -2,15 +2,15 @@ services:
   postgres:
     image: postgres:18 # the tests run on the same version: TestPostgres.image
     environment:
-      POSTGRES_DB: madrileno
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${PG_DATABASE:-madrileno}
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-postgres}
     ports:
-      - "127.0.0.1:55432:5432"
+      - "127.0.0.1:${PG_PORT:-55432}:5432"
     volumes:
       - madrileno-postgres:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d madrileno"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -23,7 +23,7 @@ services:
       MP_SMTP_AUTH_ACCEPT_ANY: 1
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
     ports:
-      - "127.0.0.1:51025:1025"  # SMTP
+      - "127.0.0.1:${MAILER_PORT:-51025}:1025"  # SMTP
       - "127.0.0.1:58025:8025"  # UI + REST API at http://localhost:58025
 
   openobserve:
@@ -48,11 +48,11 @@ services:
     image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
     ports:
       - "127.0.0.1:59000:9000"  # S3 API
-      - "127.0.0.1:59001:9001"  # Console UI at http://localhost:59001  (login: minioadmin / minioadmin)
+      - "127.0.0.1:59001:9001"  # Console UI at http://localhost:59001  (login: S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY, minioadmin / minioadmin by default)
     volumes:
       - madrileno-silo:/data
     healthcheck:
@@ -67,8 +67,14 @@ services:
     depends_on:
       silo:
         condition: service_healthy
-    entrypoint: >
-      sh -c "mc alias set local http://silo:9000 minioadmin minioadmin && mc mb --ignore-existing local/madrileno"
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-madrileno}
+    entrypoint:
+      - sh
+      - -c
+      - mc alias set local http://silo:9000 "$$S3_ACCESS_KEY_ID" "$$S3_SECRET_ACCESS_KEY" && mc mb --ignore-existing "local/$$S3_BUCKET"
 
 volumes:
   madrileno-postgres:
