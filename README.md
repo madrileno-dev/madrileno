@@ -44,7 +44,7 @@ All host ports are non-standard so they don't clash with anything you already ha
 |---------------|---------|------------------------------------------------|-------------------------------------------|--------------------------------------|
 | Postgres      | default | `postgres:18`                                  | `55432` → 5432                            | `postgres` / `postgres`              |
 | Mailpit       | `full`  | `axllent/mailpit:latest`                       | `51025` (SMTP), `58025` (UI)              | —                                    |
-| OpenObserve   | `full`  | `public.ecr.aws/zinclabs/openobserve:latest`   | `55080` (UI + OTLP HTTP)                  | `root@example.com` / `Complexpass#123` |
+| OpenObserve   | `full`  | `public.ecr.aws/zinclabs/openobserve:v1.0.4`   | `55080` (UI + OTLP HTTP)                  | `root@example.com` / `Complexpass#123` |
 | Silo          | `full`  | `pgsty/silo:RELEASE.2026-09-16T00-00-00Z`      | `59000` (S3 API), `59001` (Console UI)    | `minioadmin` / `minioadmin`          |
 
 State persists across restarts in named volumes. To wipe and start clean:
@@ -61,6 +61,8 @@ cp .env.sample .env
 ```
 
 The sample is wired against the docker-compose ports above, including a working `Authorization` header for OpenObserve so OTLP traces show up in the UI as soon as you enable them. Out of the box it selects the Postgres-only stack: `MAILER_SENDER=log`, `OBJECT_STORAGE=disk`, `OTEL_SDK_DISABLED=true`.
+
+`docker-compose.yml` reads the same `.env`: `PG_PORT`, `PG_DATABASE`, `PG_USER` and `PG_PASSWORD` set up the Postgres container, `MAILER_PORT` is Mailpit's SMTP port, and `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` and `S3_BUCKET` set up Silo. Without a `.env` it falls back to the sample's values. A changed value applies on the next `docker compose up -d`, except that Postgres takes its user, password and database name only when its volume is first created: after changing those, run `docker compose down -v` first. The other ports (`58025`, `55080`, `59000`, `59001`) are fixed in the compose file, and `S3_ENDPOINT` and the `OTEL_EXPORTER_OTLP_*_ENDPOINT` URLs have to match them.
 
 `JWT_SECRET` is fine as-is for local dev — change it when you don't want strangers to be able to forge tokens. External auth providers (`FIREBASE_PROJECT_ID`, `OIDC_*`) ship empty; the app boots fine without them and the dev login (`POST /v1/auth/dev`) is enabled by default via `DEV_AUTH_ENABLED=true`.
 

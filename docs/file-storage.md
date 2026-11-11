@@ -20,7 +20,7 @@ The contract is `put(key, metadata, body) -> bytes written`, `get(key, ttl, file
 
 The stock `.env` selects the disk backend (`OBJECT_STORAGE=disk`): objects live under `uploads/` (git-ignored; `STORAGE_DISK_ROOT` moves it) and no service is needed. Everything below is for the S3 backend, which the `full` compose profile serves locally.
 
-`docker compose --profile full up -d` brings up [Silo](https://silo.pgsty.com/) (a maintained MinIO fork; upstream's Docker Hub images were pulled) on `127.0.0.1:59000` (S3 API) and `127.0.0.1:59001` (console — login `minioadmin` / `minioadmin`). A `silo-init` sidecar runs `mc mb --ignore-existing local/madrileno` once the server is healthy, so the bucket is there on first boot.
+`docker compose --profile full up -d` brings up [Silo](https://silo.pgsty.com/) (a maintained MinIO fork; upstream's Docker Hub images were pulled) on `127.0.0.1:59000` (S3 API) and `127.0.0.1:59001` (console — login `minioadmin` / `minioadmin`). A `silo-init` sidecar runs `mc mb --ignore-existing` for the bucket once the server is healthy, so the bucket is there on first boot. The compose file takes the login and the bucket name from `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` and `S3_BUCKET` in `.env`, so the container and the app change together.
 
 `.env.sample` is wired against that container; set `OBJECT_STORAGE=s3` to use it:
 
