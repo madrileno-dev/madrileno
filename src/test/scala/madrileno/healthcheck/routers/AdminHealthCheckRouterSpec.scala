@@ -1,16 +1,20 @@
 package madrileno.healthcheck.routers
 
 import madrileno.healthcheck.routers.dto.{AdminHealthCheckDto, DepStatus}
-import madrileno.support.{BaseRouteSpec, TestApplicationLoader}
+import madrileno.support.{BaseRouteSpec, TestApplicationLoader, TestMailpit}
 import madrileno.utils.http.Error
 import madrileno.utils.json.JsonProtocol.*
+import madrileno.utils.mailer.MailerConfig
 import org.http4s.Method.*
 import org.http4s.Status.*
 import org.http4s.circe.CirceEntityCodec.*
 import pl.iterators.baklava.{HttpBasic, SecurityScheme}
 import pl.iterators.stir.server.Route
 
-class AdminHealthCheckRouterSpec extends BaseRouteSpec with TestApplicationLoader {
+class AdminHealthCheckRouterSpec extends BaseRouteSpec with TestApplicationLoader with TestMailpit {
+  override protected def testMailerConfig: MailerConfig =
+    MailerConfig(host = mailpitHost, port = mailpitSmtpPort, fromAddress = "test@example.com", tls = false)
+
   override def route: Route = application.routes(wsb)
 
   // Defaults from application.conf — the test loader doesn't override them.

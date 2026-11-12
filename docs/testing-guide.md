@@ -101,7 +101,7 @@ Extend `BaseRouteSpec with TestApplicationLoader`.
 
 `BaseRouteSpec` provides the Baklava DSL, kebs-baklava schema derivation for opaque types, shared bearer auth helpers (`bearer`, `bearerScheme`), and an RFC 9457 `Error[Unit]` schema.
 
-`TestApplicationLoader` provides a full `ApplicationLoader` wired against Testcontainers PostgreSQL and Mailpit, with `FakeAuthVerifier` injected in place of real Firebase. It also provides `validJwt(authContext)` for generating valid JWTs in authenticated endpoint tests, and `jwtService` for decoding JWTs in assertions.
+`TestApplicationLoader` provides a full `ApplicationLoader` wired against Testcontainers PostgreSQL and an SMTP endpoint nothing listens on, with `FakeAuthVerifier` injected in place of real Firebase. It also provides `validJwt(authContext)` for generating valid JWTs in authenticated endpoint tests, and `jwtService` for decoding JWTs in assertions. A router spec that needs a reachable SMTP server (`AdminHealthCheckRouterSpec`) mixes in `TestMailpit` and overrides `testMailerConfig` with `mailpitHost` and `mailpitSmtpPort`.
 
 #### Baklava DSL patterns
 
