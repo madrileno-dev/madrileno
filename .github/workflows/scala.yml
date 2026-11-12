@@ -12,10 +12,10 @@ on:
     branches: [ "main" ]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
+  lint:
 
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -28,8 +28,26 @@ jobs:
         java-version-file: .sdkmanrc
         cache: 'sbt'
     - uses: sbt/setup-sbt@v1
-    - name: Check formatting, scalafix, compile, test with coverage
-      run: sbt "scalafmtSbtCheck; scalafmtCheckAll; scalafixAll --check; coverage; compile; testFull; coverageReport; Test/verifyErrorCodes; shutdown"
+    - name: Check formatting and scalafix
+      run: sbt "scalafmtSbtCheck; scalafmtCheckAll; scalafixAll --check; shutdown"
+
+  build:
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up JDK
+      uses: actions/setup-java@v6
+      with:
+        java-version-file: .sdkmanrc
+        cache: 'sbt'
+    - uses: sbt/setup-sbt@v1
+    - name: Compile and test with coverage
+      run: sbt "coverage; compile; testFull; coverageReport; Test/verifyErrorCodes; shutdown"
     - name: Summarize coverage
       if: success() || failure()
       run: |
@@ -49,5 +67,6 @@ jobs:
       # third-party action that runs its own sbt, so a hiccup there must not fail
       # the build — the real gate is the compile/test step above.
     - name: Upload dependency graph
+      if: github.event_name == 'push'
       continue-on-error: true
       uses: scalacenter/sbt-dependency-submission@d84eef4c09e633bcf5f113bcad7fd5e9af1baee9 # v3.2.3
