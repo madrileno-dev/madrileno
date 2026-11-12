@@ -8,7 +8,12 @@ import madrileno.utils.observability.{LoggingSupport, TelemetryContext}
 
 import scala.concurrent.duration.*
 
-class HealthCheckService(appConfig: AppConfig, postgresProbe: PostgresProbe)(using TelemetryContext) extends LoggingSupport {
+class HealthCheckService(
+  appConfig: AppConfig,
+  postgresProbe: PostgresProbe,
+  readinessConfig: ReadinessConfig
+)(using TelemetryContext)
+    extends LoggingSupport {
   private val lastReadiness = Ref.unsafe[IO, Option[(FiniteDuration, DepStatus)]](None)
 
   def healthCheck(): IO[AppConfig] = IO.pure(appConfig)
@@ -16,13 +21,13 @@ class HealthCheckService(appConfig: AppConfig, postgresProbe: PostgresProbe)(usi
   def readiness(): IO[DepStatus] =
     IO.monotonic.flatMap { now =>
       lastReadiness.get.map {
-        case Some((checkedAt, status)) if now - checkedAt < HealthCheckService.readinessValidFor => status
-        case _                                                                                   => DepStatus.Down
+        case Some((checkedAt, status)) if now - checkedAt < readinessConfig.validFor => status
+        case _                                                                       => DepStatus.Down
       }
     }
 
   val readinessLifecycle: Resource[IO, Unit] =
-    (checkReadiness *> IO.sleep(HealthCheckService.readinessInterval)).foreverM.background.void
+    (checkReadiness *> IO.sleep(readinessConfig.interval)).foreverM.background.void
 
   private def checkReadiness: IO[Unit] =
     summon[TelemetryContext].tracer.noopScope(postgresProbe.check).flatMap(record)
@@ -38,9 +43,4 @@ class HealthCheckService(appConfig: AppConfig, postgresProbe: PostgresProbe)(usi
         }
       }
     }
-}
-
-object HealthCheckService {
-  val readinessInterval: FiniteDuration = 2.seconds
-  val readinessValidFor: FiniteDuration = readinessInterval * 3
 }

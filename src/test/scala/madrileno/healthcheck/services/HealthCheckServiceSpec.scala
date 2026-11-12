@@ -33,11 +33,17 @@ class HealthCheckServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
     def listen(channel: Identifier, maxQueued: Int): Resource[IO, Stream[IO, Notification[String]]] = transactor.listen(channel, maxQueued)
   }
 
+  private val readinessConfig = ReadinessConfig(interval = 100.millis)
+
   private def service(db: Transactor): HealthCheckService =
-    new HealthCheckService(AppConfig("madrileno", Environment.Dev, "test"), new PostgresProbe(new HealthCheckRepository, db, Clock[IO]))
+    new HealthCheckService(
+      AppConfig("madrileno", Environment.Dev, "test"),
+      new PostgresProbe(new HealthCheckRepository, db, Clock[IO]),
+      readinessConfig
+    )
 
   private def becomes(service: HealthCheckService, status: DepStatus): IO[Unit] =
-    (IO.sleep(50.millis) *> service.readiness()).iterateUntil(_ == status).timeout(HealthCheckService.readinessInterval * 3).void
+    (IO.sleep(50.millis) *> service.readiness()).iterateUntil(_ == status).timeout(readinessConfig.validFor * 10).void
 
   "readiness" should {
     "report Down until the first check has finished" in {
@@ -77,7 +83,7 @@ class HealthCheckServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
       val readiness = service(transactor)
       for {
         _     <- readiness.readinessLifecycle.surround(becomes(readiness, DepStatus.Up))
-        _     <- IO.sleep(HealthCheckService.readinessValidFor)
+        _     <- IO.sleep(readinessConfig.validFor)
         stale <- readiness.readiness()
       } yield stale shouldBe DepStatus.Down
     }

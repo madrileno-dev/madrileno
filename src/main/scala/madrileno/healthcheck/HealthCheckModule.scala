@@ -4,7 +4,7 @@ import cats.effect.{Clock, IO, Resource}
 import com.softwaremill.macwire.*
 import madrileno.healthcheck.repositories.HealthCheckRepository
 import madrileno.healthcheck.routers.{AdminHealthCheckRouter, HealthCheckRouter}
-import madrileno.healthcheck.services.{AdminHealthCheckService, HealthCheckService, PostgresProbe}
+import madrileno.healthcheck.services.{AdminHealthCheckService, HealthCheckService, PostgresProbe, ReadinessConfig}
 import madrileno.main.AppConfig
 import madrileno.utils.db.transactor.Transactor
 import madrileno.utils.http.RouteProvider
@@ -17,6 +17,7 @@ trait HealthCheckModule extends RouteProvider with LifecycleProvider {
   lazy val appConfig: AppConfig
   val transactor: Transactor
   val clock: Clock[IO]
+  lazy val readinessConfig: ReadinessConfig
   protected def mailerConfig: MailerConfig
   given telemetryContext: TelemetryContext
 

@@ -8,6 +8,7 @@ import com.typesafe.config.Config
 import madrileno.auction.AuctionModule
 import madrileno.auth.AuthModule
 import madrileno.healthcheck.HealthCheckModule
+import madrileno.healthcheck.services.ReadinessConfig
 import madrileno.user.UserModule
 import madrileno.utils.cache.CacheRuntime
 import madrileno.utils.db.transactor.Transactor
@@ -101,6 +102,7 @@ class ApplicationLoader(
   lazy val appConfig: AppConfig                = config.at("app").loadOrThrow[AppConfig]
   lazy val adminConfig: AdminConfig            = config.at("admin").loadOrThrow[AdminConfig]
   override lazy val outboxConfig: OutboxConfig = config.at("outbox").loadOrThrow[OutboxConfig]
+  lazy val readinessConfig: ReadinessConfig    = ReadinessConfig()
   lazy val telemetryContext: TelemetryContext  = summon[TelemetryContext]
   lazy val supervisor: Supervisor[IO]          = summon[Supervisor[IO]]
   lazy val secureRandom: SecureRandom[IO]      = summon[SecureRandom[IO]]

@@ -10,6 +10,7 @@ import io.opentelemetry.api.OpenTelemetry
 import madrileno.auction.gateways.VivinoGateway
 import madrileno.auth.domain.{AuthContext, Provider, VerifiedExternalToken}
 import madrileno.auth.services.{AuthVerifiers, DevAuthVerifier, JwtService}
+import madrileno.healthcheck.services.ReadinessConfig
 import madrileno.main.ApplicationLoader
 import madrileno.utils.db.transactor.{PgConfig, PgTransactor}
 import madrileno.utils.events.bus.EventBusRuntime
@@ -50,6 +51,8 @@ trait TestApplicationLoader extends TestContainersForAll with TestMailpit { self
 
   protected def testPgConfig(config: PgConfig): PgConfig = config
 
+  protected def testReadinessConfig: ReadinessConfig = ReadinessConfig()
+
   protected def testAuthVerifiers: AuthVerifiers =
     AuthVerifiers(
       Map(Provider.Firebase -> FakeAuthVerifier(firebaseToken), Provider("test-oidc") -> FakeAuthVerifier(oidcToken), Provider.Dev -> DevAuthVerifier)
@@ -87,6 +90,7 @@ trait TestApplicationLoader extends TestContainersForAll with TestMailpit { self
       IORuntime.global
     ) {
       override lazy val outboxConfig: OutboxConfig                     = OutboxConfig()
+      override lazy val readinessConfig: ReadinessConfig               = testReadinessConfig
       override protected lazy val externalAuthVerifiers: AuthVerifiers = testAuthVerifiers
       // scripts:auction-block-start
       override protected lazy val vivinoGateway: VivinoGateway = (_, _) => IO.pure(None)
