@@ -34,7 +34,8 @@ class RefreshTokenRepositorySpec extends AsyncWordSpec with AsyncIOSpec with Mat
   private def advisoryLockWaiters: IO[Int] =
     transactor.inSession {
       summon[Session[IO]].unique(
-        sql"SELECT count(*)::int4 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND wait_event = 'advisory'".query(int4)
+        sql"SELECT count(*)::int4 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND wait_event = 'advisory' AND datname = current_database()"
+          .query(int4)
       )
     }
 

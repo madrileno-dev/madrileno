@@ -34,7 +34,7 @@ sbt --client testFull
 sbt --client "scalafmtAll; scalafixAll"
 ```
 
-`testOnly` with a pattern that matches nothing passes with no tests run, so check the package is lower case. Tests migrate each suite's Testcontainers Postgres themselves: drop the SQL file in `src/main/resources/db/migration/` and it's picked up. The running app doesn't auto-migrate; `./scripts/app.scala start` and `restart` apply pending migrations first, `./scripts/app.scala migrate` applies them alone (see [dev-workflow.md](dev-workflow.md)).
+`testOnly` with a pattern that matches nothing passes with no tests run, so check the package is lower case. Tests migrate the shared Testcontainers Postgres themselves, once per run: drop the SQL file in `src/main/resources/db/migration/` and it's picked up. The running app doesn't auto-migrate; `./scripts/app.scala start` and `restart` apply pending migrations first, `./scripts/app.scala migrate` applies them alone (see [dev-workflow.md](dev-workflow.md)).
 
 ## The order matters
 

@@ -273,7 +273,7 @@ The `ImagePosition` opaque type still rejects negatives in the domain — the ne
 
 ## Migrations
 
-Migrations are SQL files under `src/main/resources/db/migration/`, named `V<n>__<description>.sql`. Flyway runs them in order (in tests via Testcontainers at container start; in dev via `runMain madrileno.main.MigrateMain`; in prod via the image's `bin/migrate-main`). The application **does not auto-migrate at boot** — running migrations is always an explicit step.
+Migrations are SQL files under `src/main/resources/db/migration/`, named `V<n>__<description>.sql`. Flyway runs them in order (in tests via Testcontainers, once per run when the shared container starts; in dev via `runMain madrileno.main.MigrateMain`; in prod via the image's `bin/migrate-main`). The application **does not auto-migrate at boot** — running migrations is always an explicit step.
 
 Three rules:
 

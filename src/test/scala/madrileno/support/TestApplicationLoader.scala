@@ -2,10 +2,7 @@ package madrileno.support
 
 import cats.effect.std.{SecureRandom, Supervisor}
 import cats.effect.unsafe.IORuntime
-import cats.effect.unsafe.implicits.global
 import cats.effect.{Clock, IO}
-import com.dimafeng.testcontainers.PostgreSQLContainer
-import com.dimafeng.testcontainers.scalatest.TestContainersForAll
 import io.opentelemetry.api.OpenTelemetry
 import madrileno.auction.gateways.VivinoGateway
 import madrileno.auth.domain.{AuthContext, Provider, VerifiedExternalToken}
@@ -19,7 +16,7 @@ import madrileno.utils.mailer.MailerConfig
 import madrileno.utils.observability.TelemetryContext
 import madrileno.utils.resilience.CircuitBreakerRuntime
 import madrileno.utils.task.{Scheduler, SchedulerConfig}
-import org.scalatest.Suite
+import org.scalatest.{BeforeAndAfterAll, Suite}
 import org.typelevel.otel4s.metrics.{Meter, MeterProvider}
 import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
 import pureconfig.ConfigSource
@@ -28,20 +25,17 @@ import sttp.client4.httpclient.fs2.HttpClientFs2Backend
 import java.net.ServerSocket
 import java.time.Instant
 
-trait TestApplicationLoader extends TestContainersForAll { self: Suite =>
+trait TestApplicationLoader extends TestDatabase with BeforeAndAfterAll { self: Suite =>
 
-  override type Containers = PostgreSQLContainer
-
-  override def startContainers(): PostgreSQLContainer = TestPostgres.start()
+  private val applicationResources = new SuiteResources
 
   given TracerProvider[IO] = TracerProvider.noop[IO]
   given MeterProvider[IO]  = MeterProvider.noop[IO]
   given Tracer[IO]         = Tracer.noop[IO]
   given Meter[IO]          = Meter.noop[IO]
   given TelemetryContext   = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
-  // Finalizer discarded — supervised fibers live for the spec's JVM lifetime, same rationale as the pool below.
-  given Supervisor[IO]   = Supervisor[IO].allocated.unsafeRunSync()._1
-  given SecureRandom[IO] = TestGivens.secureRandom
+  given Supervisor[IO]     = applicationResources.allocate(Supervisor[IO])
+  given SecureRandom[IO]   = TestGivens.secureRandom
 
   // Stable across the spec lifetime so tests can seed users matching the fake firebase verifier
   val firebaseToken: VerifiedExternalToken = TestData.verifiedExternalToken()
@@ -64,21 +58,10 @@ trait TestApplicationLoader extends TestContainersForAll { self: Suite =>
     MailerConfig(host = "localhost", port = port, fromAddress = "test@example.com", tls = false)
   }
 
-  lazy val application: ApplicationLoader = withContainers { container =>
-    val pgConfig = testPgConfig(
-      PgConfig(
-        host = container.host,
-        port = container.mappedPort(5432),
-        user = container.username,
-        database = container.databaseName,
-        password = Some(container.password)
-      )
-    )
-    // Finalizers discarded — pool and HTTP client lifetime is tied to the Testcontainers PG container.
-    // Releasing in afterAll causes broken-pipe errors because ScalaTest's afterAll ordering
-    // conflicts with TestContainersForAll's container lifecycle.
-    val transactor      = PgTransactor.resource(pgConfig).allocated.unsafeRunSync()._1
-    val httpClient      = HttpClientFs2Backend.resource[IO]().allocated.unsafeRunSync()._1
+  lazy val application: ApplicationLoader = {
+    val pgConfig        = testPgConfig(databaseConfig)
+    val transactor      = applicationResources.allocate(PgTransactor.resource(pgConfig))
+    val httpClient      = applicationResources.allocate(HttpClientFs2Backend.resource[IO]())
     val config          = ConfigSource.default
     val schedulerConfig = SchedulerConfig()
     val scheduler       = Scheduler(transactor, schedulerConfig)
@@ -103,6 +86,10 @@ trait TestApplicationLoader extends TestContainersForAll { self: Suite =>
       override protected lazy val mailerConfig: MailerConfig = testMailerConfig
     }
   }
+
+  override protected def afterAll(): Unit =
+    try applicationResources.releaseAll()
+    finally super.afterAll()
 
   private val config                             = ConfigSource.default
   private val jwtConfig: JwtService.Config       = config.at("jwt").loadOrThrow[JwtService.Config]
