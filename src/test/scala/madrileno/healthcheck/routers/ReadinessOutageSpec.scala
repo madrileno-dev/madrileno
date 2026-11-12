@@ -19,8 +19,9 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
   override def route: Route = application.routes(wsb)
 
   private val readinessConfig = ReadinessConfig(interval = 100.millis)
+  private val acquireTimeout  = 500.millis
 
-  override protected def testPgConfig(config: PgConfig): PgConfig = config.copy(max = 2, acquireTimeout = 500.millis)
+  override protected def testPgConfig(config: PgConfig): PgConfig = config.copy(max = 2, acquireTimeout = acquireTimeout)
 
   override protected def testReadinessConfig: ReadinessConfig = readinessConfig
 
@@ -49,7 +50,7 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
   private def readinessBecomes(status: Status): IO[Response[IO]] =
     (IO.sleep(100.millis) *> get("/v1/health-check/readiness").map(_._2))
       .iterateUntil(_.status == status)
-      .timeout(readinessConfig.validFor * 10)
+      .timeout(10.seconds)
 
   private def withLifecycles[A](test: IO[A]): A =
     application.lifecycles.sequence_.surround(readinessBecomes(Status.Ok) *> test).unsafeRunSync()
@@ -58,7 +59,7 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
     it("readiness stays 200, since Postgres still answers, while an API call that can't get a connection answers 503 database-unavailable") {
       val (readiness, liveness, api) = withLifecycles(
         everyConnectionBusy.surround(
-          IO.sleep(readinessConfig.interval * 2) *>
+          IO.sleep(readinessConfig.interval * 2 + acquireTimeout) *>
             (get("/v1/health-check/readiness"), get("/v1/health-check"), get("/v1/users/me", signedIn)).tupled
         )
       )

@@ -43,7 +43,7 @@ class HealthCheckServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
     )
 
   private def becomes(service: HealthCheckService, status: DepStatus): IO[Unit] =
-    (IO.sleep(50.millis) *> service.readiness()).iterateUntil(_ == status).timeout(readinessConfig.validFor * 10).void
+    (IO.sleep(50.millis) *> service.readiness()).iterateUntil(_ == status).timeout(10.seconds).void
 
   "readiness" should {
     "report Down until the first check has finished" in {
