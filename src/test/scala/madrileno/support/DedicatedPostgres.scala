@@ -5,7 +5,7 @@ import org.scalatest.{BeforeAndAfterAll, Suite}
 
 trait DedicatedPostgres extends TestDatabase with BeforeAndAfterAll { self: Suite =>
 
-  private val dedicatedContainer = TestPostgres.start()
+  private lazy val dedicatedContainer = TestPostgres.start()
 
   protected def containerId: String = dedicatedContainer.containerId
 

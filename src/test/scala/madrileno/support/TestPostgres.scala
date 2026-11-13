@@ -13,16 +13,15 @@ object TestPostgres {
 
   val image: DockerImageName = DockerImageName.parse("postgres:18")
 
-  private final case class SharedServer(container: PostgreSQLContainer, template: String)
-
+  private val serverOptions       = Seq("postgres", "-c", "max_connections=1000", "-c", "fsync=off")
   private val maintenanceDatabase = "postgres"
-  private val shared              = new AtomicReference[Option[SharedServer]](None)
-
-  private val serverOptions: Seq[String] = Seq("postgres", "-c", "max_connections=1000", "-c", "fsync=off")
+  private val shared              = new AtomicReference[Option[PostgreSQLContainer]](None)
 
   def start(): PostgreSQLContainer = {
-    val container = PostgreSQLContainer.Def(dockerImageName = image).start()
-    migrate(container)
+    val container = PostgreSQLContainer(image)
+    container.container.setCommand(serverOptions*)
+    container.start()
+    Flyway.configure().dataSource(container.jdbcUrl, container.username, container.password).load().migrate()
     container
   }
 
@@ -35,52 +34,28 @@ object TestPostgres {
       password = Some(container.password)
     )
 
-  def freshDatabase(): PgConfig = {
-    val server = sharedServer()
-    val name   = s"t_${TestData.randomUuid().toString.replace("-", "")}"
-    server.synchronized {
-      createDatabase(server, name)
+  def freshDatabase(): PgConfig = synchronized {
+    val server = shared.get.getOrElse {
+      val started = start()
+      shared.set(Some(started))
+      started
     }
-    configOf(server.container, name)
+    val database = s"t_${TestData.randomUuid().toString.replace("-", "")}"
+    cloneTemplate(server, database)
+    configOf(server, database)
   }
 
-  private def createDatabase(server: SharedServer, name: String): Unit = {
-    val container = server.container
-    Using.resource(DriverManager.getConnection(jdbcUrl(container, maintenanceDatabase), container.username, container.password)) { connection =>
+  def stopShared(): Unit = synchronized {
+    shared.getAndSet(None).foreach(_.stop())
+  }
+
+  private def cloneTemplate(server: PostgreSQLContainer, database: String): Unit = {
+    val url = s"jdbc:postgresql://${server.host}:${server.mappedPort(5432)}/$maintenanceDatabase"
+    Using.resource(DriverManager.getConnection(url, server.username, server.password)) { connection =>
       Using.resource(connection.createStatement()) { statement =>
-        statement.execute(s"""CREATE DATABASE "$name" TEMPLATE "${server.template}"""")
+        statement.execute(s"""CREATE DATABASE "$database" TEMPLATE "${server.databaseName}"""")
         ()
       }
     }
-  }
-
-  def stopShared(): Unit =
-    shared.getAndSet(None).foreach(_.container.stop())
-
-  private def jdbcUrl(container: PostgreSQLContainer, database: String): String =
-    s"jdbc:postgresql://${container.host}:${container.mappedPort(5432)}/$database"
-
-  private def sharedServer(): SharedServer =
-    shared.get.getOrElse {
-      this.synchronized {
-        shared.get.getOrElse {
-          val started = startShared()
-          shared.set(Some(started))
-          started
-        }
-      }
-    }
-
-  private def startShared(): SharedServer = {
-    val container = PostgreSQLContainer(image)
-    container.container.setCommand(serverOptions*)
-    container.start()
-    migrate(container)
-    SharedServer(container, container.databaseName)
-  }
-
-  private def migrate(container: PostgreSQLContainer): Unit = {
-    Flyway.configure().dataSource(container.jdbcUrl, container.username, container.password).load().migrate()
-    ()
   }
 }
