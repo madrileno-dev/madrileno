@@ -583,7 +583,7 @@ class AuthenticationServiceSpec extends AsyncWordSpec with AsyncIOSpec with Matc
     }
     attach.bracket { case (_, appender) =>
       io.map { result =>
-        val lines = appender.list.asScala.toList.map { event =>
+        val lines = appender.synchronized(appender.list.asScala.toList).map { event =>
           val cause = Option(event.getThrowableProxy).map(proxy => s" ${proxy.getClassName}: ${proxy.getMessage}").getOrElse("")
           s"${event.getFormattedMessage}$cause"
         }

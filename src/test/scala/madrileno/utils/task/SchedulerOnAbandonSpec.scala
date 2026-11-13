@@ -34,6 +34,17 @@ class SchedulerOnAbandonSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
     poll(timeout)
   }
 
+  private def presentAfterRemovalWait(
+    client: SchedulerClient,
+    taskName: String,
+    instance: String,
+    remaining: FiniteDuration = 8.seconds
+  ): IO[Boolean] =
+    client.listTasks.map(_.exists(r => r.taskName == taskName && r.taskInstance == instance)).flatMap {
+      case true if remaining > Duration.Zero => IO.sleep(50.millis) *> presentAfterRemovalWait(client, taskName, instance, remaining - 50.millis)
+      case present                           => IO.pure(present)
+    }
+
   "Scheduler onAbandon" should {
     "run onAbandon and remove the task when the per-task maxRetries is exhausted" in {
       for {
@@ -49,8 +60,8 @@ class SchedulerOnAbandonSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
                              _         <- client.schedule(task.instance("run-1", ()))
                              _         <- waitFor(abandoned, 1)
                              a         <- attempts.get
-                             remaining <- client.listTasks
-                           } yield (a, remaining.exists(r => r.taskName == "test-onabandon" && r.taskInstance == "run-1"))
+                             remaining <- presentAfterRemovalWait(client, "test-onabandon", "run-1")
+                           } yield (a, remaining)
                          }
       } yield {
         finalAttempts._1 shouldBe 2 // initial attempt + 1 retry, then abandoned
@@ -73,8 +84,8 @@ class SchedulerOnAbandonSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
                       _         <- client.schedule(task.instance("chain-1", (), firstAt = now))
                       _         <- waitFor(abandoned, 1)
                       a         <- attempts.get
-                      remaining <- client.listTasks
-                    } yield (a, remaining.exists(r => r.taskName == "test-onabandon-custom" && r.taskInstance == "chain-1"))
+                      remaining <- presentAfterRemovalWait(client, "test-onabandon-custom", "chain-1")
+                    } yield (a, remaining)
                   }
       } yield {
         result._1 shouldBe 1
