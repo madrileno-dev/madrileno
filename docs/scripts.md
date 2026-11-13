@@ -391,7 +391,7 @@ Exit codes: 0 written or up to date, 1 `check` found the root out of date, 2 not
 
 ## Template-internal CI workflows
 
-The repo ships five GitHub Actions. `.github/workflows/scala.yml` is the project's own CI (format check, scalafix, compile, test) — kept on init like any other project file. The other four are **template-internal**: they validate template content and are deleted by `init-project.scala` (along with `scripts/check-links.scala`, which only the link-check workflow uses):
+The repo ships five GitHub Actions. `.github/workflows/scala.yml` is the project's own CI (a `lint` job for format check and scalafix, a `build` job for compile and test) — kept on init like any other project file. The other four are **template-internal**: they validate template content and are deleted by `init-project.scala` (along with `scripts/check-links.scala`, which only the link-check workflow uses):
 
 - **`.github/workflows/link-check.yml`** — runs `scripts/check-links.scala` on PRs touching markdown. The script walks every `.md`, extracts `[text](target)` links, verifies internal targets exist (relative paths + `#anchor` heading slugs). Externals + `mailto:` / `tel:` are skipped. Code spans + fenced blocks are stripped first so Scala signatures inside code samples don't trip the regex.
 - **`.github/workflows/script-tests.yml`** — runs on PRs touching `scripts/` or `src/main/`, since the init, scaffold and architecture checks depend on the app's code too. Six jobs:

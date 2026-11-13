@@ -176,6 +176,17 @@ inConfig(Test)(
   )
 )
 
+Test / testOptions += Tests.Setup { () =>
+  import javax.imageio.spi.IIORegistry
+  import scala.jdk.CollectionConverters.*
+  val registry  = IIORegistry.getDefaultInstance
+  val providers = registry.getCategories.asScala
+    .flatMap(category => registry.getServiceProviders(category.asInstanceOf[Class[AnyRef]], false).asScala)
+    .filter(_.getClass.getClassLoader != null)
+    .toList
+  providers.foreach(registry.deregisterServiceProvider)
+}
+
 // Cache runtime classpath for `./scripts/dev-console.scala`.
 Compile / compile := Def.uncached {
   val r           = (Compile / compile).value
