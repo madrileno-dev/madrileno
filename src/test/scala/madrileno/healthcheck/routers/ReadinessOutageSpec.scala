@@ -4,7 +4,7 @@ import cats.effect.{Deferred, IO, Resource}
 import cats.syntax.all.*
 import io.circe.Json
 import madrileno.auth.domain.AuthContext
-import madrileno.healthcheck.services.{HealthCheckService, PostgresProbe}
+import madrileno.healthcheck.services.{PostgresProbe, ReadinessConfig}
 import madrileno.support.{BaseRouteSpec, TestApplicationLoader, TestData}
 import madrileno.utils.db.transactor.PgConfig
 import org.http4s.circe.CirceEntityCodec.*
@@ -18,7 +18,12 @@ import scala.concurrent.duration.*
 class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
   override def route: Route = application.routes(wsb)
 
-  override protected def testPgConfig(config: PgConfig): PgConfig = config.copy(max = 2, acquireTimeout = 500.millis)
+  private val readinessConfig = ReadinessConfig(interval = 100.millis)
+  private val acquireTimeout  = 500.millis
+
+  override protected def testPgConfig(config: PgConfig): PgConfig = config.copy(max = 2, acquireTimeout = acquireTimeout)
+
+  override protected def testReadinessConfig: ReadinessConfig = readinessConfig
 
   private def get(path: String, headers: Headers = Headers.empty): IO[(FiniteDuration, Response[IO])] =
     allRoutes.orNotFound.run(Request[IO](method = Method.GET, uri = Uri.unsafeFromString(path), headers = headers)).timed
@@ -45,7 +50,7 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
   private def readinessBecomes(status: Status): IO[Response[IO]] =
     (IO.sleep(100.millis) *> get("/v1/health-check/readiness").map(_._2))
       .iterateUntil(_.status == status)
-      .timeout(HealthCheckService.readinessValidFor * 2)
+      .timeout(10.seconds)
 
   private def withLifecycles[A](test: IO[A]): A =
     application.lifecycles.sequence_.surround(readinessBecomes(Status.Ok) *> test).unsafeRunSync()
@@ -54,7 +59,7 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
     it("readiness stays 200, since Postgres still answers, while an API call that can't get a connection answers 503 database-unavailable") {
       val (readiness, liveness, api) = withLifecycles(
         everyConnectionBusy.surround(
-          IO.sleep(HealthCheckService.readinessInterval * 2) *>
+          IO.sleep(readinessConfig.interval * 2 + acquireTimeout) *>
             (get("/v1/health-check/readiness"), get("/v1/health-check"), get("/v1/users/me", signedIn)).tupled
         )
       )
@@ -78,7 +83,7 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
           )
         recovered <- readinessBecomes(Status.Ok).timeout(30.seconds)
       } yield (down, readiness, liveness, recovered))
-      down should be < HealthCheckService.readinessInterval + PostgresProbe.timeout + 2.seconds
+      down should be < readinessConfig.interval + PostgresProbe.timeout + 2.seconds
       readiness._2.status shouldBe Status.ServiceUnavailable
       readiness._1 should be < 1.second
       liveness._2.status shouldBe Status.Ok
