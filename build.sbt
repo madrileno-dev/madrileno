@@ -120,6 +120,12 @@ Compile / run / envVars ++= (Test / envFromFile).value
 
 Compile / mainClass := Some("madrileno.main.Main")
 
+Test / testOptions += Tests.Cleanup { loader =>
+  val postgres = loader.loadClass("madrileno.support.TestPostgres$")
+  postgres.getMethod("stopShared").invoke(postgres.getField("MODULE$").get(null))
+  ()
+}
+
 reStop := Def.uncached(spray.revolver.Actions.stopAppWithStreams(streams.value, thisProjectRef.value))
 reStatus := Def.uncached(spray.revolver.Actions.showStatus(streams.value, thisProjectRef.value))
 

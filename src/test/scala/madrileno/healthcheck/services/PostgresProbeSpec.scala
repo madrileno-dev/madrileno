@@ -5,7 +5,7 @@ import cats.effect.{Clock, IO, Resource}
 import io.opentelemetry.api.OpenTelemetry
 import madrileno.healthcheck.repositories.HealthCheckRepository
 import madrileno.healthcheck.routers.dto.DepStatus
-import madrileno.support.TestTransactor
+import madrileno.support.{DedicatedPostgres, TestTransactor}
 import madrileno.utils.db.transactor.Transactor
 import madrileno.utils.observability.TelemetryContext
 import org.scalatest.matchers.should.Matchers
@@ -17,7 +17,7 @@ import org.typelevel.otel4s.trace.Tracer
 import java.net.ServerSocket
 import scala.concurrent.duration.*
 
-class PostgresProbeSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
+class PostgresProbeSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor with DedicatedPostgres {
 
   given TelemetryContext = TelemetryContext(Meter.noop[IO], Tracer.noop[IO], OpenTelemetry.noop())
 
@@ -31,7 +31,7 @@ class PostgresProbeSpec extends AsyncWordSpec with AsyncIOSpec with Matchers wit
 
   private def postgresPaused: Resource[IO, Unit] = {
     val docker      = DockerClientFactory.instance().client()
-    val containerId = withContainers(_.containerId)
+    val containerId = this.containerId
     Resource.make(IO.blocking(docker.pauseContainerCmd(containerId).exec()).void)(_ =>
       IO.blocking(docker.unpauseContainerCmd(containerId).exec()).void
     )

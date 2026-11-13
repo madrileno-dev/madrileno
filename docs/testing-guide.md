@@ -4,7 +4,7 @@
 
 - **Test behavior, not implementation.** Services in this codebase are mostly orchestration — they call repositories, check conditions, combine results. The interesting bugs live at the boundaries (JWT not expiring, filters deleting too many tokens, `send` vs `sendTransactionally`). Tests should catch those, not verify "we called save after create."
 - **Real infrastructure where it buys confidence.** Real DB via Testcontainers, real SMTP via Mailpit, real HTTP through the full route stack. Fakes only at unstable or expensive external boundaries (Firebase).
-- **Fast feedback despite real infrastructure.** Transaction rollback per test eliminates cleanup and keeps DB tests fast. Testcontainers are shared per suite, not per test.
+- **Fast feedback despite real infrastructure.** Transaction rollback per test eliminates cleanup and keeps DB tests fast. One Postgres server serves the whole test run and each suite gets its own database on it.
 - **Tests are documentation.** Baklava route tests generate OpenAPI specs and oRPC contracts. Every tested endpoint automatically appears in the API documentation.
 
 ## Why Integration Tests Over Fakes for Services
@@ -43,7 +43,9 @@ Extend `AsyncWordSpec with AsyncIOSpec with Matchers` (or `AnyWordSpec with Matc
 
 ### Layer 2: Repository and Service Integration Tests
 
-Real PostgreSQL via Testcontainers, on the image pinned in `TestPostgres.image` (keep it on the same version as `docker-compose.yml`). Flyway runs all migrations on startup. Each test suite gets a shared container.
+Real PostgreSQL via Testcontainers, on the image pinned in `TestPostgres.image` (keep it on the same version as `docker-compose.yml`). The first suite that needs a database starts one `postgres:18` container, Flyway migrates a template database in it once, and every suite then gets its own database cloned from that template (`TestPostgres.freshDatabase()`) in its `beforeAll`, before its first test runs. Suites therefore see an empty database and do not see each other's rows, tables or locks, while the run pays for one container start and one migration. Tests share the server, so an assertion about the server itself, such as `pg_stat_activity`, must filter on `current_database()`.
+
+The build stops the shared container when the test run ends (`Tests.Cleanup` in `build.sbt`), including after a failed run. A suite that pauses, stops or reconfigures the server mixes in `DedicatedPostgres`, which starts a container of its own for that suite and exposes `containerId` and `databaseConfig`; `PostgresProbeSpec` and `ReadinessOutageSpec` do.
 
 Extend `AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor`.
 
@@ -212,9 +214,9 @@ withSetup {
 
 #### Timing constraint
 
-`onRequest(...)` arguments are evaluated at class construction time, before Testcontainers starts. Anything that depends on `application` (which needs the DB container) cannot be used in `onRequest` parameters directly. This is why:
+`onRequest(...)` arguments are evaluated at class construction time, before the suite's database exists. Anything that depends on `application` (which needs the database) cannot be used in `onRequest` parameters directly. This is why:
 - `validJwt` loads JWT config independently from `ConfigSource.default` rather than from `application.jwtConfig`
-- Use `withSetup { ... }.request { seeded => onRequest(...) }` whenever request inputs are derived from seeded data — setup runs at test-execution time, after Testcontainers is up
+- Use `withSetup { ... }.request { seeded => onRequest(...) }` whenever request inputs are derived from seeded data — setup runs at test-execution time, after the database is up
 - For requests with no seeded inputs, plain `onRequest(...)` outside `withSetup` is fine; just keep DB seeding inside `withSetup` (or `assert` for legacy specs)
 
 #### Adding Decoder/Encoder to DTOs
@@ -257,7 +259,8 @@ Each check keeps an `exemptions` list at the top of its spec. `Exemption("<path 
 
 | File | Purpose |
 |---|---|
-| `TestTransactor` | Testcontainers PostgreSQL + Flyway + `withRollback`/`withSession` |
+| `TestTransactor` | the suite's own migrated database on the shared Postgres + `withRollback`/`withSession`; releases its pool in `afterAll` |
+| `DedicatedPostgres` | a Postgres container of the suite's own, for suites that pause or stop the server |
 | `TestApplicationLoader` | Full `ApplicationLoader` with fake Firebase, for route tests |
 | `BaseRouteSpec` | Baklava base trait with kebs schemas, auth helpers, error schema |
 | `TestData` | Builders for domain objects with sensible defaults |

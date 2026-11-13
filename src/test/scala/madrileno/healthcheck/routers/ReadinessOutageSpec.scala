@@ -5,7 +5,7 @@ import cats.syntax.all.*
 import io.circe.Json
 import madrileno.auth.domain.AuthContext
 import madrileno.healthcheck.services.{PostgresProbe, ReadinessConfig}
-import madrileno.support.{BaseRouteSpec, TestApplicationLoader, TestData}
+import madrileno.support.{BaseRouteSpec, DedicatedPostgres, TestApplicationLoader, TestData}
 import madrileno.utils.db.transactor.PgConfig
 import org.http4s.circe.CirceEntityCodec.*
 import org.http4s.headers.Authorization
@@ -15,7 +15,7 @@ import pl.iterators.stir.server.Route
 
 import scala.concurrent.duration.*
 
-class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
+class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader with DedicatedPostgres {
   override def route: Route = application.routes(wsb)
 
   private val readinessConfig = ReadinessConfig(interval = 100.millis)
@@ -41,7 +41,7 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader {
 
   private def postgresPaused: Resource[IO, Unit] = {
     val docker      = DockerClientFactory.instance().client()
-    val containerId = withContainers(_.containerId)
+    val containerId = this.containerId
     Resource.make(IO.blocking(docker.pauseContainerCmd(containerId).exec()).void)(_ =>
       IO.blocking(docker.unpauseContainerCmd(containerId).exec()).void
     )
