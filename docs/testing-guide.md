@@ -228,6 +228,10 @@ final case class AuthenticatedResponse(jwt: InternalJwt, refreshToken: RefreshTo
 final case class AuthWithFirebaseRequest(firebaseJwtToken: FirebaseJwt) derives Decoder, Encoder.AsObject
 ```
 
+#### Schemas for enums and sealed traits
+
+Baklava derives the `Schema` of a case class, not of an enum or a sealed trait; a missing one is a compile error naming the type. For an enum, `import madrileno.utils.json.JsonProtocol.*` in the spec: kebs then supplies its schema as it does its codec. For a sealed trait whose cases carry data, declare a `given Schema[T]` in the spec, such as `FreeFormSchema("RuleCondition")` in `FeatureFlagAdminRouterSpec`.
+
 ### Layer 4: SMTP Tests
 
 Real SMTP delivery via Mailpit container. Extend `AsyncWordSpec with AsyncIOSpec with Matchers with TestMailpit`.
