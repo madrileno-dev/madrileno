@@ -118,7 +118,7 @@ class SecretsStayOutOfLogsSpec extends AnyFunSpec with Matchers with TestApplica
         root.addAppender(appender)
         try {
           val result = body
-          (result, appender.list.asScala.toList.map(_.getFormattedMessage))
+          (result, appender.synchronized(appender.list.asScala.toList).map(_.getFormattedMessage))
         } finally {
           root.detachAppender(appender)
           appender.stop()

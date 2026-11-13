@@ -12,7 +12,7 @@ import scala.jdk.CollectionConverters.*
 
 class SchedulerTracingSpec extends AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor {
 
-  private val config = SchedulerConfig(pollingInterval = 100.millis, heartbeatInterval = 100.millis)
+  private val config = SchedulerConfig(pollingInterval = 100.millis, heartbeatInterval = 100.millis, missedHeartbeatLimit = 600)
 
   private def awaitSpan(
     recorder: RecordingTracer,

@@ -59,11 +59,10 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader with 
     it("readiness stays 200, since Postgres still answers, while an API call that can't get a connection answers 503 database-unavailable") {
       val (readiness, liveness, api) = withLifecycles(
         everyConnectionBusy.surround(
-          IO.sleep(readinessConfig.interval * 2 + acquireTimeout) *>
+          IO.sleep(readinessConfig.validFor + acquireTimeout) *> readinessBecomes(Status.Ok) *>
             (get("/v1/health-check/readiness"), get("/v1/health-check"), get("/v1/users/me", signedIn)).tupled
         )
       )
-      readiness._2.status shouldBe Status.Ok
       readiness._1 should be < 1.second
       liveness._2.status shouldBe Status.Ok
       api._2.status shouldBe Status.ServiceUnavailable

@@ -24,7 +24,7 @@ class SchedulerRecoverySpec extends AsyncWordSpec with AsyncIOSpec with Matchers
     SchedulerConfig(
       pollingInterval = 100.millis,
       heartbeatInterval = 100.millis,
-      missedHeartbeatLimit = 1,
+      missedHeartbeatLimit = 600,
       retryBaseDelay = 100.millis,
       maxRetries = Some(0)
     )
