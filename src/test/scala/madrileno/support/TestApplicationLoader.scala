@@ -25,9 +25,10 @@ import org.typelevel.otel4s.trace.{Tracer, TracerProvider}
 import pureconfig.ConfigSource
 import sttp.client4.httpclient.fs2.HttpClientFs2Backend
 
+import java.net.ServerSocket
 import java.time.Instant
 
-trait TestApplicationLoader extends TestContainersForAll with TestMailpit { self: Suite =>
+trait TestApplicationLoader extends TestContainersForAll { self: Suite =>
 
   override type Containers = PostgreSQLContainer
 
@@ -54,6 +55,14 @@ trait TestApplicationLoader extends TestContainersForAll with TestMailpit { self
     AuthVerifiers(
       Map(Provider.Firebase -> FakeAuthVerifier(firebaseToken), Provider("test-oidc") -> FakeAuthVerifier(oidcToken), Provider.Dev -> DevAuthVerifier)
     )
+
+  protected def testMailerConfig: MailerConfig = {
+    val socket = new ServerSocket(0)
+    val port   =
+      try socket.getLocalPort
+      finally socket.close()
+    MailerConfig(host = "localhost", port = port, fromAddress = "test@example.com", tls = false)
+  }
 
   lazy val application: ApplicationLoader = withContainers { container =>
     val pgConfig = testPgConfig(
@@ -91,8 +100,7 @@ trait TestApplicationLoader extends TestContainersForAll with TestMailpit { self
       // scripts:auction-block-start
       override protected lazy val vivinoGateway: VivinoGateway = (_, _) => IO.pure(None)
       // scripts:auction-block-end
-      override protected lazy val mailerConfig: MailerConfig =
-        MailerConfig(host = mailpitHost, port = mailpitSmtpPort, fromAddress = "test@example.com", tls = false)
+      override protected lazy val mailerConfig: MailerConfig = testMailerConfig
     }
   }
 
