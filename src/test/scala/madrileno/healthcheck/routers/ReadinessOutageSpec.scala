@@ -34,7 +34,12 @@ class ReadinessOutageSpec extends BaseRouteSpec with TestApplicationLoader with 
 
   private val holdingOneConnection: Resource[IO, Unit] =
     Resource.eval(Deferred[IO, Unit]).flatMap { taken =>
-      application.transactor.inSession(taken.complete(()) *> IO.never).background.evalMap(_ => taken.get)
+      application.transactor.inSession(taken.complete(()) *> IO.never).background.evalMap { holder =>
+        IO.race(taken.get, holder).flatMap {
+          case Left(_)        => IO.unit
+          case Right(outcome) => IO.raiseError(new IllegalStateException(s"could not hold a pooled connection: $outcome"))
+        }
+      }
     }
 
   private val everyConnectionBusy: Resource[IO, Unit] = holdingOneConnection >> holdingOneConnection
