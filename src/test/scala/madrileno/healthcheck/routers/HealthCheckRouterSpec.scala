@@ -4,6 +4,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import madrileno.healthcheck.routers.dto.{DepStatus, HealthCheckDto, ReadinessDto}
 import madrileno.support.{BaseRouteSpec, TestApplicationLoader}
+import madrileno.utils.json.JsonProtocol.*
 import org.http4s.Method.*
 import org.http4s.Status.*
 import org.http4s.circe.CirceEntityCodec.*

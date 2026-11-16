@@ -24,8 +24,6 @@ class FeatureFlagAdminRouterSpec extends BaseRouteSpec with TestApplicationLoade
   private given Schema[FlagVariant]   = FreeFormSchema("FlagVariant")
   private given Schema[RuleCondition] = FreeFormSchema("RuleCondition")
   private given Schema[RuleOutcome]   = FreeFormSchema("RuleOutcome")
-  // pinned so AuditEntryDto's Option[FeatureFlagDto] fields don't re-derive it past the inline depth limit
-  private given Schema[FeatureFlagDto] = Schema.autoDerived[FeatureFlagDto]
 
   private val basic       = HttpBasic()
   private val basicScheme = SecurityScheme("admin-basic", basic)
