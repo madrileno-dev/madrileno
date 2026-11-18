@@ -48,7 +48,10 @@ Use these skills instead of rebuilding the steps from existing modules:
 * write long command output to a file under `target/agent-logs/`, not `/tmp`:
   sessions in other worktrees use the same `/tmp` names
 * stop what you started: the app `./scripts/app.scala stop`, the sbt server
-  `sbt --client shutdown`, the compose stack `docker compose stop`
+  `sbt --client shutdown`, the compose stack `docker compose stop`. A test
+  command you cancelled keeps its JVM until its tests end, `shutdown` or not;
+  if a test hangs, kill that JVM (doc `testing-guide`, "Tests run in a JVM of
+  their own")
 
 # Code rules
 

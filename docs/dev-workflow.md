@@ -63,7 +63,7 @@ The dev setup leaves three kinds of background processes. Each has its own stop 
 | Process | Started by | Stopped by |
 | --- | --- | --- |
 | App JVM | `./scripts/app.scala start`, or a `~reStart` loop | `./scripts/app.scala stop`, or `reStop` in that sbt shell |
-| sbt server | the first `sbt --client` call | `sbt --client shutdown` (also stops an app started by `reStart`, not one started by the launcher) |
+| sbt server | the first `sbt --client` call | `sbt --client shutdown` (also stops an app started by `reStart`; not one started by the launcher, and not the [JVM of a test run](testing-guide.md#tests-run-in-a-jvm-of-their-own)) |
 | Postgres | `docker compose up -d` | `docker compose stop` (`docker compose down -v` also wipes its data) |
 | Mailpit, OpenObserve, Silo (optional) | `docker compose --profile full up -d` | `docker compose stop mailpit openobserve silo` |
 
