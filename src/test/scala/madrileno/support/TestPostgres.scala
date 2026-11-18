@@ -6,7 +6,6 @@ import org.flywaydb.core.Flyway
 import org.testcontainers.utility.DockerImageName
 
 import java.sql.DriverManager
-import java.util.concurrent.atomic.AtomicReference
 import scala.util.Using
 
 object TestPostgres {
@@ -15,7 +14,6 @@ object TestPostgres {
 
   private val serverOptions       = Seq("postgres", "-c", "max_connections=1000", "-c", "fsync=off")
   private val maintenanceDatabase = "postgres"
-  private val shared              = new AtomicReference[Option[PostgreSQLContainer]](None)
 
   def start(): PostgreSQLContainer = {
     val container = PostgreSQLContainer(image)
@@ -34,16 +32,16 @@ object TestPostgres {
       password = Some(container.password)
     )
 
+  private lazy val shared: PostgreSQLContainer = {
+    val started = start()
+    Runtime.getRuntime.addShutdownHook(new Thread(() => started.stop()))
+    started
+  }
+
   def freshDatabase(): PgConfig = synchronized {
-    val server = shared.get.getOrElse {
-      val started = start()
-      Runtime.getRuntime.addShutdownHook(new Thread(() => started.stop()))
-      shared.set(Some(started))
-      started
-    }
     val database = s"t_${TestData.randomUuid().toString.replace("-", "")}"
-    cloneTemplate(server, database)
-    configOf(server, database)
+    cloneTemplate(shared, database)
+    configOf(shared, database)
   }
 
   private def cloneTemplate(server: PostgreSQLContainer, database: String): Unit = {
