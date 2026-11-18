@@ -120,11 +120,11 @@ Compile / run / envVars ++= (Test / envFromFile).value
 
 Compile / mainClass := Some("madrileno.main.Main")
 
-Test / testOptions += Tests.Cleanup { loader =>
-  val postgres = loader.loadClass("madrileno.support.TestPostgres$")
-  postgres.getMethod("stopShared").invoke(postgres.getField("MODULE$").get(null))
-  ()
-}
+Test / fork := true
+Test / testForkedParallel := true
+Test / run / fork := false
+Test / javaOptions := Seq("-Xmx2G", "-Xss4M")
+Test / envVars ++= (Test / envFromFile).value
 
 reStop := Def.uncached(spray.revolver.Actions.stopAppWithStreams(streams.value, thisProjectRef.value))
 reStatus := Def.uncached(spray.revolver.Actions.showStatus(streams.value, thisProjectRef.value))
@@ -145,7 +145,6 @@ Compile / doc / sources := Seq.empty
 // baklava
 inConfig(Test)(
   BaklavaSbtPlugin.settings(Test) ++ Seq(
-    fork := false,
     baklavaGenerateConfigs := Map(
       "openapi-info" ->
         s"""
@@ -175,17 +174,6 @@ inConfig(Test)(
     )
   )
 )
-
-Test / testOptions += Tests.Setup { () =>
-  import javax.imageio.spi.IIORegistry
-  import scala.jdk.CollectionConverters.*
-  val registry  = IIORegistry.getDefaultInstance
-  val providers = registry.getCategories.asScala
-    .flatMap(category => registry.getServiceProviders(category.asInstanceOf[Class[AnyRef]], false).asScala)
-    .filter(_.getClass.getClassLoader != null)
-    .toList
-  providers.foreach(registry.deregisterServiceProvider)
-}
 
 // Cache runtime classpath for `./scripts/dev-console.scala`.
 Compile / compile := Def.uncached {
