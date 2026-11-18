@@ -6,7 +6,8 @@ import org.flywaydb.core.Flyway
 import org.testcontainers.utility.DockerImageName
 
 import java.sql.DriverManager
-import scala.util.Using
+import scala.util.control.NonFatal
+import scala.util.{Try, Using}
 
 object TestPostgres {
 
@@ -19,8 +20,14 @@ object TestPostgres {
     val container = PostgreSQLContainer(image)
     container.container.setCommand(serverOptions*)
     container.start()
-    Flyway.configure().dataSource(container.jdbcUrl, container.username, container.password).load().migrate()
-    container
+    try {
+      Flyway.configure().dataSource(container.jdbcUrl, container.username, container.password).load().migrate()
+      container
+    } catch {
+      case NonFatal(error) =>
+        container.stop()
+        throw error
+    }
   }
 
   def configOf(container: PostgreSQLContainer, database: String): PgConfig =
@@ -32,16 +39,17 @@ object TestPostgres {
       password = Some(container.password)
     )
 
-  private lazy val shared: PostgreSQLContainer = {
+  private lazy val shared: Try[PostgreSQLContainer] = Try {
     val started = start()
     Runtime.getRuntime.addShutdownHook(new Thread(() => started.stop()))
     started
   }
 
   def freshDatabase(): PgConfig = synchronized {
+    val server   = shared.get
     val database = s"t_${TestData.randomUuid().toString.replace("-", "")}"
-    cloneTemplate(shared, database)
-    configOf(shared, database)
+    cloneTemplate(server, database)
+    configOf(server, database)
   }
 
   private def cloneTemplate(server: PostgreSQLContainer, database: String): Unit = {
