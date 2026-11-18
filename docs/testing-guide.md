@@ -45,7 +45,7 @@ Extend `AsyncWordSpec with AsyncIOSpec with Matchers` (or `AnyWordSpec with Matc
 
 Real PostgreSQL via Testcontainers, on the image pinned in `TestPostgres.image` (keep it on the same version as `docker-compose.yml`). The first suite that needs a database starts one `postgres:18` container, Flyway migrates a template database in it once, and every suite then gets its own database cloned from that template (`TestPostgres.freshDatabase()`) in its `beforeAll`, before its first test runs. Suites therefore see an empty database and do not see each other's rows, tables or locks, while the run pays for one container start and one migration. Tests share the server, so an assertion about the server itself, such as `pg_stat_activity`, must filter on `current_database()`.
 
-The build stops the shared container when the test run ends (`Tests.Cleanup` in `build.sbt`), including after a failed run. A suite that pauses, stops or reconfigures the server mixes in `DedicatedPostgres`, which starts a container of its own for that suite and exposes `containerId` and `databaseConfig`; `PostgresProbeSpec` and `ReadinessOutageSpec` do.
+The shared container stops when the test JVM exits, through a shutdown hook `TestPostgres` registers when it starts it, so also after a failed run. A suite that pauses, stops or reconfigures the server mixes in `DedicatedPostgres`, which starts a container of its own for that suite and exposes `containerId` and `databaseConfig`; `PostgresProbeSpec` and `ReadinessOutageSpec` do.
 
 Extend `AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor`.
 
@@ -319,3 +319,10 @@ sbt coverageAll                       # full run under coverage instrumentation 
 ```
 
 Use `testFull` when every suite must actually run (CI, coverage, a fresh checkout). Under sbt 2, `test` is incremental (testQuick-like) and caches its results in a global store (`~/.cache/sbt`); on a warm cache it can skip suites — or all of them — and still report success. The OpenAPI spec does not shrink with it: each run merges the suites that ran into a persistent store and regenerates from the whole store, so `test` and `testOnly <pattern>` leave the contract complete. The one case `test` cannot fix is an empty store — a fresh checkout with a warm cache, or right after `baklavaClean` — where it may run nothing; run `testFull` once then.
+
+### Tests run in a JVM of their own
+
+`Test / fork := true` in `build.sbt` makes sbt start a JVM for every test run (`testFull`, `test`, `testOnly`) and end it with the run; `Test / testForkedParallel` keeps the suites running in parallel inside it. What a run leaves behind, such as the threads of a cats-effect runtime, loaded classes or a container, ends with that JVM, so the sbt server stays the same size however many runs it has started. Two consequences:
+
+- A `Tests.Setup` or `Tests.Cleanup` in `build.sbt` runs in the sbt server and cannot reach the test classes. Baklava's generation works that way; what a run needs set up or released belongs in test code (`beforeAll`, `afterAll`, a shutdown hook).
+- The test JVM takes its environment from `.env` (`Test / envVars`) and no JVM options (`Test / javaOptions`); the options in `.jvmopts` and the `javaOptions` of the app do not apply to it.

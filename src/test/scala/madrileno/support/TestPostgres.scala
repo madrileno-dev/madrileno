@@ -37,16 +37,13 @@ object TestPostgres {
   def freshDatabase(): PgConfig = synchronized {
     val server = shared.get.getOrElse {
       val started = start()
+      Runtime.getRuntime.addShutdownHook(new Thread(() => started.stop()))
       shared.set(Some(started))
       started
     }
     val database = s"t_${TestData.randomUuid().toString.replace("-", "")}"
     cloneTemplate(server, database)
     configOf(server, database)
-  }
-
-  def stopShared(): Unit = synchronized {
-    shared.getAndSet(None).foreach(_.stop())
   }
 
   private def cloneTemplate(server: PostgreSQLContainer, database: String): Unit = {
