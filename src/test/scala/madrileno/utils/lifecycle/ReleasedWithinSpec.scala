@@ -1,6 +1,7 @@
 package madrileno.utils.lifecycle
 
 import cats.effect.testing.scalatest.AsyncIOSpec
+import cats.effect.testkit.TestControl
 import cats.effect.{Deferred, IO, Ref, Resource}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AsyncWordSpec
@@ -11,22 +12,24 @@ class ReleasedWithinSpec extends AsyncWordSpec with AsyncIOSpec with Matchers {
 
   "releasedWithin" should {
     "stop waiting for a release that outlives the limit and say so" in {
-      for {
-        gaveUp  <- Ref[IO].of(false)
-        unblock <- Deferred[IO, Unit]
-        took    <- Resource
-                  .make(IO.unit)(_ => unblock.get)
-                  .releasedWithin(200.millis, gaveUp.set(true))
-                  .use_
-                  .start
-                  .flatMap(_.join.timeout(5.seconds))
-                  .timed
-                  .map(_._1)
-        flagged <- gaveUp.get.guarantee(unblock.complete(()).void)
-      } yield {
-        took should be < 2.seconds
-        flagged shouldBe true
-      }
+      TestControl
+        .executeEmbed(for {
+          gaveUp  <- Ref[IO].of(false)
+          unblock <- Deferred[IO, Unit]
+          took    <- Resource
+                    .make(IO.unit)(_ => unblock.get)
+                    .releasedWithin(200.millis, gaveUp.set(true))
+                    .use_
+                    .start
+                    .flatMap(_.join.timeout(5.seconds))
+                    .timed
+                    .map(_._1)
+          flagged <- gaveUp.get.guarantee(unblock.complete(()).void)
+        } yield (took, flagged))
+        .map { case (took, flagged) =>
+          took shouldBe 200.millis
+          flagged shouldBe true
+        }
     }
 
     "leave the abandoned release running" in {
@@ -40,14 +43,18 @@ class ReleasedWithinSpec extends AsyncWordSpec with AsyncIOSpec with Matchers {
     }
 
     "stop promptly when cancelled while acquiring" in {
-      Resource
-        .eval(IO.sleep(10.seconds))
-        .releasedWithin(5.seconds, IO.unit)
-        .use_
-        .start
-        .flatMap(fiber => IO.sleep(100.millis) *> fiber.cancel)
-        .timed
-        .map { case (took, _) => took should be < 2.seconds }
+      TestControl
+        .executeEmbed(
+          Resource
+            .eval(IO.sleep(10.seconds))
+            .releasedWithin(5.seconds, IO.unit)
+            .use_
+            .start
+            .flatMap(fiber => IO.sleep(100.millis) *> fiber.cancel)
+            .timed
+            .map(_._1)
+        )
+        .map(_ shouldBe 100.millis)
     }
 
     "tell the resources inside that they were cancelled" in {
