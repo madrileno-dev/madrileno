@@ -120,10 +120,16 @@ Compile / run / envVars ++= (Test / envFromFile).value
 
 Compile / mainClass := Some("madrileno.main.Main")
 
-Test / testOptions += Tests.Cleanup { loader =>
-  val postgres = loader.loadClass("madrileno.support.TestPostgres$")
-  postgres.getMethod("stopShared").invoke(postgres.getField("MODULE$").get(null))
-  ()
+Test / classLoaderLayeringStrategy := ClassLoaderLayeringStrategy.AllLibraryJars
+
+Test / testOptions ++= {
+  val loader                = (Test / testLoader).value
+  def testRun(step: String) = {
+    val run = loader.loadClass("madrileno.support.TestRun$")
+    run.getMethod(step).invoke(run.getField("MODULE$").get(null))
+    ()
+  }
+  Seq(Tests.Setup(() => testRun("start")), Tests.Cleanup(() => testRun("finish")))
 }
 
 reStop := Def.uncached(spray.revolver.Actions.stopAppWithStreams(streams.value, thisProjectRef.value))

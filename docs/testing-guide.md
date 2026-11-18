@@ -45,7 +45,7 @@ Extend `AsyncWordSpec with AsyncIOSpec with Matchers` (or `AnyWordSpec with Matc
 
 Real PostgreSQL via Testcontainers, on the image pinned in `TestPostgres.image` (keep it on the same version as `docker-compose.yml`). The first suite that needs a database starts one `postgres:18` container, Flyway migrates a template database in it once, and every suite then gets its own database cloned from that template (`TestPostgres.freshDatabase()`) in its `beforeAll`, before its first test runs. Suites therefore see an empty database and do not see each other's rows, tables or locks, while the run pays for one container start and one migration. Tests share the server, so an assertion about the server itself, such as `pg_stat_activity`, must filter on `current_database()`.
 
-The build stops the shared container when the test run ends (`Tests.Cleanup` in `build.sbt`), including after a failed run. A suite that pauses, stops or reconfigures the server mixes in `DedicatedPostgres`, which starts a container of its own for that suite and exposes `containerId` and `databaseConfig`; `PostgresProbeSpec` and `ReadinessOutageSpec` do.
+The build stops the shared container when the test run ends (`TestRun.finish()`, called from `Tests.Cleanup` in `build.sbt`), including after a failed run. A suite that pauses, stops or reconfigures the server mixes in `DedicatedPostgres`, which starts a container of its own for that suite and exposes `containerId` and `databaseConfig`; `PostgresProbeSpec` and `ReadinessOutageSpec` do.
 
 Extend `AsyncWordSpec with AsyncIOSpec with Matchers with TestTransactor`.
 
@@ -265,6 +265,7 @@ Each check keeps an `exemptions` list at the top of its spec. `Exemption("<path 
 |---|---|
 | `TestTransactor` | the suite's own migrated database on the shared Postgres + `withRollback`/`withSession`; releases its pool in `afterAll` |
 | `DedicatedPostgres` | a Postgres container of the suite's own, for suites that pause or stop the server |
+| `TestRun` | what the build calls before the first suite and after the last one: the run's cats-effect runtime and the end of the shared Postgres |
 | `TestApplicationLoader` | Full `ApplicationLoader` with fake Firebase, for route tests |
 | `BaseRouteSpec` | Baklava base trait with kebs schemas, auth helpers, error schema |
 | `TestData` | Builders for domain objects with sensible defaults |
@@ -319,3 +320,10 @@ sbt coverageAll                       # full run under coverage instrumentation 
 ```
 
 Use `testFull` when every suite must actually run (CI, coverage, a fresh checkout). Under sbt 2, `test` is incremental (testQuick-like) and caches its results in a global store (`~/.cache/sbt`); on a warm cache it can skip suites — or all of them — and still report success. The OpenAPI spec does not shrink with it: each run merges the suites that ran into a persistent store and regenerates from the whole store, so `test` and `testOnly <pattern>` leave the contract complete. The one case `test` cannot fix is an empty store — a fresh checkout with a warm cache, or right after `baklavaClean` — where it may run nothing; run `testFull` once then.
+
+### What a run shares with the sbt server
+
+Tests run inside the sbt server, and `build.sbt` limits what a run leaves behind in it:
+
+- **One cats-effect runtime per run.** `TestRun.start()` runs before the first suite and creates the runtime that `IORuntime.global` then hands to every suite; `TestRun.finish()` shuts it down after the last one. Suites start in parallel and `IORuntime.global` is not synchronized, so without the first call each of them could create a runtime of its own. A fiber or thread a test leaves behind ends with the run.
+- **Library jars stay loaded between full runs.** `Test / classLoaderLayeringStrategy` lets sbt keep the class loader of the library jars and hand it to the next `testFull`, and so to the next gate; the project's classes and resources are loaded anew each time. What a library holds in a static field can therefore outlive the run, so a test that changes such state restores it, the way `LoggersAdminRouterSpec` resets the logger level it set. sbt's `testOnly` command does not reuse that class loader: every `testOnly` loads the libraries again, and the previous copy stays in the server's memory, with its Testcontainers reaper container, until `sbt --client shutdown`.
