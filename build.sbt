@@ -121,7 +121,9 @@ Compile / run / envVars ++= (Test / envFromFile).value
 Compile / mainClass := Some("madrileno.main.Main")
 
 Test / testForkedParallel := true
-Test / javaOptions := Seq.empty
+Test / javaOptions ++= Def.uncached(
+  IO.readLines(baseDirectory.value / ".jvmopts").map(_.trim).filter(option => option.nonEmpty && !option.startsWith("#"))
+)
 Test / envVars ++= (Test / envFromFile).value
 
 reStop := Def.uncached(spray.revolver.Actions.stopAppWithStreams(streams.value, thisProjectRef.value))
