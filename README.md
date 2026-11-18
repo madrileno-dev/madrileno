@@ -125,7 +125,7 @@ To check the whole setup at once — Docker, the compose services, Postgres, and
 ## Things that catch people out
 
 - **`reStart` reports success even when the app fails to start** (e.g. port 9000 is taken). Check `curl -sf http://localhost:9000/v1/health-check` before assuming it's up; if it never answers, the error is at the end of `logs/madrileno.log`. `./scripts/app.scala start` waits for the health check itself and fails with those lines.
-- **sbt caches `.env` at JVM startup.** If you change `.env`, exit sbt and start it again. Same goes for the long-lived sbt server (`~/.sbt/1.0/server/...`). An app started by `./scripts/app.scala` reads `.env` at every start, so there a `restart` is enough.
+- **sbt caches `.env` at JVM startup.** If you change `.env`, exit sbt and start it again. Same goes for the long-lived sbt server (`~/.sbt/1.0/server/...`). An app started by `./scripts/app.scala` reads `.env` at every start, so there a `restart` is enough. A test run also gets the current `.env` values each time.
 - **`docker compose down` keeps volumes; `docker compose down -v` wipes them.** Wipe when you want a clean PG, change OpenObserve credentials, or cycle a corrupted state. Add `--profile full` to reach the optional services' containers and volumes.
 - **Tests don't use the docker-compose stack.** Testcontainers spins up its own. Don't worry about polluting your dev DB during a test run.
 - **The app doesn't run migrations when it starts.** Run `sbt "runMain madrileno.main.MigrateMain"` or `./scripts/app.scala migrate` after adding one or after wiping volumes; `./scripts/app.scala start` runs them before it starts the app.

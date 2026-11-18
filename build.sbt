@@ -120,10 +120,10 @@ Compile / run / envVars ++= (Test / envFromFile).value
 
 Compile / mainClass := Some("madrileno.main.Main")
 
+Test / fork := true
 Test / testForkedParallel := true
-Test / javaOptions ++= Def.uncached(
-  IO.readLines(baseDirectory.value / ".jvmopts").map(_.trim).filter(option => option.nonEmpty && !option.startsWith("#"))
-)
+Test / run / fork := false
+Test / javaOptions := Seq("-Xmx2G", "-Xss4M")
 Test / envVars ++= (Test / envFromFile).value
 
 reStop := Def.uncached(spray.revolver.Actions.stopAppWithStreams(streams.value, thisProjectRef.value))
@@ -145,7 +145,6 @@ Compile / doc / sources := Seq.empty
 // baklava
 inConfig(Test)(
   BaklavaSbtPlugin.settings(Test) ++ Seq(
-    fork := true,
     baklavaGenerateConfigs := Map(
       "openapi-info" ->
         s"""
