@@ -56,8 +56,13 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
     List.fill(sessions)(holdingOne(transactor)).sequence_
 
   private def warmed(transactor: Transactor, sessions: Int): IO[Unit] = {
-    val allAtOnce = CyclicBarrier[IO](sessions).flatMap(barrier => List.fill(sessions)(transactor.inSession(barrier.await)).parSequence_)
-    allAtOnce.timeout(2.seconds).attempt.iterateUntil(_.isRight).timeout(1.minute).void
+    val allAtOnce =
+      CyclicBarrier[IO](sessions).flatMap(barrier => List.fill(sessions)(transactor.inSession(barrier.await)).parSequence_).timeout(2.seconds)
+    def until(deadline: FiniteDuration): IO[Unit] =
+      allAtOnce.handleErrorWith(error =>
+        IO.monotonic.flatMap(now => if (now < deadline) IO.sleep(20.millis) *> until(deadline) else IO.raiseError(error))
+      )
+    IO.monotonic.flatMap(now => until(now + 10.seconds))
   }
 
   private def sqlState(result: Either[Throwable, ?]): Option[String] =
@@ -148,7 +153,7 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
   "The acquire timeout" should {
     "fail a request that waits longer than it for a free connection" in {
       limited("acquire-timeout", max = 2, acquireTimeout = 300.millis).use { db =>
-        holding(db, 2).surround(db.inSession(run(one)).attempt.timed).map { case (took, result) =>
+        (warmed(db, 2) *> holding(db, 2).surround(db.inSession(run(one)).attempt.timed)).map { case (took, result) =>
           result.left.toOption.map(_.getClass) shouldBe Some(classOf[DatabaseUnavailable])
           took should be >= 250.millis
           took should be < 3.seconds
@@ -189,6 +194,7 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
     "lose no connection when timeouts race with connections being returned" in {
       limited("acquire-race", max = 3, acquireTimeout = 4.millis).use { db =>
         for {
+          _      <- warmed(db, 3)
           random <- Random.scalaUtilRandom[IO]
           _      <- List.range(0, 400).parTraverseN(40)(_ => random.betweenInt(0, 8).flatMap(ms => db.inSession(IO.sleep(ms.millis)).attempt))
           _      <- IO.sleep(200.millis)
