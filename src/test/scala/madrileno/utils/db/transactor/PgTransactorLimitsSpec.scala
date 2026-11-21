@@ -1,6 +1,6 @@
 package madrileno.utils.db.transactor
 
-import cats.effect.std.{Random, Supervisor}
+import cats.effect.std.{CyclicBarrier, Random, Supervisor}
 import cats.effect.syntax.all.*
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.effect.{Deferred, IO, Ref, Resource}
@@ -54,6 +54,11 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
 
   private def holding(transactor: Transactor, sessions: Int): Resource[IO, Unit] =
     List.fill(sessions)(holdingOne(transactor)).sequence_
+
+  private def warmed(transactor: Transactor, sessions: Int): IO[Unit] = {
+    val allAtOnce = CyclicBarrier[IO](sessions).flatMap(barrier => List.fill(sessions)(transactor.inSession(barrier.await)).parSequence_)
+    allAtOnce.timeout(2.seconds).attempt.iterateUntil(_.isRight).timeout(1.minute).void
+  }
 
   private def sqlState(result: Either[Throwable, ?]): Option[String] =
     result.left.toOption.collect { case e: PostgresErrorException => e.code }
@@ -169,6 +174,7 @@ class PgTransactorLimitsSpec extends AsyncWordSpec with AsyncIOSpec with Matcher
       val name = "acquire-gave-up"
       limited(name, max = 2, acquireTimeout = 50.millis).use { db =>
         for {
+          _        <- warmed(db, 2)
           gaveUp   <- holding(db, 2).surround(List.fill(50)(db.inSession(run(one)).attempt).parSequence)
           bothFree <- holding(db, 2).surround(IO.unit).timeout(2.seconds).attempt
           stillTwo <- holding(db, 2).surround(db.inSession(run(one)).attempt)
