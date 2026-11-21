@@ -124,7 +124,7 @@ Test / fork := true
 Test / testForkedParallel := true
 Test / run / fork := false
 Test / javaOptions := Seq("-Xmx2G", "-Xss4M")
-Test / envVars ++= (Test / envFromFile).value
+Test / envVars := Def.uncached(sys.env)
 
 reStop := Def.uncached(spray.revolver.Actions.stopAppWithStreams(streams.value, thisProjectRef.value))
 reStatus := Def.uncached(spray.revolver.Actions.showStatus(streams.value, thisProjectRef.value))

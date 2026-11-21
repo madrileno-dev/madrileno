@@ -173,7 +173,7 @@ Sbt's file watcher occasionally drops events on case-only renames or rapid saves
 Stale incremental compile state. Run `clean` then `compile`. If it still fails, kill any running sbt server (`pkill -f sbt-launch` or remove `~/.sbt/1.0/server/`) and start fresh.
 
 **`.env` change not picked up.**
-The dotenv plugin reads `.env` into the sbt server once, at JVM startup. Restart sbt. Test runs and `run` start a JVM of their own and give it the current values from `.env` each time.
+The dotenv plugin reads `.env` into the sbt server once, at JVM startup. Restart sbt. `run` starts a JVM of its own and gives it the current values from `.env` each time. Tests never get them: their JVM runs in the environment sbt was started in.
 
 **sbt or compilation dies with `OutOfMemoryError: Java heap space`.**
 The sbt JVM's heap lives in `.jvmopts` (committed) — bump `-Xmx` there and restart sbt. The test JVM's heap is separate: `Test / javaOptions` in `build.sbt`. Setting `-Xmx` / `SBT_OPTS` in `.env` does nothing: `sbt-dotenv` injects `.env` into the *already-running* JVM, long after `-Xmx` is fixed at launch.
